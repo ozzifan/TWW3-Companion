@@ -49,6 +49,8 @@ Use an RFC when a change:
 3. Discuss in the issue or PR until the Product Owner approves or requests revision.
 4. On acceptance: update [docs/architecture/](docs/architecture/), add a [decisions/](decisions/) record (and [DECISIONS.md](DECISIONS.md) index row), or [README.md](README.md) as needed, then implement.
 
+Architecture for a feature must be approved before implementation begins. For v0.1 work, **v0.0.2 — Architecture complete** must be finished first ([ROADMAP.md](ROADMAP.md), [AGENTS.md](AGENTS.md)).
+
 [RFC-0001](RFC/RFC-0001.md) is the baseline vision document.
 
 ---
@@ -110,6 +112,6 @@ This project adopts the [Contributor Covenant](CODE_OF_CONDUCT.md). By participa
 
 ## Questions
 
-Open a [GitHub Discussion](https://github.com/) *(link to be added when repository is published)* or an issue labelled `question` if you are unsure how to proceed.
+Open a [GitHub Issue](https://github.com/ozzifan/TWW3-Companion/issues) labelled `question`, or [GitHub Discussions](https://github.com/ozzifan/TWW3-Companion/discussions) once enabled, if you are unsure how to proceed.
 
 We appreciate thoughtful contributions of all sizes.

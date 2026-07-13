@@ -59,8 +59,10 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-**conduct@tww3-companion.example** *(replace with a real contact before public launch)*.
+reported to the project maintainers via
+[GitHub Issues](https://github.com/ozzifan/TWW3-Companion/issues) or
+[GitHub Discussions](https://github.com/ozzifan/TWW3-Companion/discussions)
+(once enabled).
 
 All complaints will be reviewed and investigated promptly and fairly.
 

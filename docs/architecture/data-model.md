@@ -65,4 +65,4 @@ Whether collections are stored as JSON documents, SQLite, or hybrid storage is *
 
 ## Next Steps
 
-A dedicated RFC will propose concrete schemas, migration strategy, and file layout under `data/`. Until then, treat this document as the shared vocabulary for design discussions.
+Approved architecture (v0.0.2) will define concrete schemas and where collection files live on disk — outside this repository. Development resources use repository folders as follows: `examples/` (example collections), `schemas/` (JSON schemas), `tests/` (test fixtures), `src/` (application source). Until then, treat this document as the shared vocabulary for design discussions.

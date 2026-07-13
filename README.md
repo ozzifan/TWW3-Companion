@@ -4,6 +4,10 @@
 
 TWW3 Companion is an open-source desktop application for players who run complex mod lists. It focuses on **knowledge management** — helping you document what you have, why it is there, how mods relate to each other, and whether your collection is healthy — rather than replacing the game's mod launcher or workshop tools.
 
+## Disclaimer
+
+TWW3 Companion is an unofficial fan-made project and is not affiliated with or endorsed by Creative Assembly, SEGA, Valve, or Steam.
+
 ---
 
 ## Vision
@@ -63,13 +67,15 @@ We document and organise. We do not modify game files or automate risky changes 
 
 ## Roadmap
 
-High-level milestones are maintained in [ROADMAP.md](ROADMAP.md).
+High-level milestones are maintained in [ROADMAP.md](ROADMAP.md). Architecture must be approved (**v0.0.2**) before implementation begins.
 
 | Version | Focus |
 |---------|--------|
 | **v0.0.1** | Repository bootstrap, documentation, standards |
-| **v0.1** | Markdown importer, Workshop ID importer, collection persistence |
+| **v0.0.2** | Architecture complete (domain, import, storage, UI) |
+| **v0.1** | First working prototype — importers and local persistence |
 | **v0.2** | Search, tags, categories, notes |
+| **v0.3** | Profiles — multiple collections, campaign presets |
 | **v0.5** | Dependency tracking, compatibility notes, health score |
 | **v1.0** | Stable collection manager suitable for everyday use |
 

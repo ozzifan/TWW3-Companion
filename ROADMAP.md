@@ -2,11 +2,13 @@
 
 This document tracks planned milestones for TWW3 Companion. Dates are intentionally omitted until release cadence is established. For shipped changes, see [CHANGELOG.md](CHANGELOG.md).
 
+**Implementation gate:** No application code in `src/` until **v0.0.2 — Architecture complete** is finished and the Product Owner has approved the relevant architecture. See [AGENTS.md](AGENTS.md).
+
 ---
 
 ## v0.0.1 — Repository bootstrap
 
-**Status:** In progress
+**Status:** Complete
 
 Establish the project foundation:
 
@@ -20,17 +22,32 @@ No application code in this milestone.
 
 ---
 
-## v0.1 — Core import and persistence
+## v0.0.2 — Architecture complete
+
+**Status:** In progress
+
+Implementation must not begin until the following are approved by the Product Owner:
+
+- Core domain model approved
+- Import architecture approved
+- Storage architecture approved
+- Initial UI architecture approved
+
+No application code in this milestone.
+
+---
+
+## v0.1 — First working prototype
 
 **Status:** Planned
 
-First functional milestone:
+*Requires v0.0.2 approval.*
 
-- **Markdown importer** — ingest mod lists from common markdown/note formats
-- **Workshop ID importer** — import mods by Steam Workshop ID
-- **Collection persistence** — save and load collections locally with a documented data format
+- Markdown importer
+- Workshop ID importer
+- Local persistence
 
-Success: a user can import a list, persist it, and reload it reliably.
+Success: a user can import a list, persist it locally, and reload it reliably.
 
 ---
 
@@ -46,6 +63,18 @@ Make collections usable day to day:
 - **Notes** — per-mod and collection-level annotations
 
 Success: a user can organise and quickly locate mods in a large collection.
+
+---
+
+## v0.3 — Profiles
+
+**Status:** Planned
+
+- Profiles
+- Multiple collections
+- Campaign presets
+
+Success: a user can document how they run mods across different play contexts without duplicating mod knowledge.
 
 ---
 

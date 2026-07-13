@@ -20,3 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub issue and pull request templates
 - MIT license and Contributor Covenant Code of Conduct
 - `.gitignore` and `.editorconfig` for cross-platform development
+- v0.0.2 architecture milestone and implementation gate ([ROADMAP.md](ROADMAP.md))
+- v0.3 profiles milestone (profiles, multiple collections, campaign presets)
+- `schemas/` directory for future JSON schemas
+- Repository folder README files (`examples/`, `schemas/`, `tests/`)
+- Non-affiliation disclaimer in [README.md](README.md)
+
+### Changed
+
+- [AGENTS.md](AGENTS.md) — responsibilities-focused roles; Product Owner governance wording
+- [ROADMAP.md](ROADMAP.md) — v0.1 renamed to first working prototype; v0.0.1 marked complete
+- [.gitignore](.gitignore) — limited to Git, OS, editors, Node, and Python patterns
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [CONTRIBUTING.md](CONTRIBUTING.md) — GitHub Issues and Discussions contact paths
+- [docs/architecture/data-model.md](docs/architecture/data-model.md) — repository folders clarified; no in-repo user storage
+
+### Removed
+
+- Repository `data/` directory

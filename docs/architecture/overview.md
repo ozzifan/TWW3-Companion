@@ -13,7 +13,7 @@ TWW3 Companion is a **desktop knowledge-management application** for Warhammer I
 3. **Boundaries** — how data enters and leaves the app ([import-export.md](import-export.md))
 4. **Evolution** — deferred and exploratory ideas ([future.md](future.md))
 
-Implementation technology (language, framework, storage engine) is **not fixed** at bootstrap. Choices will be recorded via RFC and [decisions/](../../decisions/) before code lands in `src/`.
+Implementation technology (language, framework, storage engine) is **not fixed** until approved in **v0.0.2**. Choices will be recorded via RFC and [decisions/](../../decisions/) before code lands in `src/`.
 
 ---
 

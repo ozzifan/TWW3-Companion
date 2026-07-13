@@ -27,7 +27,7 @@ Making the project open source followed naturally from the problem domain. Mod c
 
 ## Current Phase
 
-As of the repository bootstrap (**v0.0.1**), the project consists of documentation, standards, and architecture placeholders. No application code exists yet. Implementation milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
+**v0.0.1** (repository bootstrap) is complete. The project is in **v0.0.2 — Architecture complete**, preparing RFC-0002 (collection data model) and expanded architecture docs before any code in `src/`. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
 
 ## Looking Ahead
 

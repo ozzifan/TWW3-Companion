@@ -1,12 +1,18 @@
 # Agent and Contributor Roles
 
-TWW3 Companion is developed collaboratively by humans and AI assistants. This document defines roles and expectations so work stays aligned with project vision and architecture.
+TWW3 Companion is developed collaboratively by humans and AI assistants. This document defines **responsibilities** for each role so work stays aligned with project vision and architecture.
+
+> The named assistants reflect the workflow used during the project's creation. Future contributors may fulfil these roles using different tools or entirely human contributors provided the responsibilities assigned to each role are respected.
+
+This document describes responsibilities rather than mandating particular products.
 
 ---
 
 ## Product Owner
 
 **Accountable human** for project direction.
+
+The Product Owner role is initially held by the repository founder and may be transferred through normal project governance.
 
 ### Responsibilities
 
@@ -82,6 +88,8 @@ Final say on what ships and what is out of scope.
 ## Architecture Before Implementation
 
 **No feature implementation begins until architecture for that feature is approved.**
+
+The [ROADMAP.md](ROADMAP.md) milestone **v0.0.2 — Architecture complete** must be finished before code lands in `src/` for v0.1 features.
 
 Approval means one or more of:
 
