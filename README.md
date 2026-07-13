@@ -105,8 +105,6 @@ We welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before 
 - **RFCs** for significant design or architectural changes.
 - **Small PRs** are easier to review and merge.
 
-All participants are expected to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
-
 ---
 
 ## Project Roles

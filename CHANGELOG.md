@@ -28,12 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [AGENTS.md](AGENTS.md) — role-first headings; Product Owner wording for single-maintainer reality ([Issue #2](https://github.com/ozzifan/TWW3-Companion/issues/2))
 - [AGENTS.md](AGENTS.md) — responsibilities-focused roles; Product Owner governance wording
 - [ROADMAP.md](ROADMAP.md) — v0.1 renamed to first working prototype; v0.0.1 marked complete
 - [.gitignore](.gitignore) — limited to Git, OS, editors, Node, and Python patterns
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [CONTRIBUTING.md](CONTRIBUTING.md) — GitHub Issues and Discussions contact paths
+- [CONTRIBUTING.md](CONTRIBUTING.md) — GitHub Issues and Discussions contact paths
 - [docs/architecture/data-model.md](docs/architecture/data-model.md) — repository folders clarified; no in-repo user storage
 
 ### Removed
 
 - Repository `data/` directory
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — no private reporting contact yet; will return when one exists ([Issue #2](https://github.com/ozzifan/TWW3-Companion/issues/2))

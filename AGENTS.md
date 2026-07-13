@@ -12,7 +12,7 @@ This document describes responsibilities rather than mandating particular produc
 
 **Accountable human** for project direction.
 
-The Product Owner role is initially held by the repository founder and may be transferred through normal project governance.
+The Product Owner role is initially held by the repository founder. Governance for transferring this role will be established if and when the project gains additional maintainers.
 
 ### Responsibilities
 
@@ -28,7 +28,7 @@ Final say on what ships and what is out of scope.
 
 ---
 
-## ChatGPT
+## Architecture Partner (Current: ChatGPT)
 
 **Design and documentation partner.**
 
@@ -47,7 +47,7 @@ Final say on what ships and what is out of scope.
 
 ---
 
-## Cursor
+## Implementation Partner (Current: Cursor)
 
 **Implementation environment and coding agent host.**
 
@@ -66,7 +66,7 @@ Final say on what ships and what is out of scope.
 
 ---
 
-## Claude
+## Documentation Reviewer (Current: Claude)
 
 **Review, analysis, and long-context reasoning.**
 
@@ -110,10 +110,10 @@ Agents and contributors should:
 | Step | Owner |
 |------|--------|
 | Vision / scope question | Product Owner |
-| Design draft | ChatGPT, humans, or RFC author |
+| Design draft | Architecture Partner, humans, or RFC author |
 | Architecture approval | Product Owner |
-| Implementation | Cursor (or human developers) |
-| Deep review | Claude, human reviewers |
+| Implementation | Implementation Partner (or human developers) |
+| Deep review | Documentation Reviewer, human reviewers |
 | Merge | Human with repository access |
 
 ---

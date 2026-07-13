@@ -104,12 +104,6 @@ Write in clear Markdown. Use British English spelling in project docs for consis
 
 ---
 
-## Code of Conduct
-
-This project adopts the [Contributor Covenant](CODE_OF_CONDUCT.md). By participating, you agree to uphold it.
-
----
-
 ## Questions
 
 Open a [GitHub Issue](https://github.com/ozzifan/TWW3-Companion/issues) labelled `question`, or [GitHub Discussions](https://github.com/ozzifan/TWW3-Companion/discussions) once enabled, if you are unsure how to proceed.
