@@ -4,19 +4,37 @@ Definitions of terms used across TWW3 Companion documentation and UI. Wording ma
 
 ---
 
+## Workspace
+
+A **Workspace** is the user-owned top-level domain boundary. It contains one shared Mod Library and one or more Collections, and may record a target game version.
+
+Workspace does not imply a particular file or database layout.
+
+---
+
+## Mod Library
+
+The **Mod Library** is the Workspace's shared set of Mods, Source References, relationships, and game compatibility observations. It allows several Collections to reuse the same Mod knowledge without duplication.
+
+---
+
 ## Collection
 
-A **collection** is the top-level unit of data in TWW3 Companion: a curated set of mods together with metadata that describes how they are organised, annotated, and related.
+A **Collection** is a named, curated set of Mods represented through Collection Memberships, together with collection-level notes. A player may maintain several Collections for different play contexts.
 
-A player may maintain multiple collections (e.g. "Immortal Empires main," "custom battle only," "deprecated experiments"). Each collection is persisted as a distinct document or database record under the user's control.
+---
+
+## Collection Membership
+
+A **Collection Membership** links a Collection to one Mod in the shared library. It holds collection-specific category, tags, rationale, notes, tracking state, and optional ordering information.
 
 ---
 
 ## Mod
 
-A **mod** is a single workshop item or locally referenced modification as represented *in the companion* — not necessarily the installed files on disk.
+A **Mod** is a source-neutral library record for a modification as understood by the companion, not necessarily installed files or one publishing page.
 
-At minimum, a mod entry typically includes a stable identifier (e.g. Steam Workshop ID), display name, and optional metadata (tags, notes, dependencies). The companion documents mods; it does not install or enable them in the game.
+A Mod has a stable internal identity and may have several Source References, such as a Steam Workshop ID or local reference. Shared notes and relationships belong to the Mod; collection-specific organisation belongs to its memberships. The companion documents Mods; it does not install or enable them in the game.
 
 ---
 
@@ -24,13 +42,13 @@ At minimum, a mod entry typically includes a stable identifier (e.g. Steam Works
 
 A **profile** is a player- or machine-specific view of how a collection is used in practice: which mods are active in a given playthrough, optional grouping, or launch context.
 
-Profiles allow one collection knowledge base to support multiple runtime configurations without duplicating mod definitions. Exact profile behaviour will be specified in the data model RFC; at vision level, a profile answers *"this is how I run this collection right now."*
+Profiles allow one Collection to support multiple play contexts without duplicating Mod definitions. Profile fields, activation rules, and overrides are deferred to the v0.3 design.
 
 ---
 
 ## Category
 
-A **category** is a structured grouping for mods within a collection (e.g. "UI," "Faction overhaul," "Framework," "Compatibility patch").
+A **category** is a structured grouping stored on a Collection Membership (e.g. "UI," "Faction overhaul," "Framework," "Compatibility patch").
 
 Categories are typically hierarchical or fixed-slot taxonomies chosen by the user or project defaults. They aid browse and report views; they are distinct from free-form tags.
 
@@ -38,9 +56,9 @@ Categories are typically hierarchical or fixed-slot taxonomies chosen by the use
 
 ## Tag
 
-A **tag** is a flexible, usually flat label attached to a mod (e.g. `needs-update`, `lore-friendly`, `multiplayer-unsafe`).
+A **tag** is a flexible, usually flat label attached to a Collection Membership (e.g. `needs-update`, `lore-friendly`, `multiplayer-unsafe`).
 
-Tags support filtering and search without requiring a strict taxonomy. A mod may have many tags; tags may be shared across collections or defined per collection depending on implementation.
+Tags support filtering and search without requiring a strict taxonomy. The same Mod may have different tags in different Collections.
 
 ---
 
@@ -50,7 +68,7 @@ A **dependency** is a directed relationship between mods: mod A **requires** or 
 
 Dependencies are recorded as knowledge in the companion. The application may warn when a dependency is missing from the collection documentation; it does not auto-install dependencies.
 
-Types (require vs recommend vs optional) will be detailed in the data model.
+Types are **requires**, **recommends**, and **optional integration**.
 
 ---
 
@@ -59,6 +77,14 @@ Types (require vs recommend vs optional) will be detailed in the data model.
 **Compatibility** describes whether mods are known to work together, conflict, or need patches/workarounds.
 
 Compatibility notes are **annotated facts** (and sources where possible), not automated scan results from game files. Examples: "incompatible with X unless patch Y is loaded after Z," "safe with current versions as of 2026-01."
+
+An explicit **unknown / needs verification** claim differs from having no recorded claim.
+
+---
+
+## Evidence
+
+**Evidence** records why a relationship or compatibility observation is believed. It may include a source, observation date, game or Mod version, notes, and provenance. Conflicting evidence is retained rather than silently overwritten.
 
 ---
 

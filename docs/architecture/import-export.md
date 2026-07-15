@@ -6,7 +6,7 @@ This document introduces how data crosses the boundary between TWW3 Companion an
 
 ## Scope
 
-Import/export adapters translate external representations into the internal domain model (and back) without leaking file-format details into core business logic.
+Import/export adapters translate external representations into the internal domain model (and back) without leaking file-format details into core business logic. Imports distinguish reusable library Mods from Collection Memberships.
 
 ---
 
@@ -40,7 +40,7 @@ Exports should be **lossless** for fields the companion owns (notes, tags, depen
 External file / clipboard
         │
         ▼
-   Import adapter  ──►  Domain validation  ──►  Persistence
+   Import adapter  ──►  Preview / conflicts  ──►  Domain validation  ──►  Persistence
         ▲
    Export adapter  ◄──  Domain snapshot   ◄──  Persistence
 ```
@@ -50,6 +50,10 @@ Each adapter:
 - Declares supported format version
 - Reports parse warnings (unknown lines, duplicate IDs)
 - Never silently drops user-authored fields without notice
+
+Imports parse and normalise candidate identities before comparing them with the Mod Library and target Collection. They produce a preview of additions, matches, duplicates, unresolved entries, warnings, and conflicts before applying changes atomically. Failed validation or interrupted persistence leaves the existing Workspace unchanged.
+
+Imported metadata may enrich blank fields, but conflicts with user-authored information require an explicit choice.
 
 ---
 

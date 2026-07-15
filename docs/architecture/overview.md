@@ -8,7 +8,7 @@ This document introduces the high-level architecture of TWW3 Companion. Detailed
 
 TWW3 Companion is a **desktop knowledge-management application** for Warhammer III mod collections. The architecture separates:
 
-1. **Domain model** — collections, mods, relationships, and metadata ([data-model.md](data-model.md))
+1. **Domain model** — workspaces, the shared Mod Library, collections, memberships, relationships, and evidence ([data-model.md](data-model.md))
 2. **Presentation** — how users browse, search, and edit ([ui.md](ui.md))
 3. **Boundaries** — how data enters and leaves the app ([import-export.md](import-export.md))
 4. **Evolution** — deferred and exploratory ideas ([future.md](future.md))
@@ -39,7 +39,7 @@ Implementation technology (language, framework, storage engine) is **not fixed**
 │  (import, export, health, search index) │
 ├─────────────────────────────────────────┤
 │  Domain model                           │
-│  (Collection, Mod, Tag, Dependency…)   │
+│  (Workspace, Collection, Mod, Evidence) │
 ├─────────────────────────────────────────┤
 │  Persistence                            │
 │  (local files / database — TBD)         │
@@ -64,5 +64,6 @@ External systems (Steam Workshop, markdown files on disk) connect only through *
 ## Related Reading
 
 - [RFC-0001: Project Vision](../../RFC/RFC-0001.md)
+- [RFC-0002: Collection Domain Model](../../RFC/RFC-0002.md)
 - [Glossary](../glossary.md)
 - [ROADMAP.md](../../ROADMAP.md)

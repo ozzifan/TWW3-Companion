@@ -1,68 +1,97 @@
 # Data Model
 
-This document introduces the conceptual data model for TWW3 Companion. **No storage schema or serialization format is finalised** in the bootstrap phase.
+This document summarises the conceptual data model proposed in [RFC-0002](../../RFC/RFC-0002.md). **No storage schema or serialisation format is finalised.**
 
 ---
 
 ## Scope
 
-The data model answers:
-
-- What entities exist (collection, mod, profile, tag, etc.)?
-- How do they relate?
-- What invariants must hold (e.g. unique Workshop IDs within a collection)?
-
-Terminology aligns with [glossary.md](../glossary.md).
+The data model defines domain entities, ownership boundaries, lifecycle rules, and invariants. Storage, import grammar, UI layout, and Profile behaviour remain separate decisions.
 
 ---
 
-## Core Entities (Conceptual)
+## Aggregate and Ownership
+
+### Workspace
+
+The **Workspace** is the user-owned aggregate root. It contains one shared Mod Library and one or more Collections, and may declare an optional target game version.
+
+Workspace is a domain boundary, not a decision to store all data in one file or database.
+
+### Mod Library
+
+The library owns reusable knowledge shared across Collections:
+
+- **Mods** — source-neutral records with stable internal identities, display names, aliases, shared notes, and imported metadata
+- **Source References** — external identities such as Steam Workshop IDs; each source type and external identifier pair identifies at most one Mod within a Workspace
+- **Relationships** — dependencies and compatibility claims, including unresolved targets
+- **Game Compatibility Observations** — versioned evidence retained as history
 
 ### Collection
 
-Root aggregate. Contains mods, organisation structures (categories, tags), collection-level notes, and computed summaries (e.g. health score inputs).
+A **Collection** is a named, curated set of Mods with collection-level notes. It owns Collection Memberships, not copies of Mods.
 
-### Mod
+### Collection Membership
 
-A documented workshop or local mod reference. Holds identifiers, display fields, user notes, and links to relationships.
+A membership links one Collection to one library Mod and owns collection-specific category, tags, rationale, notes, tracking state, and optional ordering or load-order notes. A Mod may appear once per Collection and in any number of Collections.
+
+Ordering information is documented knowledge; the application does not enforce load order.
 
 ### Profile
 
-Optional lens on a collection representing a particular active configuration or play context. Exact fields deferred to a future RFC.
-
-### Organisation
-
-- **Categories** — structured grouping
-- **Tags** — flexible labels
-
-### Relationships
-
-- **Dependencies** — require / recommend edges between mods
-- **Compatibility** — annotated compatibility records between mods or mod sets
+A Profile belongs to exactly one Collection and will later describe a playable subset or configuration. Its fields, activation rules, and overrides are deferred to the v0.3 design.
 
 ---
 
-## Invariants (Draft)
+## Relationships and Evidence
 
-These principles guide later schema design:
+A Dependency is directional and is classified as **requires**, **recommends**, or **optional integration**. A Compatibility Claim records **compatible**, **incompatible**, **patch required**, or **unknown / needs verification**.
 
-1. A mod within a collection has at most one canonical entry per stable ID (e.g. Workshop ID).
-2. Dependencies and compatibility are explicit records, not inferred solely from names.
-3. Deleting a mod cascades or prompts according to documented rules (TBD in RFC).
-4. Health score inputs are derivable from stored facts, not hidden state.
+Relationship targets may resolve to a library Mod or remain as an unresolved external reference. Resolution and deletion of the target Mod preserve the incoming relationship and its evidence.
 
----
-
-## Persistence
-
-Whether collections are stored as JSON documents, SQLite, or hybrid storage is **undecided**. Requirements:
-
-- Human-inspectable export
-- Atomic save where possible
-- Version field for migration
+Evidence may record a source, observation date, game version, Mod version, notes, and provenance. A Game Compatibility Observation records **works**, **works with caveats**, **broken**, or **unverified** for a game version or patch. Conflicting observations remain visible; last-known-good and latest-known-broken values are derived summaries.
 
 ---
 
-## Next Steps
+## Information Ownership
 
-Approved architecture (v0.0.2) will define concrete schemas and where collection files live on disk — outside this repository. Development resources use repository folders as follows: `examples/` (example collections), `schemas/` (JSON schemas), `tests/` (test fixtures), `src/` (application source). Until then, treat this document as the shared vocabulary for design discussions.
+- **User-authored information** includes preferred names, notes, categories, tags, rationale, and personal observations. Imports must not silently overwrite it.
+- **Imported source metadata** retains its source and observation time where practical. It may enrich blank fields; conflicts require an explicit choice.
+- **Derived information** includes warnings, health findings, compatibility summaries, counts, and indexes. It must be reproducible from authoritative records.
+
+---
+
+## Lifecycle Rules
+
+Removing a Mod from a Collection deletes only its Collection Membership.
+
+Deleting a Mod from the library requires an explicit confirmed operation that first lists every affected Collection and states which membership data will be lost. Confirmation removes the Mod, all memberships, and relationships it owns as the source Mod. Incoming relationships targeting the deleted Mod remain and become unresolved.
+
+---
+
+## Invariants
+
+1. A Source Reference identifies at most one Mod within a Workspace.
+2. A Collection contains a given Mod at most once.
+3. A Profile belongs to exactly one Collection.
+4. Collection-specific organisation lives on Collection Membership, not Mod.
+5. Unresolved relationship targets are valid stored knowledge.
+6. Imports do not silently overwrite user-authored information.
+7. Derived values are reproducible from authoritative records.
+8. Library deletion requires a complete impact warning and explicit confirmation.
+9. Relationship evidence survives target resolution and deletion of the target Mod.
+10. Compatibility history is retained rather than replaced by latest-status summaries.
+
+---
+
+## Persistence Requirements
+
+JSON, SQLite, and hybrid storage remain undecided. Later storage design must provide:
+
+- local, user-controlled persistence;
+- human-inspectable export;
+- atomic application of validated changes where possible;
+- a version field and migration path;
+- preservation of unresolved knowledge and observation history.
+
+Development resources use `examples/` for example data, `schemas/` for schemas, `tests/` for fixtures, and `src/` for application source. No application implementation begins before the v0.0.2 architecture gate is approved.
