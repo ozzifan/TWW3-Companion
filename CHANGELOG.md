@@ -25,17 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `schemas/` directory for future JSON schemas
 - Repository folder README files (`examples/`, `schemas/`, `tests/`)
 - Non-affiliation disclaimer in [README.md](README.md)
+- RFC-0002 and [Decision-0004](decisions/Decision-0004.md) establishing the Workspace-centred domain model
 
 ### Changed
 
 - [AGENTS.md](AGENTS.md) — role-first headings; Product Owner wording for single-maintainer reality ([Issue #2](https://github.com/ozzifan/TWW3-Companion/issues/2))
-- [AGENTS.md](AGENTS.md) — responsibilities-focused roles; Product Owner governance wording
 - [ROADMAP.md](ROADMAP.md) — v0.1 renamed to first working prototype; v0.0.1 marked complete
 - [.gitignore](.gitignore) — limited to Git, OS, editors, Node, and Python patterns
 - [CONTRIBUTING.md](CONTRIBUTING.md) — GitHub Issues and Discussions contact paths
 - [docs/architecture/data-model.md](docs/architecture/data-model.md) — repository folders clarified; no in-repo user storage
+- Architecture, glossary, roadmap, and project history aligned with the accepted Workspace-centred domain model
 
 ### Removed
 
 - Repository `data/` directory
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — no private reporting contact yet; will return when one exists ([Issue #2](https://github.com/ozzifan/TWW3-Companion/issues/2))

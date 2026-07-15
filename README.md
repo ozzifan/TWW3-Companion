@@ -2,7 +2,7 @@
 
 **Organise, understand, and maintain large Total War: Warhammer III mod collections.**
 
-TWW3 Companion is an open-source desktop application for players who run complex mod lists. It focuses on **knowledge management** — helping you document what you have, why it is there, how mods relate to each other, and whether your collection is healthy — rather than replacing the game's mod launcher or workshop tools.
+TWW3 Companion is an open-source desktop application for players who run complex mod lists. It focuses on **knowledge management** — helping you document what you have, why it is there, how mods relate to each other, and whether your collections are healthy — rather than replacing the game's mod launcher or workshop tools.
 
 ## Disclaimer
 
@@ -12,7 +12,7 @@ TWW3 Companion is an unofficial fan-made project and is not affiliated with or e
 
 ## Vision
 
-Players who invest dozens or hundreds of hours curating Warhammer III mod collections deserve better than scattered spreadsheets, forum bookmarks, and half-remembered load-order notes. TWW3 Companion aims to be the single place where collection knowledge lives: structured, searchable, portable, and honest about what the tool can and cannot do.
+Players who invest dozens or hundreds of hours curating Warhammer III mod collections deserve better than scattered spreadsheets, forum bookmarks, and half-remembered load-order notes. TWW3 Companion aims to be the single place where collection knowledge lives: structured, searchable, portable, and honest about what the tool can and cannot do. A Workspace keeps one shared Mod Library and organises its Mods into one or more Collections without duplicating shared knowledge.
 
 ---
 
@@ -32,9 +32,9 @@ Total War: Warhammer III modding is rich and active. A serious collection might 
 ## Goals
 
 - **Import** mod lists from common sources (markdown notes, Steam Workshop IDs).
-- **Persist** collections locally with a clear, portable data model.
-- **Organise** mods with categories, tags, and free-form notes.
-- **Search** across your collection quickly.
+- **Persist** a Workspace locally with a clear, portable data model.
+- **Organise** shared Mods into Collections using categories, tags, and free-form notes.
+- **Search** across the Workspace or within a Collection quickly.
 - **Track** dependencies, compatibility notes, and a collection **health score**.
 - **Export** and share collection knowledge in open, documented formats.
 - Remain **offline-first** and respectful of player privacy.
@@ -75,7 +75,7 @@ High-level milestones are maintained in [ROADMAP.md](ROADMAP.md). Architecture m
 | **v0.0.2** | Architecture complete (domain, import, storage, UI) |
 | **v0.1** | First working prototype — importers and local persistence |
 | **v0.2** | Search, tags, categories, notes |
-| **v0.3** | Profiles — multiple collections, campaign presets |
+| **v0.3** | Profiles — per-Collection play configurations and campaign presets |
 | **v0.5** | Dependency tracking, compatibility notes, health score |
 | **v1.0** | Stable collection manager suitable for everyday use |
 
@@ -93,7 +93,7 @@ Design documents live under [docs/architecture/](docs/architecture/):
 - [Import & export](docs/architecture/import-export.md)
 - [Future considerations](docs/architecture/future.md)
 
-Project vision and problem framing: [RFC/RFC-0001.md](RFC/RFC-0001.md).
+Project vision and problem framing: [RFC/RFC-0001.md](RFC/RFC-0001.md). The accepted domain model is defined in [RFC/RFC-0002.md](RFC/RFC-0002.md).
 
 ---
 
@@ -104,6 +104,8 @@ We welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before 
 - **Issues first** for bugs and feature ideas.
 - **RFCs** for significant design or architectural changes.
 - **Small PRs** are easier to review and merge.
+
+Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 

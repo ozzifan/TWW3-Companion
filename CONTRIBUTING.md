@@ -109,3 +109,9 @@ Write in clear Markdown. Use British English spelling in project docs for consis
 Open a [GitHub Issue](https://github.com/ozzifan/TWW3-Companion/issues) labelled `question`, or [GitHub Discussions](https://github.com/ozzifan/TWW3-Companion/discussions) once enabled, if you are unsure how to proceed.
 
 We appreciate thoughtful contributions of all sizes.
+
+---
+
+## Code of Conduct
+
+All contributors must follow the project [Code of Conduct](CODE_OF_CONDUCT.md). Conduct reports should use the private route described there rather than public issues or discussions.

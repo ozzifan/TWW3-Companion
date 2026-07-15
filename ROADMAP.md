@@ -28,7 +28,7 @@ No application code in this milestone.
 
 Implementation must not begin until the following are approved by the Product Owner:
 
-- Core domain model approved
+- Core domain model approved ([RFC-0002](RFC/RFC-0002.md))
 - Import architecture approved
 - Storage architecture approved
 - Initial UI architecture approved
@@ -45,9 +45,9 @@ No application code in this milestone.
 
 - Markdown importer
 - Workshop ID importer
-- Local persistence
+- Local Workspace persistence
 
-Success: a user can import a list, persist it locally, and reload it reliably.
+Success: a user can import a list into a Collection, persist its Workspace locally, and reload it reliably.
 
 ---
 
@@ -71,10 +71,10 @@ Success: a user can organise and quickly locate mods in a large collection.
 **Status:** Planned
 
 - Profiles
-- Multiple collections
+- Per-Collection configurations
 - Campaign presets
 
-Success: a user can document how they run mods across different play contexts without duplicating mod knowledge.
+Success: a user can document multiple play configurations within their owning Collections without duplicating shared Mod knowledge.
 
 ---
 
