@@ -62,7 +62,7 @@ Each adapter:
 
 Exact Source References may match automatically. Names and aliases only suggest matches. Source-neutral candidates must be linked to an existing Mod, created with a display name, or skipped before application.
 
-Imports are additive-only: omission never removes a Membership or Mod. Headings propose one editable category value without deciding whether the future Category domain is flat or hierarchical. Free-form prose remains notes; v0.1 does not infer Dependencies, Compatibility Claims, or ordering rules from natural language.
+Imports are additive-only: omission never removes a Membership or Mod. Headings propose one editable category value without deciding whether the future Category domain is flat or hierarchical. Source position proposes documented ordering information on Collection Memberships, but free-form prose remains notes; v0.1 does not infer Dependencies, Compatibility Claims, or ordering rules from natural language.
 
 Blank fields may be enriched after preview. Distinct imported notes append with source document name, date, and source lines. Scalar conflicts require an explicit choice. Failed validation or persistence rolls back the entire confirmed import.
 
