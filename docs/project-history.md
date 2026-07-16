@@ -27,7 +27,7 @@ Making the project open source followed naturally from the problem domain. Mod c
 
 ## Current Phase
 
-**v0.0.1** (repository bootstrap) is complete. The project is in **v0.0.2 — Architecture complete**. [RFC-0002](../RFC/RFC-0002.md) established the accepted Workspace-centred domain model; import, storage, and initial UI architecture remain to be approved before any code lands in `src/`. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
+**v0.0.1** (repository bootstrap) is complete. The project is in **v0.0.2 — Architecture complete**. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, and [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target. Import and initial UI architecture remain to be approved before any code lands in `src/`. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
 
 ## Looking Ahead
 

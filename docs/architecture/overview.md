@@ -13,7 +13,7 @@ TWW3 Companion is a **desktop knowledge-management application** for Warhammer I
 3. **Boundaries** — how data enters and leaves the app ([import-export.md](import-export.md))
 4. **Evolution** — deferred and exploratory ideas ([future.md](future.md))
 
-Implementation technology (language, framework, storage engine) is **not fixed** until approved in **v0.0.2**. Choices will be recorded via RFC and [decisions/](../../decisions/) before code lands in `src/`.
+The language and UI framework remain undecided. [RFC-0003](../../RFC/RFC-0003.md) selects embedded SQLite as canonical Workspace storage with lossless JSON export. All remaining technology choices must be approved in **v0.0.2** and recorded via RFC or [decisions/](../../decisions/) before code lands in `src/`.
 
 ---
 
@@ -22,7 +22,7 @@ Implementation technology (language, framework, storage engine) is **not fixed**
 | Principle | Implication |
 |-----------|-------------|
 | Offline-first | Core workflows work without network; optional enrichment (e.g. workshop metadata fetch) fails gracefully |
-| Player-owned data | Persistence formats are documented and exportable |
+| Player-owned data | SQLite Workspaces have documented, lossless JSON export |
 | Thin integration | No direct modification of game or Steam install paths by default |
 | Layered design | UI → application services → domain → persistence |
 | Approved before built | See [AGENTS.md](../../AGENTS.md) |
@@ -42,7 +42,7 @@ Implementation technology (language, framework, storage engine) is **not fixed**
 │  (Workspace, Collection, Mod, Evidence) │
 ├─────────────────────────────────────────┤
 │  Persistence                            │
-│  (local files / database — TBD)         │
+│  (embedded SQLite + JSON export)        │
 └─────────────────────────────────────────┘
 ```
 
@@ -65,5 +65,6 @@ External systems (Steam Workshop, markdown files on disk) connect only through *
 
 - [RFC-0001: Project Vision](../../RFC/RFC-0001.md)
 - [RFC-0002: Collection Domain Model](../../RFC/RFC-0002.md)
+- [RFC-0003: Storage Architecture](../../RFC/RFC-0003.md)
 - [Glossary](../glossary.md)
 - [ROADMAP.md](../../ROADMAP.md)

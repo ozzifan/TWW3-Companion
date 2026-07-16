@@ -30,7 +30,7 @@ Implementation must not begin until the following are approved by the Product Ow
 
 - Core domain model approved ([RFC-0002](RFC/RFC-0002.md))
 - Import architecture approved
-- Storage architecture approved
+- Storage architecture approved ([RFC-0003](RFC/RFC-0003.md))
 - Initial UI architecture approved
 
 No application code in this milestone.
@@ -42,6 +42,8 @@ No application code in this milestone.
 **Status:** Planned
 
 *Requires v0.0.2 approval.*
+
+The initial release targets Windows through a one-step installer and a portable ZIP. Other desktop platforms are deferred.
 
 - Markdown importer
 - Workshop ID importer

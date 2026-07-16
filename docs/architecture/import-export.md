@@ -16,7 +16,7 @@ Import/export adapters translate external representations into the internal doma
 |--------|-----------|-------------|
 | Markdown mod lists | v0.1 | Player-maintained lists in common note patterns |
 | Steam Workshop IDs | v0.1 | Bulk ID paste or file of numeric IDs |
-| Native collection format | v0.1+ | Round-trip from companion export |
+| Native Workspace export | v0.1+ | Lossless JSON round-trip from canonical SQLite storage |
 
 Optional future sources (workshop metadata API, other tools' exports) belong in [future.md](future.md) until RFC-approved.
 
@@ -26,11 +26,15 @@ Optional future sources (workshop metadata API, other tools' exports) belong in 
 
 | Target | Purpose |
 |--------|---------|
-| Native collection document | Backup, sync, version migration |
+| Lossless Workspace JSON | Backup, transfer, inspection, version migration |
 | Markdown summary | Human-readable share in forums or repos |
 | ID list | Interop with external load-order tools |
 
 Exports should be **lossless** for fields the companion owns (notes, tags, dependencies). Workshop-only metadata may be omitted if not stored locally.
+
+The accepted lossless JSON format represents a complete Workspace and excludes rebuildable caches. Rules for exporting one Collection with its referenced shared knowledge remain deferred to the import/export RFC. A full-Workspace export must not be presented as a privacy-preserving way to share one Collection.
+
+Live SQLite Workspace files are not a supported cross-machine synchronisation format. JSON export and restore are the supported transfer path until a separate synchronisation design is accepted.
 
 ---
 

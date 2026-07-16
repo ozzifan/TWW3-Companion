@@ -26,6 +26,7 @@ The UI does **not** present itself as a game launcher or mod installer.
 | Keyboard-friendly | Power users manage hundreds of entries |
 | Offline-capable | No hard dependency on live workshop UI |
 | Accessible | Target WCAG-oriented patterns when stack is chosen |
+| Single instance | A second process explains that TWW3 Companion is already running, then exits before accessing data |
 
 ---
 
@@ -47,7 +48,7 @@ Screen inventory and navigation model will be expanded in a UI RFC after v0.1 pe
 
 ## Separation from Domain
 
-Views consume **application services** (search, import, health calculation), not raw persistence. This keeps UI replaceable (e.g. web vs native) if ever required, though the initial target is a desktop experience.
+Views consume **application services** (search, import, health calculation), not raw persistence. This keeps the UI boundary replaceable if ever required, though the initial target is a Windows desktop application.
 
 ---
 

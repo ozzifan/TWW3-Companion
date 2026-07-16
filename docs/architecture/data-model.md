@@ -1,6 +1,6 @@
 # Data Model
 
-This document summarises the conceptual data model proposed in [RFC-0002](../../RFC/RFC-0002.md). **No storage schema or serialisation format is finalised.**
+This document summarises the conceptual data model accepted in [RFC-0002](../../RFC/RFC-0002.md). Storage architecture is defined by [RFC-0003](../../RFC/RFC-0003.md); exact tables and JSON Schema fields remain implementation decisions.
 
 ---
 
@@ -86,12 +86,15 @@ Deleting a Mod from the library requires an explicit confirmed operation that fi
 
 ## Persistence Requirements
 
-JSON, SQLite, and hybrid storage remain undecided. Later storage design must provide:
+Each Workspace is stored canonically in one embedded SQLite database. Stable domain identities use UUIDs. A versioned, lossless JSON format provides inspection, archival, transfer, and restore.
 
-- local, user-controlled persistence;
-- human-inspectable export;
-- atomic application of validated changes where possible;
-- a version field and migration path;
-- preservation of unresolved knowledge and observation history.
+Storage provides:
+
+- local, user-controlled persistence without a separate database service;
+- atomic application of confirmed operations and imports;
+- explicit schema versions, pre-migration backups, and forward migrations;
+- preservation of unresolved knowledge and observation history;
+- rebuildable derived data;
+- rejection of unsupported newer schemas.
 
 Development resources use `examples/` for example data, `schemas/` for schemas, `tests/` for fixtures, and `src/` for application source. No application implementation begins before the v0.0.2 architecture gate is approved.
