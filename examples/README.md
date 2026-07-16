@@ -2,4 +2,4 @@
 
 Example collections for documentation and development.
 
-Sample import files and collection exports will be added here once formats are approved in v0.0.2. User collection data is **not** stored in this repository.
+Sample informal Markdown and Workshop-ID fixtures will be added during v0.1 implementation according to [RFC-0004](../RFC/RFC-0004.md). Collection export fixtures remain deferred until their formats are approved. User collection data is **not** stored in this repository.

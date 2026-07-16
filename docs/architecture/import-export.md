@@ -1,6 +1,6 @@
 # Import and Export
 
-This document introduces how data crosses the boundary between TWW3 Companion and the outside world. **No format specifications or parser implementations exist** in the bootstrap phase.
+This document summarises how data crosses the boundary between TWW3 Companion and the outside world. Import architecture is accepted in [RFC-0004](../../RFC/RFC-0004.md); parser libraries and exact implementation details remain undecided.
 
 ---
 
@@ -14,8 +14,8 @@ Import/export adapters translate external representations into the internal doma
 
 | Source | Milestone | Description |
 |--------|-----------|-------------|
-| Markdown mod lists | v0.1 | Player-maintained lists in common note patterns |
-| Steam Workshop IDs | v0.1 | Bulk ID paste or file of numeric IDs |
+| Informal Markdown notes | v0.1 | Headings, lists, Workshop links/IDs, names, and attached prose without a mandatory template |
+| Steam Workshop IDs | v0.1 | Pasted or file-based IDs and supported Workshop URLs |
 | Native Workspace export | v0.1+ | Lossless JSON round-trip from canonical SQLite storage |
 
 Optional future sources (workshop metadata API, other tools' exports) belong in [future.md](future.md) until RFC-approved.
@@ -38,26 +38,35 @@ Live SQLite Workspace files are not a supported cross-machine synchronisation fo
 
 ---
 
-## Adapter Pattern
+## Import Pipeline
 
 ```
-External file / clipboard
-        │
-        ▼
-   Import adapter  ──►  Preview / conflicts  ──►  Domain validation  ──►  Persistence
-        ▲
-   Export adapter  ◄──  Domain snapshot   ◄──  Persistence
+Input
+→ source adapter
+→ candidates
+→ normalisation
+→ exact identity matching
+→ suggested name matches
+→ editable preview
+→ required resolutions
+→ domain validation
+→ one atomic transaction
 ```
 
 Each adapter:
 
-- Declares supported format version
-- Reports parse warnings (unknown lines, duplicate IDs)
-- Never silently drops user-authored fields without notice
+- reads one representation without accessing persistence;
+- retains source locations and diagnostics;
+- never performs domain mutation or implicit network access;
+- emits the common candidate model used by later stages.
 
-Imports parse and normalise candidate identities before comparing them with the Mod Library and target Collection. They produce a preview of additions, matches, duplicates, unresolved entries, warnings, and conflicts before applying changes atomically. Failed validation or interrupted persistence leaves the existing Workspace unchanged.
+Exact Source References may match automatically. Names and aliases only suggest matches. Source-neutral candidates must be linked to an existing Mod, created with a display name, or skipped before application.
 
-Imported metadata may enrich blank fields, but conflicts with user-authored information require an explicit choice.
+Imports are additive-only: omission never removes a Membership or Mod. Headings propose one editable category value without deciding whether the future Category domain is flat or hierarchical. Free-form prose remains notes; v0.1 does not infer Dependencies, Compatibility Claims, or ordering rules from natural language.
+
+Blank fields may be enriched after preview. Distinct imported notes append with source document name, date, and source lines. Scalar conflicts require an explicit choice. Failed validation or persistence rolls back the entire confirmed import.
+
+Workshop metadata enrichment is optional and user-initiated. Network failure never prevents importing a valid identity, although every new Mod still requires a user-entered or explicitly accepted display name.
 
 ---
 
@@ -66,9 +75,16 @@ Imported metadata may enrich blank fields, but conflicts with user-authored info
 - Importing `.pack` files or game save data
 - Writing into Steam workshop or game data folders
 - Automatic download of mod archives on import
+- Replace or synchronise Collection imports
+- Relationship inference from free-form prose
 
 ---
 
-## Next Steps
+## Deferred Import Work
 
-RFC for markdown grammar conventions and Workshop ID import rules. Example files may live under `examples/` once formats are stable.
+- exact parser and name-similarity algorithms;
+- resource-limit values;
+- resumable import sessions;
+- additional source adapters;
+- replace or synchronise behaviour;
+- scoped Collection export and other sharing formats.

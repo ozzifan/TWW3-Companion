@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-affiliation disclaimer in [README.md](README.md)
 - RFC-0002 and [Decision-0004](decisions/Decision-0004.md) establishing the Workspace-centred domain model
 - RFC-0003 and [Decision-0005](decisions/Decision-0005.md) establishing embedded SQLite storage, lossless JSON export, and Windows distribution
+- RFC-0004 and [Decision-0006](decisions/Decision-0006.md) establishing deterministic staged import for informal Markdown and Workshop IDs
 
 ### Changed
 
@@ -37,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [docs/architecture/data-model.md](docs/architecture/data-model.md) — repository folders clarified; no in-repo user storage
 - Architecture, glossary, roadmap, and project history aligned with the accepted Workspace-centred domain model
 - README, roadmap, and architecture documents aligned with the accepted storage architecture and initial Windows target
+- Architecture, roadmap, project history, and examples guidance aligned with the accepted import architecture
 
 ### Removed
 

@@ -36,7 +36,7 @@ The UI does **not** present itself as a game launcher or mod installer.
 2. **Browse** — select a Collection, then view its memberships by category or tag while retaining access to shared Mod details
 3. **Search** — global and in-context query across names, IDs, notes
 4. **Mod detail** — notes, dependencies, compatibility, metadata
-5. **Import** — markdown list, Workshop ID list, merge vs replace
+5. **Import** — informal Markdown or Workshop IDs through an editable preview, required identity resolution, and explicit additive confirmation
 6. **Export** — backup and share documented formats
 7. **Health overview** — summary dashboard with drill-down to issues
 

@@ -48,6 +48,8 @@ The language and UI framework remain undecided. [RFC-0003](../../RFC/RFC-0003.md
 
 External systems (Steam Workshop, markdown files on disk) connect only through **import/export adapters**, not as hard dependencies of the domain core.
 
+Imports use the deterministic staged pipeline accepted in [RFC-0004](../../RFC/RFC-0004.md): adapters produce candidates, exact identities are matched, users resolve an editable preview, and confirmed additive changes are applied atomically.
+
 ---
 
 ## Document Map
@@ -66,5 +68,6 @@ External systems (Steam Workshop, markdown files on disk) connect only through *
 - [RFC-0001: Project Vision](../../RFC/RFC-0001.md)
 - [RFC-0002: Collection Domain Model](../../RFC/RFC-0002.md)
 - [RFC-0003: Storage Architecture](../../RFC/RFC-0003.md)
+- [RFC-0004: Import Architecture](../../RFC/RFC-0004.md)
 - [Glossary](../glossary.md)
 - [ROADMAP.md](../../ROADMAP.md)

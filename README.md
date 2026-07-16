@@ -95,7 +95,7 @@ Design documents live under [docs/architecture/](docs/architecture/):
 - [Import & export](docs/architecture/import-export.md)
 - [Future considerations](docs/architecture/future.md)
 
-Project vision and problem framing: [RFC/RFC-0001.md](RFC/RFC-0001.md). The accepted domain and storage models are defined in [RFC/RFC-0002.md](RFC/RFC-0002.md) and [RFC/RFC-0003.md](RFC/RFC-0003.md).
+Project vision and problem framing: [RFC/RFC-0001.md](RFC/RFC-0001.md). The accepted domain, storage, and import models are defined in [RFC/RFC-0002.md](RFC/RFC-0002.md), [RFC/RFC-0003.md](RFC/RFC-0003.md), and [RFC/RFC-0004.md](RFC/RFC-0004.md).
 
 ---
 

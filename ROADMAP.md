@@ -29,7 +29,7 @@ No application code in this milestone.
 Implementation must not begin until the following are approved by the Product Owner:
 
 - Core domain model approved ([RFC-0002](RFC/RFC-0002.md))
-- Import architecture approved
+- Import architecture approved ([RFC-0004](RFC/RFC-0004.md))
 - Storage architecture approved ([RFC-0003](RFC/RFC-0003.md))
 - Initial UI architecture approved
 
