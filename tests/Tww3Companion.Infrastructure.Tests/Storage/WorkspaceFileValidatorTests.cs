@@ -35,10 +35,12 @@ public sealed class WorkspaceFileValidatorTests
     [InlineData("UPDATE application_metadata SET schema_version=2", "workspace.schema.newer")]
     [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET schema_version=0", "workspace.file.invalid")]
     [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET application_id='forged'", "workspace.file.invalid")]
+    [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET singleton=2", "workspace.file.invalid")]
     [InlineData("UPDATE workspace SET id='invalid'", "workspace.identity.invalid")]
     [InlineData("UPDATE workspace SET id='12345678-1234-4ABC-8DEF-1234567890AB'", "workspace.identity.invalid")]
     [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE workspace SET display_name='   '", "workspace.identity.invalid")]
     [InlineData("UPDATE workspace SET created_utc='2026-07-18T01:02:03.0000000+01:00'", "workspace.identity.invalid")]
+    [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE workspace SET singleton=2", "workspace.identity.invalid")]
     public async Task Open_RejectsInvalidMetadata(string mutation, string code)
     {
         using var directory = new TemporaryDirectory();
@@ -68,6 +70,13 @@ public sealed class WorkspaceFileValidatorTests
         var path = await CreateValidAsync(directory.Path);
         await ExecuteAsync(path, """
             PRAGMA foreign_keys=OFF;
+            ALTER TABLE application_metadata RENAME TO original_metadata;
+            CREATE TABLE application_metadata (
+                singleton INTEGER PRIMARY KEY,
+                application_id TEXT NOT NULL UNIQUE,
+                schema_version INTEGER NOT NULL);
+            INSERT INTO application_metadata SELECT * FROM original_metadata;
+            DROP TABLE original_metadata;
             ALTER TABLE workspace RENAME TO original_workspace;
             CREATE TABLE workspace (
                 singleton INTEGER PRIMARY KEY,
@@ -75,8 +84,8 @@ public sealed class WorkspaceFileValidatorTests
                 display_name TEXT NOT NULL,
                 created_utc TEXT NOT NULL,
                 modified_utc TEXT NOT NULL,
-                FOREIGN KEY (singleton) REFERENCES application_metadata(singleton));
-            INSERT INTO workspace SELECT 2,id,display_name,created_utc,modified_utc FROM original_workspace;
+                FOREIGN KEY (id) REFERENCES application_metadata(application_id));
+            INSERT INTO workspace SELECT singleton,id,display_name,created_utc,modified_utc FROM original_workspace;
             DROP TABLE original_workspace;
             """);
 
@@ -91,6 +100,21 @@ public sealed class WorkspaceFileValidatorTests
         await using var locked = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
         await AssertCodeAsync(path, "workspace.file.locked");
+    }
+
+    [Fact]
+    public async Task Open_WhenHeaderAccessIsDenied_ReturnsAccessDeniedCode()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = await CreateValidAsync(directory.Path);
+        var validator = new WorkspaceFileValidator(
+            openHeaderStream: _ => throw new UnauthorizedAccessException("denied"));
+
+        var failure = Assert.IsType<OperationResult<Workspace>.Failure>(
+            await validator.OpenAsync(path, TestContext.Current.CancellationToken));
+
+        Assert.Equal("workspace.access.denied", failure.Error.Code);
+        Assert.False(failure.Error.PersistentChangeCommitted);
     }
 
     [Fact]
