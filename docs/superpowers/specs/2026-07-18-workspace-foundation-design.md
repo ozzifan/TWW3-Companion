@@ -17,10 +17,11 @@ This slice does not implement import, Mod or Membership editing, JSON export or 
 - C# 14 with nullable reference types enabled;
 - Avalonia 12.1.0, with all Avalonia packages pinned to the same version;
 - `Microsoft.Data.Sqlite` 10.0.10 using direct parameterised SQL;
+- `SQLitePCLRaw.lib.e_sqlite3` 2.1.12 transitively pinned to avoid the high-severity SQLite vulnerability in versions through 2.1.11;
 - `Microsoft.Extensions.Logging.Abstractions` 10.0.10 as the application-facing logging contract;
 - `Microsoft.Extensions.Logging` 10.0.10 for Desktop composition;
 - Serilog 4.4.0, `Serilog.Extensions.Logging` 10.0.0, and `Serilog.Sinks.File` 7.0.0 confined to Infrastructure and Desktop composition;
-- xUnit v3 package 3.2.2 and `Microsoft.NET.Test.Sdk` 18.8.1 for automated tests.
+- xUnit v3 package 3.2.2, `xunit.runner.visualstudio` 3.1.5, and `Microsoft.NET.Test.Sdk` 18.8.1 for automated tests.
 
 The application does not introduce Entity Framework Core or Dapper. Entity Framework adds change tracking and migration machinery that this explicit repository boundary does not require. Dapper reduces row-mapping boilerplate but does not provide compile-time SQL or column-rename safety, so it is deferred until repeated mapping code demonstrates a concrete need. Direct SQL remains isolated inside the Infrastructure project. NuGet package versions are centrally pinned and committed so restore is reproducible.
 

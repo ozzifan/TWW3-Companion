@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Tww3Companion.Application\Tww3Companion.Application.csproj" />
+    <ProjectReference Include="..\Tww3Companion.Domain\Tww3Companion.Domain.csproj" />
+    <ProjectReference Include="..\Tww3Companion.Infrastructure\Tww3Companion.Infrastructure.csproj" />
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+</Project>
