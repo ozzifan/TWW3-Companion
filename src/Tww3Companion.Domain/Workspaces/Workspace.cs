@@ -16,12 +16,12 @@ public sealed record Workspace(
     {
         if (modifiedUtc < createdUtc)
         {
-            return ValidationResult<Workspace>.Failure(
+            return new ValidationResult<Workspace>.Failure(
                 new ValidationError(
                     "workspace.modified.before-created",
                     "Workspace modification time cannot precede its creation time."));
         }
 
-        return ValidationResult<Workspace>.Success(new Workspace(id, name, createdUtc, modifiedUtc));
+        return new ValidationResult<Workspace>.Success(new Workspace(id, name, createdUtc, modifiedUtc));
     }
 }

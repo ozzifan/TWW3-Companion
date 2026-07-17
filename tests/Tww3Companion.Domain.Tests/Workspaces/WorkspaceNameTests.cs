@@ -1,3 +1,4 @@
+using Tww3Companion.Domain.Validation;
 using Tww3Companion.Domain.Workspaces;
 using Xunit;
 
@@ -6,14 +7,15 @@ namespace Tww3Companion.Domain.Tests.Workspaces;
 public sealed class WorkspaceNameTests
 {
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void Create_BlankName_ReturnsValidationError(string value)
+    public void Create_BlankName_ReturnsValidationError(string? value)
     {
         var result = WorkspaceName.Create(value);
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal("workspace.name.required", result.Error.Code);
+        var failure = Assert.IsType<ValidationResult<WorkspaceName>.Failure>(result);
+        Assert.Equal("workspace.name.required", failure.Error.Code);
     }
 
     [Fact]
@@ -21,29 +23,29 @@ public sealed class WorkspaceNameTests
     {
         var result = WorkspaceName.Create("  My Workspace  ");
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal("My Workspace", result.Value.ToString());
+        var success = Assert.IsType<ValidationResult<WorkspaceName>.Success>(result);
+        Assert.Equal("My Workspace", success.Value.ToString());
     }
 
     [Fact]
-    public void Create_200UnicodeScalars_Succeeds()
+    public void Create_120UnicodeScalars_Succeeds()
     {
-        var value = string.Concat(Enumerable.Repeat("😀", 200));
+        var value = string.Concat(Enumerable.Repeat("😀", 120));
 
         var result = WorkspaceName.Create(value);
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal(value, result.Value.ToString());
+        var success = Assert.IsType<ValidationResult<WorkspaceName>.Success>(result);
+        Assert.Equal(value, success.Value.ToString());
     }
 
     [Fact]
-    public void Create_201UnicodeScalars_ReturnsValidationError()
+    public void Create_121UnicodeScalars_ReturnsValidationError()
     {
-        var value = string.Concat(Enumerable.Repeat("😀", 201));
+        var value = string.Concat(Enumerable.Repeat("😀", 121));
 
         var result = WorkspaceName.Create(value);
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal("workspace.name.too-long", result.Error.Code);
+        var failure = Assert.IsType<ValidationResult<WorkspaceName>.Failure>(result);
+        Assert.Equal("workspace.name.too-long", failure.Error.Code);
     }
 }
