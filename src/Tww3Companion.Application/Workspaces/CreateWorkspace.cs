@@ -49,9 +49,12 @@ public sealed class CreateWorkspace(
             return result;
         }
 
-        var settings = await settingsStore.LoadAsync(cancellationToken);
-        await settingsStore.SaveAsync(RecentWorkspaceUpdater.Add(settings, path, now), cancellationToken);
-        return result;
+        var settingsError = await RecentWorkspaceUpdater.AddAsync(
+            settingsStore,
+            path,
+            now,
+            cancellationToken);
+        return settingsError is null ? result : new OperationResult<Workspace>.Failure(settingsError);
     }
 
     private static OperationResult<Workspace>.Failure Failure(string code, string message) =>

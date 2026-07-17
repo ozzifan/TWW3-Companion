@@ -46,6 +46,39 @@ public sealed class OpenWorkspaceTests
         Assert.Single(settings.Saved.RecentWorkspaces, recent => string.Equals(recent.Path, path, StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task ExecuteAsync_SettingsSaveFails_ReturnsTypedPostCommitFailure()
+    {
+        var settings = new FakeSettingsStore
+        {
+            SaveResult = new OperationResult<ApplicationSettings>.Failure(new OperationError(
+                "settings.save.failed", "Settings were not saved.", false, "Retry."))
+        };
+
+        var result = await new OpenWorkspace(
+            new OpenFakeWorkspaceStore(SuccessfulWorkspace()), settings, new FakeClock(Now)).ExecuteAsync(
+            @"C:\Workspaces\campaign.tww3c", TestContext.Current.CancellationToken);
+
+        var failure = Assert.IsType<OperationResult<Workspace>.Failure>(result);
+        Assert.Equal("settings.save.failed", failure.Error.Code);
+        Assert.True(failure.Error.PersistentChangeCommitted);
+        Assert.Equal("Retry saving application settings.", failure.Error.SafeNextAction);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CancelledAfterOpenSucceeds_ReturnsTypedPostCommitFailure()
+    {
+        var settings = new FakeSettingsStore { LoadException = new OperationCanceledException() };
+
+        var result = await new OpenWorkspace(
+            new OpenFakeWorkspaceStore(SuccessfulWorkspace()), settings, new FakeClock(Now)).ExecuteAsync(
+            @"C:\Workspaces\campaign.tww3c", TestContext.Current.CancellationToken);
+
+        var failure = Assert.IsType<OperationResult<Workspace>.Failure>(result);
+        Assert.Equal("settings.update.cancelled", failure.Error.Code);
+        Assert.True(failure.Error.PersistentChangeCommitted);
+    }
+
     private static OperationResult<Workspace> SuccessfulWorkspace()
     {
         var id = Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse("6f9619ff-8b86-4d11-b42d-00c04fc964ff")).Value;

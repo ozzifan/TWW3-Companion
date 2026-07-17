@@ -24,4 +24,11 @@ Introducing the required `Tww3Companion.Application` namespace made Desktop's un
 
 ## Self-review
 
-No infrastructure or UI concerns leaked into the lifecycle contracts. Settings save failures intentionally do not turn an already successful workspace create/open into a workspace failure, preserving access while allowing the later settings workflow to surface persistence state.
+No infrastructure or UI concerns leaked into the lifecycle contracts.
+
+## Review-fix TDD evidence
+
+- RED: the focused Application test command ran 10 tests with 4 failures. Settings-save tests received success instead of the required typed failure, while both post-storage cancellation tests threw `OperationCanceledException` from the recent-settings update.
+- GREEN: the focused Application test command passed 10/10 tests after settings failures and cancellation were mapped to typed post-commit failures.
+- Full verification: the solution build succeeded with 0 warnings and 0 errors; the full suite passed all 26 discovered tests.
+- Post-commit semantics preserve the settings error code and message, set `PersistentChangeCommitted` to `true`, and provide `Retry saving application settings.` as the safe next action.

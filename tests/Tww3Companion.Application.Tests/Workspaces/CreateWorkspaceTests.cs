@@ -62,6 +62,37 @@ public sealed class CreateWorkspaceTests
         Assert.Equal(Now, settings.Saved.RecentWorkspaces[0].LastOpenedUtc);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_SettingsSaveFails_ReturnsTypedPostCommitFailure()
+    {
+        var settings = new FakeSettingsStore
+        {
+            SaveResult = new OperationResult<ApplicationSettings>.Failure(new OperationError(
+                "settings.save.failed", "Settings were not saved.", false, "Retry."))
+        };
+
+        var result = await CreateUseCase(new FakeWorkspaceStore(), settings).ExecuteAsync(
+            "Campaign", @"C:\Workspaces\campaign.tww3c", TestContext.Current.CancellationToken);
+
+        var failure = Assert.IsType<OperationResult<Workspace>.Failure>(result);
+        Assert.Equal("settings.save.failed", failure.Error.Code);
+        Assert.True(failure.Error.PersistentChangeCommitted);
+        Assert.Equal("Retry saving application settings.", failure.Error.SafeNextAction);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CancelledAfterStorageSucceeds_ReturnsTypedPostCommitFailure()
+    {
+        var settings = new FakeSettingsStore { LoadException = new OperationCanceledException() };
+
+        var result = await CreateUseCase(new FakeWorkspaceStore(), settings).ExecuteAsync(
+            "Campaign", @"C:\Workspaces\campaign.tww3c", TestContext.Current.CancellationToken);
+
+        var failure = Assert.IsType<OperationResult<Workspace>.Failure>(result);
+        Assert.Equal("settings.update.cancelled", failure.Error.Code);
+        Assert.True(failure.Error.PersistentChangeCommitted);
+    }
+
     private static CreateWorkspace CreateUseCase(FakeWorkspaceStore store, FakeSettingsStore settings) =>
         new(store, settings, new FakeClock(Now), new FakeUuidGenerator("6f9619ff-8b86-4d11-b42d-00c04fc964ff"));
 }
@@ -87,15 +118,18 @@ internal sealed class FakeSettingsStore(List<string>? events = null) : IApplicat
     public ApplicationSettings Current { get; init; } = new(1, "System", null, []);
     public ApplicationSettings? Saved { get; private set; }
     public int SaveCalls { get; private set; }
+    public Exception? LoadException { get; init; }
+    public OperationResult<ApplicationSettings>? SaveResult { get; init; }
 
-    public Task<ApplicationSettings> LoadAsync(CancellationToken cancellationToken) => Task.FromResult(Current);
+    public Task<ApplicationSettings> LoadAsync(CancellationToken cancellationToken) =>
+        LoadException is null ? Task.FromResult(Current) : Task.FromException<ApplicationSettings>(LoadException);
 
     public Task<OperationResult<ApplicationSettings>> SaveAsync(ApplicationSettings settings, CancellationToken cancellationToken)
     {
         events?.Add("save-settings");
         SaveCalls++;
         Saved = settings;
-        return Task.FromResult<OperationResult<ApplicationSettings>>(new OperationResult<ApplicationSettings>.Success(settings));
+        return Task.FromResult(SaveResult ?? new OperationResult<ApplicationSettings>.Success(settings));
     }
 }
 

@@ -18,10 +18,11 @@ public sealed class OpenWorkspace(
             return result;
         }
 
-        var settings = await settingsStore.LoadAsync(cancellationToken);
-        await settingsStore.SaveAsync(
-            RecentWorkspaceUpdater.Add(settings, path, clock.UtcNow),
+        var settingsError = await RecentWorkspaceUpdater.AddAsync(
+            settingsStore,
+            path,
+            clock.UtcNow,
             cancellationToken);
-        return result;
+        return settingsError is null ? result : new OperationResult<Workspace>.Failure(settingsError);
     }
 }
