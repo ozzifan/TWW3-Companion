@@ -11,14 +11,17 @@ public sealed record ManagedPaths(
     public IReadOnlyList<string> RequiredDirectories =>
         [RootDirectory, BackupsDirectory, LogsDirectory, WorkspacesDirectory];
 
-    public static ManagedPaths Detect(string executableDirectory, string localAppData)
+    public static ManagedPaths Detect(string executableDirectory, string? localAppData)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executableDirectory);
-        ArgumentException.ThrowIfNullOrWhiteSpace(localAppData);
 
-        return File.Exists(Path.Combine(executableDirectory, "portable.flag"))
-            ? ForRoot(ApplicationMode.Portable, Path.Combine(executableDirectory, "Data"))
-            : ForRoot(ApplicationMode.Installed, Path.Combine(localAppData, "TWW3 Companion"));
+        if (File.Exists(Path.Combine(executableDirectory, "portable.flag")))
+        {
+            return ForRoot(ApplicationMode.Portable, Path.Combine(executableDirectory, "Data"));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(localAppData);
+        return ForRoot(ApplicationMode.Installed, Path.Combine(localAppData, "TWW3 Companion"));
     }
 
     public static ManagedPaths ForRoot(ApplicationMode mode, string rootDirectory)

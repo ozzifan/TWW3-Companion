@@ -21,6 +21,20 @@ public sealed class ManagedPathInitializerTests
         Assert.Equal(Path.Combine(executable.Path, "Data", "settings.json"), paths.SettingsFile);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Detect_DoesNotRequireLocalApplicationDataInPortableMode(string? unavailableLocalAppData)
+    {
+        using var executable = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(executable.Path, "portable.flag"), "");
+
+        var paths = ManagedPaths.Detect(executable.Path, unavailableLocalAppData!);
+
+        Assert.Equal(ApplicationMode.Portable, paths.Mode);
+    }
+
     [Fact]
     public void Detect_UsesLocalApplicationDataWithoutMarker()
     {
