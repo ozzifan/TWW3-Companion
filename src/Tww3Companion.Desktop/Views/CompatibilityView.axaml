@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Tww3Companion.Desktop.ViewModels"
+             x:Class="Tww3Companion.Desktop.Views.CompatibilityView"
+             x:DataType="vm:ShellViewModel"
+             AutomationProperties.Name="Display compatibility warning">
+  <Grid Margin="48" RowDefinitions="Auto,Auto,Auto" MaxWidth="680">
+    <TextBlock Grid.Row="0" FontSize="28" FontWeight="SemiBold" Text="Display configuration unsupported" />
+    <TextBlock Grid.Row="1" Margin="0,16,0,24" TextWrapping="Wrap"
+               Text="The current display or scaling configuration cannot contain the minimum 1024 by 640 window. Continuing may clip content, and complete workflow accessibility is not guaranteed." />
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12">
+      <Button Content="Exit" AutomationProperties.Name="Exit TWW3 Companion" Click="Exit_Click" />
+      <Button Content="Continue Anyway" AutomationProperties.Name="Continue Anyway" Command="{Binding ContinueAnywayCommand}" />
+    </StackPanel>
+  </Grid>
+</UserControl>

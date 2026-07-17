@@ -1,0 +1,70 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Tww3Companion.Desktop.Views"
+        xmlns:vm="using:Tww3Companion.Desktop.ViewModels"
+        x:Class="Tww3Companion.Desktop.Views.MainWindow"
+        x:DataType="vm:ShellViewModel"
+        Title="TWW3 Companion"
+        Width="1280" Height="800" MinWidth="1024" MinHeight="640">
+  <Window.Styles>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderThickness" Value="3" /></Style>
+    <Style Selector="ComboBox:focus-visible"><Setter Property="BorderThickness" Value="3" /></Style>
+  </Window.Styles>
+
+  <Grid>
+    <views:CompatibilityView IsVisible="{Binding IsCompatibilityVisible}" />
+
+    <ScrollViewer IsVisible="{Binding IsHomeVisible}" AutomationProperties.Name="Home">
+      <StackPanel Margin="48" MaxWidth="720" Spacing="18">
+        <TextBlock FontSize="32" FontWeight="SemiBold" Text="TWW3 Companion" />
+        <TextBlock TextWrapping="Wrap" Text="Create and Open Workspace actions arrive in the workspace-lifecycle slice. This shell prototype verifies the approved minimum layout." />
+        <Button HorizontalAlignment="Left" Content="Open representative empty Workspace" AutomationProperties.Name="Open representative empty Workspace" Command="{Binding OpenWorkspaceCommand}" />
+        <TextBlock Text="Theme" FontWeight="SemiBold" />
+        <ComboBox Width="180" HorizontalAlignment="Left" ItemsSource="{Binding ThemeChoices}" SelectedItem="{Binding StoredTheme}" AutomationProperties.Name="Application theme" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <Grid Name="WorkspaceShell" IsVisible="{Binding IsWorkspaceVisible}" AutomationProperties.Name="Workspace shell">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="208" />
+        <ColumnDefinition Width="*" MinWidth="300" />
+        <ColumnDefinition Width="384" />
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" Padding="16" BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+        <ScrollViewer AutomationProperties.Name="Workspace navigation">
+          <StackPanel Spacing="12">
+            <TextBlock FontSize="20" FontWeight="SemiBold" Text="Workspace" />
+            <Button HorizontalContentAlignment="Left" Content="Mod Library" AutomationProperties.Name="Mod Library" />
+            <TextBlock Margin="8,8,0,0" FontWeight="SemiBold" Text="Collections" />
+            <TextBlock Margin="8,0,0,0" Text="No Collections" />
+            <Button Margin="0,24,0,0" HorizontalContentAlignment="Left" Content="Return Home" AutomationProperties.Name="Return Home" Command="{Binding ReturnHomeCommand}" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <Border Grid.Column="1" Padding="20" BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+        <ScrollViewer AutomationProperties.Name="Mod Library master list">
+          <StackPanel Spacing="16">
+            <TextBlock FontSize="24" FontWeight="SemiBold" Text="Mod Library" />
+            <TextBlock TextWrapping="Wrap" Text="This Workspace contains no Mods or Collections yet. No data has been added." />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <Border Grid.Column="2" Padding="20">
+        <ScrollViewer AutomationProperties.Name="Mod detail">
+          <StackPanel Spacing="16">
+            <TextBlock FontSize="24" FontWeight="SemiBold" Text="Details" />
+            <TextBlock TextWrapping="Wrap" Text="Select a Mod to view its shared details." />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <Border Grid.ColumnSpan="3" VerticalAlignment="Top" Margin="12" Padding="12" Background="{DynamicResource SystemControlHighlightAccentBrush}"
+              IsVisible="{Binding HasCompatibilityWarning}" AutomationProperties.Name="Display compatibility warning">
+        <TextBlock TextWrapping="Wrap" Text="Display compatibility warning: content may be clipped in this session." />
+      </Border>
+    </Grid>
+  </Grid>
+</Window>
