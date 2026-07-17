@@ -19,6 +19,7 @@ public sealed class LoggingConfigurationTests
         const string displayName = "Steve's Secret Campaign";
         const string sourceReference = "secret source reference";
         var fullPath = Path.Combine(directory.Path, secretFilename);
+        var exception = CaptureSeededException(fullPath);
 
         using (var provider = LoggingConfiguration.CreateProvider(paths))
         {
@@ -31,7 +32,7 @@ public sealed class LoggingConfigurationTests
             logger.LogInformation("Operation {OperationName} {WorkspacePathId} {SourceReference}", "workspace.open", opaquePathId, sourceReference);
             logger.LogInformation("Operation {OperationName} {WorkspacePathId}", secretFilename, opaquePathId);
             logger.LogError(
-                new InvalidOperationException("secret exception message"),
+                exception,
                 "Operation {OperationName} {WorkspacePathId} failed {FailureCategory}",
                 "workspace.open",
                 opaquePathId,
@@ -46,9 +47,27 @@ public sealed class LoggingConfigurationTests
         Assert.DoesNotContain("seeded private imported text", log);
         Assert.DoesNotContain(sourceReference, log);
         Assert.DoesNotContain(directory.Path, log);
-        Assert.DoesNotContain("secret exception message", log);
+        Assert.DoesNotContain(exception.Message, log);
         Assert.Contains("[System.InvalidOperationException]", log);
+        Assert.Contains(nameof(ThrowSeededException), log);
         Assert.Contains("[42]", log);
         Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", log);
     }
+
+    private static Exception CaptureSeededException(string secretPath)
+    {
+        try
+        {
+            ThrowSeededException(secretPath);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException("Unreachable.");
+    }
+
+    private static void ThrowSeededException(string secretPath) =>
+        throw new InvalidOperationException($"secret exception at {secretPath}");
 }

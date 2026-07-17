@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Globalization;
 using Serilog;
 using Serilog.Events;
@@ -17,8 +18,8 @@ public static class LoggingConfiguration
     /// <summary>
     /// Creates the default privacy-bounded file provider. It accepts only the fixed operation
     /// templates and constrained safe properties; free-form events, extra properties, and
-    /// invalid values are excluded. Exceptions retain only their type because messages and
-    /// stack traces can contain user-selected paths or content.
+    /// invalid values are excluded. Exceptions retain only their type and method identities;
+    /// messages, source locations, line data, and arguments are never rendered.
     /// </summary>
     public static ILoggerProvider CreateProvider(ManagedPaths paths)
     {
@@ -107,6 +108,21 @@ public static class LoggingConfiguration
                 output.Write(" [");
                 output.Write(logEvent.Exception.GetType().FullName);
                 output.Write(']');
+                foreach (var frame in new StackTrace(logEvent.Exception, fNeedFileInfo: false)
+                             .GetFrames()
+                             .Take(32))
+                {
+                    var method = frame.GetMethod();
+                    if (method is null)
+                    {
+                        continue;
+                    }
+
+                    output.Write(" at ");
+                    output.Write(method.DeclaringType?.FullName);
+                    output.Write('.');
+                    output.Write(method.Name);
+                }
             }
 
             output.WriteLine();
