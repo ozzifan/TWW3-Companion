@@ -1,5 +1,6 @@
 # --- Git ---
 *.orig
+.worktrees/
 
 # --- Windows ---
 Thumbs.db
