@@ -16,9 +16,10 @@ Import/export adapters translate external representations into the internal doma
 |--------|-----------|-------------|
 | Informal Markdown notes | v0.1 | Headings, lists, Workshop links/IDs, names, and attached prose without a mandatory template |
 | Steam Workshop IDs | v0.1 | Pasted or file-based IDs and supported Workshop URLs |
-| Native Workspace export | v0.1+ | Lossless JSON round-trip from canonical SQLite storage |
 
 Optional future sources (workshop metadata API, other tools' exports) belong in [future.md](future.md) until RFC-approved.
+
+Lossless Workspace JSON is handled by the separate backup/restore boundary, not by the RFC-0004 import candidate pipeline.
 
 ---
 
@@ -29,6 +30,8 @@ Optional future sources (workshop metadata API, other tools' exports) belong in 
 | Lossless Workspace JSON | Backup, transfer, inspection, version migration |
 | Markdown summary | Human-readable share in forums or repos |
 | ID list | Interop with external load-order tools |
+
+Lossless Workspace JSON restore is the inverse of full-Workspace export. It validates and replaces through RFC-0003's restore transaction; it is not a third v0.1 import adapter.
 
 Exports should be **lossless** for fields the companion owns (notes, tags, dependencies). Workshop-only metadata may be omitted if not stored locally.
 

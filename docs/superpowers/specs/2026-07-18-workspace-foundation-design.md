@@ -17,9 +17,14 @@ This slice does not implement import, Mod or Membership editing, JSON export or 
 - C# 14 with nullable reference types enabled;
 - Avalonia 12.1.0, with all Avalonia packages pinned to the same version;
 - `Microsoft.Data.Sqlite` 10.0.10 using direct parameterised SQL;
+- `Microsoft.Extensions.Logging.Abstractions` 10.0.10 as the application-facing logging contract;
+- `Microsoft.Extensions.Logging` 10.0.10 for Desktop composition;
+- Serilog 4.4.0, `Serilog.Extensions.Logging` 10.0.0, and `Serilog.Sinks.File` 7.0.0 confined to Infrastructure and Desktop composition;
 - xUnit v3 package 3.2.2 and `Microsoft.NET.Test.Sdk` 18.8.1 for automated tests.
 
 The application does not introduce Entity Framework Core or Dapper. Entity Framework adds change tracking and migration machinery that this explicit repository boundary does not require. Dapper reduces row-mapping boilerplate but does not provide compile-time SQL or column-rename safety, so it is deferred until repeated mapping code demonstrates a concrete need. Direct SQL remains isolated inside the Infrastructure project. NuGet package versions are centrally pinned and committed so restore is reproducible.
+
+Application and Desktop code depend only on Microsoft logging abstractions. Serilog configuration and sinks do not cross into Domain or Application. The file sink rolls daily or at 10 MiB, whichever comes first, and retains seven files. Installed logs live under `%LOCALAPPDATA%\TWW3 Companion\Logs\`; portable logs live under `Data\Logs\`.
 
 The installed and portable products publish self-contained for `win-x64`. Users do not separately install .NET, Avalonia, or SQLite.
 
@@ -157,7 +162,9 @@ The future restore design owns any lineage metadata linking a pre-restore backup
 
 ## Application Mode and Settings
 
-Installed mode uses `%LOCALAPPDATA%\TWW3 Companion\`: `settings.json`, `Backups\`, and the default `Workspaces\` destination live beneath it. Portable mode is selected by a fixed distribution marker named `portable.flag` beside the executable and uses `Data\settings.json`, `Data\Backups\`, and the default `Data\Workspaces\` destination beneath the portable folder.
+Installed mode uses `%LOCALAPPDATA%\TWW3 Companion\`: `settings.json`, `Backups\`, `Logs\`, and the default `Workspaces\` destination live beneath it. Portable mode is selected by a fixed distribution marker named `portable.flag` beside the executable and uses `Data\settings.json`, `Data\Backups\`, `Data\Logs\`, and the default `Data\Workspaces\` destination beneath the portable folder.
+
+On first run, the application creates the selected mode's missing managed directories before loading settings. It verifies that settings, backup, log, and default Workspace directories are writable using operation-owned temporary probes that are removed immediately. If any required managed directory cannot be created or written, startup displays a blocking error naming the mode and directory, suggests moving the portable folder or correcting permissions, and exits before opening user data. Read-only portable media is not a supported execution location.
 
 Portable mode does not write to installed-mode managed directories. Installed and portable settings do not share recent files, theme, placement, or backup retention state.
 
@@ -168,7 +175,9 @@ Settings are application data, not Workspace data. They contain:
 - window placement when valid;
 - ordered recent-Workspace paths with last-successful-open time.
 
-Settings writes use a sibling temporary file and atomic replacement. A missing settings file produces defaults. An invalid settings file produces defaults and a diagnostic without changing the invalid file. On the first later settings write, the application atomically renames the invalid file to `settings.invalid.<utc-timestamp>.json` before writing a new valid `settings.json`; failure to preserve it aborts the write. Invalid settings never prevent Workspace access.
+Settings writes use a sibling temporary file and atomic replacement. A missing settings file produces defaults. An invalid settings file produces defaults and a diagnostic without changing the invalid file. On the first later settings write, the application atomically renames the invalid file to `settings.invalid.<utc-timestamp>.json` before writing a new valid `settings.json`.
+
+If preservation or replacement fails, the application keeps the changed settings in memory for the current session, shows a persistent banner stating that settings will not survive restart, and offers Retry and Open Settings Folder actions. It never overwrites the invalid original or reports that settings were saved. Workspace access remains available when the managed directory itself passed startup validation.
 
 ## Single-Instance Startup
 
@@ -186,6 +195,8 @@ Home is the only complete screen in this slice. It exposes:
 - Open Workspace;
 - recent Workspaces with missing/unavailable state and a remove action;
 - System, Light, and Dark theme choices.
+
+RFC-0005 requires **Import into a new Workspace** on the completed v0.1 Home screen. That action is intentionally absent from this foundation slice because RFC-0004's importer and its domain tables arrive in the next vertical slice; this is sequencing, not a change to accepted v0.1 scope.
 
 Home and the Create/Open dialogs warn that opening the same live Workspace from multiple machines through OneDrive, Dropbox, or similar synchronisation is unsupported and can create conflicts or corruption. Until lossless JSON transfer ships, the current safe guidance is to close TWW3 Companion on every machine before manually copying a `.tww3c` file, then open only the completed local copy on one machine at a time.
 
@@ -222,7 +233,7 @@ Every lifecycle result identifies:
 - whether any persistent change committed;
 - a safe next action.
 
-Expected validation and environment failures are typed results rather than exceptions crossing into ViewModels. Unexpected exceptions are caught at the application boundary, logged without Workspace content by default, and converted to a generic failure result. Logs avoid unnecessary full paths and user-authored data.
+Expected validation and environment failures are typed results rather than exceptions crossing into ViewModels. Unexpected exceptions are caught at the application boundary, logged through `Microsoft.Extensions.Logging`, and converted to a generic failure result. Logs include event ID, severity, UTC timestamp, operation name, failure category, exception type, and stack trace where available. They exclude Workspace content, imported text, display names, Source References, filenames, and full user-selected paths by default; a per-session opaque identifier provides correlation when necessary.
 
 Cancellation before commit removes operation-owned temporary artifacts and reports no change. When schema creation, migration, or atomic replacement enters its non-cancellable section, the Cancel action disables and the operation status changes to **Finalizing — please wait**. Closing during this state explains why immediate exit is unavailable. The UI never reports completion until commit or rollback is known.
 
@@ -235,7 +246,8 @@ Cancellation before commit removes operation-owned temporary artifacts and repor
 - Home and shell ViewModel states and commands;
 - recent-list behavior;
 - installed/portable path selection;
-- theme and High Contrast precedence.
+- first-run managed-directory creation and read-only-location failure;
+- theme and High Contrast precedence;
 - multi-machine synchronisation warning copy and visibility.
 
 ### Infrastructure integration tests
@@ -249,7 +261,8 @@ Cancellation before commit removes operation-owned temporary artifacts and repor
 - migration commit and rollback;
 - SQLite-safe backup creation;
 - five-backup retention and protection of unrelated files;
-- atomic settings writes and invalid-settings recovery.
+- atomic settings writes and invalid-settings recovery;
+- logging retention, redaction, and installed/portable path isolation.
 
 ### Process and UI tests
 
@@ -288,3 +301,6 @@ The slice is complete when:
 - [.NET 10 downloads](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
 - [Avalonia 12 breaking changes](https://docs.avaloniaui.net/docs/avalonia12-breaking-changes)
 - [Microsoft.Data.Sqlite transactions](https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/transactions)
+- [Microsoft.Extensions.Logging.Abstractions](https://www.nuget.org/packages/Microsoft.Extensions.Logging.Abstractions/10.0.10)
+- [Serilog.Extensions.Logging](https://www.nuget.org/packages/Serilog.Extensions.Logging/10.0.0)
+- [Serilog.Sinks.File](https://www.nuget.org/packages/Serilog.Sinks.File/7.0.0)

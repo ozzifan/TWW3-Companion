@@ -76,8 +76,6 @@ Maintainers may request changes, ask for an RFC, or suggest splitting the PR. Pa
 
 ## Coding Standards
 
-*Detailed language-specific standards will be added when the implementation stack is chosen. Until then:*
-
 - Match existing style in the files you touch.
 - Prefer clear names over abbreviations.
 - Keep functions and modules focused; avoid premature abstraction.
@@ -85,7 +83,19 @@ Maintainers may request changes, ask for an RFC, or suggest splitting the PR. Pa
 - No secrets, API keys, or personal paths in commits.
 - Follow [.editorconfig](.editorconfig) (UTF-8, LF, spaces, trim trailing whitespace).
 
-When stack-specific formatters and linters are introduced, run them before pushing.
+For C#/.NET code:
+
+- use file-scoped namespaces matching the project and directory structure;
+- use PascalCase for types, public members, and filenames, and camelCase for locals and parameters;
+- suffix genuinely asynchronous methods with `Async` and accept `CancellationToken` where callers can cancel meaningful work;
+- enable nullable reference types and resolve warnings rather than suppressing them without a documented reason;
+- keep one primary type per file, with the filename matching that type;
+- require XML documentation only for public APIs whose intent or contract is not clear from naming and types;
+- use parameterised SQL only, confined to Infrastructure;
+- name tests by observable behaviour using `MethodOrScenario_Condition_ExpectedResult`;
+- keep test setup deterministic and isolate filesystem tests in operation-owned temporary directories.
+
+Run `dotnet format --verify-no-changes`, `dotnet build`, and `dotnet test` before pushing once the solution exists.
 
 ---
 

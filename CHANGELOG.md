@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README, roadmap, and architecture documents aligned with the accepted storage architecture and initial Windows target
 - Architecture, roadmap, project history, and examples guidance aligned with the accepted import architecture
 - README, roadmap, architecture, and project history aligned with the accepted UI architecture and completed v0.0.2 milestone
+- Contributor, schema, screenshot, import/export, and v0.1 slice guidance aligned for the start of implementation
 
 ### Removed
 
