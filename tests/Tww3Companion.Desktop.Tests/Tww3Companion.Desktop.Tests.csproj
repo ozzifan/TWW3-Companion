@@ -7,6 +7,7 @@
     <ProjectReference Include="..\..\src\Tww3Companion.Application\Tww3Companion.Application.csproj" />
     <ProjectReference Include="..\..\src\Tww3Companion.Domain\Tww3Companion.Domain.csproj" />
     <ProjectReference Include="..\..\src\Tww3Companion.Infrastructure\Tww3Companion.Infrastructure.csproj" />
+    <ProjectReference Include="..\Tww3Companion.SingleInstanceProbe\Tww3Companion.SingleInstanceProbe.csproj" ReferenceOutputAssembly="false" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

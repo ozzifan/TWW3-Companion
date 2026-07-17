@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tww3Companion.Desktop\Tww3Companion.Desktop.csproj" />
+    <ProjectReference Include="..\..\src\Tww3Companion.Infrastructure\Tww3Companion.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
