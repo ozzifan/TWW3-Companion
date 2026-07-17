@@ -33,14 +33,64 @@ public sealed class WorkspaceFileValidatorTests
 
     [Theory]
     [InlineData("UPDATE application_metadata SET schema_version=2", "workspace.schema.newer")]
+    [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET schema_version=0", "workspace.file.invalid")]
+    [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET application_id='forged'", "workspace.file.invalid")]
     [InlineData("UPDATE workspace SET id='invalid'", "workspace.identity.invalid")]
+    [InlineData("UPDATE workspace SET id='12345678-1234-4ABC-8DEF-1234567890AB'", "workspace.identity.invalid")]
     [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE workspace SET display_name='   '", "workspace.identity.invalid")]
+    [InlineData("UPDATE workspace SET created_utc='2026-07-18T01:02:03.0000000+01:00'", "workspace.identity.invalid")]
     public async Task Open_RejectsInvalidMetadata(string mutation, string code)
     {
         using var directory = new TemporaryDirectory();
         var path = await CreateValidAsync(directory.Path);
         await ExecuteAsync(path, mutation);
         await AssertCodeAsync(path, code);
+    }
+
+    [Theory]
+    [InlineData("DELETE FROM schema_migrations", "workspace.file.invalid")]
+    [InlineData("UPDATE schema_migrations SET applied_utc='not-a-timestamp'", "workspace.file.invalid")]
+    [InlineData("UPDATE schema_migrations SET version=2", "workspace.file.invalid")]
+    [InlineData("CREATE TABLE unexpected(value TEXT)", "workspace.file.invalid")]
+    [InlineData("ALTER TABLE workspace ADD COLUMN forged TEXT", "workspace.file.invalid")]
+    public async Task Open_RejectsInvalidMigrationOrStructure(string mutation, string code)
+    {
+        using var directory = new TemporaryDirectory();
+        var path = await CreateValidAsync(directory.Path);
+        await ExecuteAsync(path, mutation);
+        await AssertCodeAsync(path, code);
+    }
+
+    [Fact]
+    public async Task Open_RejectsForeignKeyViolations()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = await CreateValidAsync(directory.Path);
+        await ExecuteAsync(path, """
+            PRAGMA foreign_keys=OFF;
+            ALTER TABLE workspace RENAME TO original_workspace;
+            CREATE TABLE workspace (
+                singleton INTEGER PRIMARY KEY,
+                id TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                created_utc TEXT NOT NULL,
+                modified_utc TEXT NOT NULL,
+                FOREIGN KEY (singleton) REFERENCES application_metadata(singleton));
+            INSERT INTO workspace SELECT 2,id,display_name,created_utc,modified_utc FROM original_workspace;
+            DROP TABLE original_workspace;
+            """);
+
+        await AssertCodeAsync(path, "workspace.file.corrupt");
+    }
+
+    [Fact]
+    public async Task Open_WhenFileIsExclusivelyLocked_ReturnsLockedCode()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = await CreateValidAsync(directory.Path);
+        await using var locked = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        await AssertCodeAsync(path, "workspace.file.locked");
     }
 
     [Fact]

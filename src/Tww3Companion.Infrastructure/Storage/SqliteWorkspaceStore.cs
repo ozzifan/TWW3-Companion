@@ -12,12 +12,17 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
     private readonly SqliteConnectionFactory connectionFactory;
     private readonly WorkspaceFileValidator validator;
     private readonly IAtomicFileSystem fileSystem;
+    private readonly Action<string> deleteOwnedFile;
 
-    public SqliteWorkspaceStore(SqliteConnectionFactory? connectionFactory = null, IAtomicFileSystem? fileSystem = null)
+    public SqliteWorkspaceStore(
+        SqliteConnectionFactory? connectionFactory = null,
+        IAtomicFileSystem? fileSystem = null,
+        Action<string>? deleteOwnedFile = null)
     {
         this.connectionFactory = connectionFactory ?? new();
         validator = new(this.connectionFactory);
         this.fileSystem = fileSystem ?? new AtomicFileSystem();
+        this.deleteOwnedFile = deleteOwnedFile ?? File.Delete;
     }
 
     public async Task<OperationResult<Workspace>> CreateAsync(string path, Workspace workspace, CancellationToken token)
@@ -37,7 +42,12 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
         catch (IOException) { return WorkspaceFileValidator.Failure("workspace.file.invalid", "The destination could not be created without overwriting a file."); }
         catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6) { return WorkspaceFileValidator.Failure("workspace.file.locked", "The destination is locked."); }
         catch (SqliteException) { return WorkspaceFileValidator.Failure("workspace.file.invalid", "The Workspace could not be created."); }
-        finally { File.Delete(temporaryPath); }
+        finally
+        {
+            try { deleteOwnedFile(temporaryPath); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     public Task<OperationResult<Workspace>> OpenAsync(string path, CancellationToken token) => validator.OpenAsync(path, token);

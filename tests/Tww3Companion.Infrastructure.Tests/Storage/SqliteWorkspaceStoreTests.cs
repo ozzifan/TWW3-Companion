@@ -49,6 +49,37 @@ public sealed class SqliteWorkspaceStoreTests
         Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
     }
 
+    [Fact]
+    public async Task Create_WhenCancelled_RemovesOwnedTemporaryFile()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "cancelled.tww3c");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new SqliteWorkspaceStore().CreateAsync(path, CreateWorkspace("Name"), cancellation.Token));
+
+        Assert.False(File.Exists(path));
+        Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task Create_WhenMoveAndCleanupFail_ReturnsPrimaryTypedFailure()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "failed.tww3c");
+        var store = new SqliteWorkspaceStore(
+            fileSystem: new MoveFailingFileSystem(),
+            deleteOwnedFile: _ => throw new UnauthorizedAccessException("cleanup denied"));
+
+        var failure = Assert.IsType<OperationResult<Workspace>.Failure>(
+            await store.CreateAsync(path, CreateWorkspace("Name"), TestContext.Current.CancellationToken));
+
+        Assert.Equal("workspace.file.invalid", failure.Error.Code);
+        Assert.False(failure.Error.PersistentChangeCommitted);
+    }
+
     private static Workspace CreateWorkspace(string name)
     {
         var id = Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse("12345678-1234-4abc-8def-1234567890ab")).Value;
@@ -58,6 +89,13 @@ public sealed class SqliteWorkspaceStoreTests
             new DateTimeOffset(2026, 7, 18, 1, 2, 3, TimeSpan.Zero),
             new DateTimeOffset(2026, 7, 18, 4, 5, 6, TimeSpan.Zero))).Value;
     }
+}
+
+internal sealed class MoveFailingFileSystem : Tww3Companion.Infrastructure.Settings.IAtomicFileSystem
+{
+    public Stream CreateWriteProbe(string directory) => throw new NotSupportedException();
+    public void MoveWithoutOverwrite(string source, string destination) => throw new IOException("move failed");
+    public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token) => throw new NotSupportedException();
 }
 
 internal sealed class TemporaryDirectory : IDisposable
