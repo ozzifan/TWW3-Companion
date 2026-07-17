@@ -13,7 +13,7 @@ TWW3 Companion is a **desktop knowledge-management application** for Warhammer I
 3. **Boundaries** — how data enters and leaves the app ([import-export.md](import-export.md))
 4. **Evolution** — deferred and exploratory ideas ([future.md](future.md))
 
-The language and UI framework remain undecided. [RFC-0003](../../RFC/RFC-0003.md) selects embedded SQLite as canonical Workspace storage with lossless JSON export. All remaining technology choices must be approved in **v0.0.2** and recorded via RFC or [decisions/](../../decisions/) before code lands in `src/`.
+The initial application uses C# on a supported .NET long-term-support release, Avalonia's desktop target, and MVVM. [RFC-0003](../../RFC/RFC-0003.md) selects embedded SQLite as canonical Workspace storage with lossless JSON export, while [RFC-0005](../../RFC/RFC-0005.md) defines the presentation and UI verification contract. Exact dependency versions and the .NET SQLite data-access library remain implementation-plan decisions that must be approved before their application code lands.
 
 ---
 
@@ -33,7 +33,7 @@ The language and UI framework remain undecided. [RFC-0003](../../RFC/RFC-0003.md
 
 ```
 ┌─────────────────────────────────────────┐
-│  UI (views, search, editors)            │
+│  Avalonia UI (Views and ViewModels)     │
 ├─────────────────────────────────────────┤
 │  Application services                   │
 │  (import, export, health, search index) │
@@ -69,5 +69,6 @@ Imports use the deterministic staged pipeline accepted in [RFC-0004](../../RFC/R
 - [RFC-0002: Collection Domain Model](../../RFC/RFC-0002.md)
 - [RFC-0003: Storage Architecture](../../RFC/RFC-0003.md)
 - [RFC-0004: Import Architecture](../../RFC/RFC-0004.md)
+- [RFC-0005: Initial UI Architecture](../../RFC/RFC-0005.md)
 - [Glossary](../glossary.md)
 - [ROADMAP.md](../../ROADMAP.md)

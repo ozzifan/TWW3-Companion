@@ -27,7 +27,7 @@ Making the project open source followed naturally from the problem domain. Mod c
 
 ## Current Phase
 
-**v0.0.1** (repository bootstrap) is complete. The project is in **v0.0.2 — Architecture complete**. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target, and [RFC-0004](../RFC/RFC-0004.md) established deterministic staged import. Initial UI architecture remains to be approved before any code lands in `src/`. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
+**v0.0.1** (repository bootstrap) and **v0.0.2 — Architecture complete** are complete. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target, [RFC-0004](../RFC/RFC-0004.md) established deterministic staged import, and [RFC-0005](../RFC/RFC-0005.md) established the C#/.NET, Avalonia, and MVVM user-interface architecture. The project can now proceed toward the v0.1 implementation plan, including approval of pinned dependency versions and the .NET SQLite data-access library before relevant code lands. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
 
 ## Looking Ahead
 

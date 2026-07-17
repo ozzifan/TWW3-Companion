@@ -24,14 +24,14 @@ No application code in this milestone.
 
 ## v0.0.2 — Architecture complete
 
-**Status:** In progress
+**Status:** Complete
 
 Implementation must not begin until the following are approved by the Product Owner:
 
 - Core domain model approved ([RFC-0002](RFC/RFC-0002.md))
 - Import architecture approved ([RFC-0004](RFC/RFC-0004.md))
 - Storage architecture approved ([RFC-0003](RFC/RFC-0003.md))
-- Initial UI architecture approved
+- Initial UI architecture approved ([RFC-0005](RFC/RFC-0005.md))
 
 No application code in this milestone.
 
@@ -43,7 +43,7 @@ No application code in this milestone.
 
 *Requires v0.0.2 approval.*
 
-The initial release targets Windows through a one-step installer and a portable ZIP. Other desktop platforms are deferred.
+The initial release uses C#/.NET, Avalonia, and MVVM on Windows 10 or later x64 through a self-contained one-step installer and portable ZIP. Other platforms are deferred. The minimum supported display is 1280 × 720 at 100% Windows scaling, or enough effective space for a 1024 × 640 logical-pixel window at increased scaling.
 
 - Markdown importer
 - Workshop ID importer

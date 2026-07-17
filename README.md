@@ -4,7 +4,7 @@
 
 TWW3 Companion is an open-source desktop application for players who run complex mod lists. It focuses on **knowledge management** — helping you document what you have, why it is there, how mods relate to each other, and whether your collections are healthy — rather than replacing the game's mod launcher or workshop tools.
 
-The initial release targets **Windows** through a one-step installer and a portable ZIP. Other desktop platforms are deferred.
+The initial release is a self-contained **Windows 10-or-later x64** desktop application built with **C#/.NET, Avalonia, and MVVM**. It is distributed through a one-step installer and a portable ZIP; other platforms are deferred. The minimum supported display is 1280 × 720 at 100% Windows scaling, or enough effective space for a 1024 × 640 logical-pixel window at increased scaling.
 
 ## Disclaimer
 
@@ -74,8 +74,8 @@ High-level milestones are maintained in [ROADMAP.md](ROADMAP.md). Architecture m
 | Version | Focus |
 |---------|--------|
 | **v0.0.1** | Repository bootstrap, documentation, standards |
-| **v0.0.2** | Architecture complete (domain, import, storage, UI) |
-| **v0.1** | Windows prototype — importers and embedded SQLite persistence |
+| **v0.0.2** | Architecture complete — domain, import, storage, and UI approved |
+| **v0.1** | Avalonia Windows prototype — importers and embedded SQLite persistence |
 | **v0.2** | Search, tags, categories, notes |
 | **v0.3** | Profiles — per-Collection play configurations and campaign presets |
 | **v0.5** | Dependency tracking, compatibility notes, health score |
@@ -95,7 +95,7 @@ Design documents live under [docs/architecture/](docs/architecture/):
 - [Import & export](docs/architecture/import-export.md)
 - [Future considerations](docs/architecture/future.md)
 
-Project vision and problem framing: [RFC/RFC-0001.md](RFC/RFC-0001.md). The accepted domain, storage, and import models are defined in [RFC/RFC-0002.md](RFC/RFC-0002.md), [RFC/RFC-0003.md](RFC/RFC-0003.md), and [RFC/RFC-0004.md](RFC/RFC-0004.md).
+Project vision and problem framing: [RFC/RFC-0001.md](RFC/RFC-0001.md). The accepted domain, storage, import, and UI models are defined in [RFC/RFC-0002.md](RFC/RFC-0002.md), [RFC/RFC-0003.md](RFC/RFC-0003.md), [RFC/RFC-0004.md](RFC/RFC-0004.md), and [RFC/RFC-0005.md](RFC/RFC-0005.md).
 
 ---
 
