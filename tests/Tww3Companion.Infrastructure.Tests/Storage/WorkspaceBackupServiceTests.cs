@@ -19,25 +19,28 @@ public sealed class WorkspaceBackupServiceTests
 
         var result = Assert.IsType<OperationResult<string>.Success>(await service.CreateAsync(source, SchemaVersionZeroFixture.WorkspaceId, BackupReason.PreMigration, TestContext.Current.CancellationToken));
 
-        Assert.Equal(Path.Combine(directory.Path, "Backups", SchemaVersionZeroFixture.WorkspaceId, "20260718T010203456Z.pre-migration.tww3c"), result.Value);
+        Assert.Equal(Path.Combine(directory.Path, "Backups", SchemaVersionZeroFixture.WorkspaceId, $"{SchemaVersionZeroFixture.WorkspaceId}.20260718T010203456Z.pre-migration.tww3c"), result.Value);
         await using var backup = await new Tww3Companion.Infrastructure.Storage.SqliteConnectionFactory().OpenAsync(result.Value, TestContext.Current.CancellationToken);
         await using var command = backup.CreateCommand(); command.CommandText = "SELECT schema_version FROM application_metadata";
         Assert.Equal(0L, await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task Cleanup_KeepsFiveManagedBackupsAndNeverDeletesUnrelatedFiles()
+    public async Task Cleanup_KeepsFiveBackupsPerReasonAndNeverDeletesUnrelatedFiles()
     {
         using var directory = new TemporaryDirectory();
         var paths = ManagedPaths.ForRoot(ApplicationMode.Portable, directory.Path);
         var folder = Path.Combine(paths.BackupsDirectory, SchemaVersionZeroFixture.WorkspaceId);
         Directory.CreateDirectory(folder);
-        for (var i = 0; i < 7; i++) await File.WriteAllTextAsync(Path.Combine(folder, $"20260718T01020{i}000Z.pre-migration.tww3c"), "x", TestContext.Current.CancellationToken);
+        foreach (var reason in new[] { "pre-migration", "pre-restore" })
+            for (var i = 0; i < 7; i++)
+                await File.WriteAllTextAsync(Path.Combine(folder, $"{SchemaVersionZeroFixture.WorkspaceId}.20260718T01020{i}000Z.{reason}.tww3c"), "x", TestContext.Current.CancellationToken);
         var unrelated = Path.Combine(folder, "notes.tww3c"); await File.WriteAllTextAsync(unrelated, "keep", TestContext.Current.CancellationToken);
 
         await new WorkspaceBackupService(new(), paths, new FixedClock(DateTimeOffset.UtcNow)).CleanupAsync(SchemaVersionZeroFixture.WorkspaceId, TestContext.Current.CancellationToken);
 
         Assert.Equal(5, Directory.GetFiles(folder, "*.pre-migration.tww3c").Length);
+        Assert.Equal(5, Directory.GetFiles(folder, "*.pre-restore.tww3c").Length);
         Assert.True(File.Exists(unrelated));
     }
 

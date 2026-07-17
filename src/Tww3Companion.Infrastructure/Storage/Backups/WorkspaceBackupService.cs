@@ -36,7 +36,7 @@ public sealed partial class WorkspaceBackupService
             return Failure("workspace.backup.identity.invalid", "The Workspace identity is invalid.");
 
         var directory = Path.Combine(managedPaths.BackupsDirectory, workspaceUuid);
-        var destination = Path.Combine(directory, $"{clock.UtcNow.UtcDateTime:yyyyMMdd'T'HHmmssfff'Z'}.{Reason(reason)}.tww3c");
+        var destination = Path.Combine(directory, $"{workspaceUuid}.{clock.UtcNow.UtcDateTime:yyyyMMdd'T'HHmmssfff'Z'}.{Reason(reason)}.tww3c");
         try
         {
             token.ThrowIfCancellationRequested();
@@ -67,10 +67,13 @@ public sealed partial class WorkspaceBackupService
         var directory = Path.Combine(managedPaths.BackupsDirectory, workspaceUuid);
         if (!Directory.Exists(directory)) return Task.CompletedTask;
         var attributable = Directory.EnumerateFiles(directory)
-            .Where(path => IsManagedBackupName(Path.GetFileName(path)))
-            .OrderBy(path => Path.GetFileName(path), StringComparer.Ordinal)
-            .ToArray();
-        foreach (var path in attributable.Take(Math.Max(0, attributable.Length - 5)))
+            .Select(path => (Path: path, Match: ManagedBackupName().Match(Path.GetFileName(path))))
+            .Where(item => IsManagedBackupName(item.Match, workspaceUuid))
+            .GroupBy(item => item.Match.Groups[3].Value, StringComparer.Ordinal);
+        foreach (var path in attributable.SelectMany(group => group
+                     .OrderBy(item => item.Match.Groups[2].Value, StringComparer.Ordinal)
+                     .Take(Math.Max(0, group.Count() - 5)))
+                 .Select(item => item.Path))
         {
             token.ThrowIfCancellationRequested();
             File.Delete(path);
@@ -81,10 +84,10 @@ public sealed partial class WorkspaceBackupService
     private static bool IsCanonicalUuid(string value) =>
         Guid.TryParseExact(value, "D", out var parsed) && value == parsed.ToString("D", CultureInfo.InvariantCulture);
 
-    private static bool IsManagedBackupName(string name) =>
-        ManagedBackupName().Match(name) is { Success: true } match &&
+    private static bool IsManagedBackupName(Match match, string workspaceUuid) =>
+        match.Success && match.Groups[1].Value == workspaceUuid &&
         DateTimeOffset.TryParseExact(
-            match.Groups[1].Value,
+            match.Groups[2].Value,
             "yyyyMMdd'T'HHmmssfff'Z'",
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
@@ -100,6 +103,6 @@ public sealed partial class WorkspaceBackupService
     private static OperationResult<string>.Failure Failure(string code, string message) =>
         new(new OperationError(code, message, false, "Return Home and retry the operation."));
 
-    [GeneratedRegex(@"^(\d{8}T\d{9}Z)\.(pre-migration|pre-restore)\.tww3c$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(\d{8}T\d{9}Z)\.(pre-migration|pre-restore)\.tww3c$", RegexOptions.CultureInvariant)]
     private static partial Regex ManagedBackupName();
 }

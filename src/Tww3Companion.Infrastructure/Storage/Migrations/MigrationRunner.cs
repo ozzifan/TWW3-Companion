@@ -103,11 +103,65 @@ public sealed class MigrationRunner(
 
     private static async Task ValidateBeforeCommitAsync(SqliteConnection connection, SqliteTransaction transaction, int target)
     {
+        await using (var version = connection.CreateCommand())
+        {
+            version.Transaction = transaction; version.CommandText = "SELECT (SELECT schema_version FROM application_metadata WHERE singleton=1), (SELECT MAX(version) FROM schema_migrations);";
+            await using var reader = await version.ExecuteReaderAsync(CancellationToken.None);
+            if (!await reader.ReadAsync() || reader.GetInt32(0) != target || reader.GetInt32(1) != target)
+                throw new InvalidOperationException("Migration validation failed");
+        }
+        var tables = new List<string>();
+        await using (var structure = connection.CreateCommand())
+        {
+            structure.Transaction = transaction; structure.CommandText = "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;";
+            await using var reader = await structure.ExecuteReaderAsync(CancellationToken.None);
+            while (await reader.ReadAsync()) tables.Add(reader.GetString(0));
+        }
+        if (!tables.SequenceEqual(["application_metadata", "schema_migrations", "workspace"]))
+            throw new InvalidOperationException("Migration structure is invalid");
+        foreach (var (table, expected) in new[]
+                 {
+                     ("application_metadata", new[] { "singleton|INTEGER|0|1", "application_id|TEXT|1|0", "schema_version|INTEGER|1|0" }),
+                     ("schema_migrations", new[] { "version|INTEGER|0|1", "applied_utc|TEXT|1|0" }),
+                     ("workspace", new[] { "singleton|INTEGER|0|1", "id|TEXT|1|0", "display_name|TEXT|1|0", "created_utc|TEXT|1|0", "modified_utc|TEXT|1|0" })
+                 })
+            if (!await HasColumnsAsync(connection, transaction, table, expected))
+                throw new InvalidOperationException("Migration columns are invalid");
+        if (!await HasRequiredConstraintsAsync(connection, transaction))
+            throw new InvalidOperationException("Migration constraints are invalid");
+        await using (var check = connection.CreateCommand())
+        {
+            check.Transaction = transaction; check.CommandText = "PRAGMA integrity_check; PRAGMA foreign_key_check;";
+            await using var reader = await check.ExecuteReaderAsync(CancellationToken.None);
+            if (!await reader.ReadAsync() || reader.GetString(0) != "ok" || await reader.ReadAsync())
+                throw new InvalidOperationException("Migration integrity check failed");
+            if (!await reader.NextResultAsync() || await reader.ReadAsync())
+                throw new InvalidOperationException("Migration foreign keys are invalid");
+        }
+    }
+
+    private static async Task<bool> HasColumnsAsync(SqliteConnection connection, SqliteTransaction transaction, string table, IReadOnlyList<string> expected)
+    {
+        await using var command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = $"PRAGMA table_info({table});";
+        await using var reader = await command.ExecuteReaderAsync(CancellationToken.None); var actual = new List<string>();
+        while (await reader.ReadAsync()) actual.Add($"{reader.GetString(1)}|{reader.GetString(2)}|{reader.GetInt32(3)}|{reader.GetInt32(5)}");
+        return actual.SequenceEqual(expected);
+    }
+
+    private static async Task<bool> HasRequiredConstraintsAsync(SqliteConnection connection, SqliteTransaction transaction)
+    {
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
-        command.CommandText = "SELECT (SELECT schema_version FROM application_metadata WHERE singleton=1), (SELECT MAX(version) FROM schema_migrations);";
-        await using var reader = await command.ExecuteReaderAsync(CancellationToken.None);
-        if (!await reader.ReadAsync() || reader.GetInt32(0) != target || reader.GetInt32(1) != target)
-            throw new InvalidOperationException("Migration validation failed");
+        command.CommandText = "SELECT name, sql FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%';";
+        await using var reader = await command.ExecuteReaderAsync(CancellationToken.None); var sql = new Dictionary<string, string>();
+        while (await reader.ReadAsync()) sql[reader.GetString(0)] = reader.GetString(1).Replace(" ", "", StringComparison.Ordinal).ToLowerInvariant();
+        return sql["application_metadata"].Contains("check(singleton=1)", StringComparison.Ordinal) &&
+               sql["application_metadata"].Contains("check(application_id='com.ozzifan.tww3-companion.workspace')", StringComparison.Ordinal) &&
+               sql["application_metadata"].Contains("check(schema_version>=1)", StringComparison.Ordinal) &&
+               sql["schema_migrations"].Contains("check(version>=1)", StringComparison.Ordinal) &&
+               sql["workspace"].Contains("check(singleton=1)", StringComparison.Ordinal) &&
+               sql["workspace"].Contains("idtextnotnullunique", StringComparison.Ordinal) &&
+               sql["workspace"].Contains("check(length(trim(display_name))>0)", StringComparison.Ordinal) &&
+               sql["workspace"].Contains("check(modified_utc>=created_utc)", StringComparison.Ordinal);
     }
 
     private static OperationResult<int>.Failure Failure(string code, string message, bool committed = false) =>

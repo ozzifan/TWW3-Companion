@@ -42,6 +42,21 @@ public sealed class MigrationRunnerTests
     }
 
     [Fact]
+    public async Task Migrate_WhenResultingStructureIsInvalid_RollsBackOriginalAndRetainsUsableBackup()
+    {
+        using var directory = new TemporaryDirectory(); var path = Path.Combine(directory.Path, "old.tww3c");
+        await SchemaVersionZeroFixture.CreateAsync(path);
+
+        var failure = Assert.IsType<OperationResult<int>.Failure>(await CreateRunner(directory.Path, new InvalidStructureMigration()).MigrateAsync(path, 1, CancellationToken.None));
+
+        Assert.Equal("workspace.migration.failed", failure.Error.Code);
+        Assert.Equal(0L, await ScalarAsync(path, "SELECT schema_version FROM application_metadata"));
+        Assert.Equal(0L, await ScalarAsync(path, "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='unexpected'"));
+        var backup = Assert.Single(Directory.GetFiles(Path.Combine(directory.Path, "Backups", SchemaVersionZeroFixture.WorkspaceId)));
+        Assert.Equal(0L, await ScalarAsync(backup, "SELECT schema_version FROM application_metadata"));
+    }
+
+    [Fact]
     public async Task Migrate_RejectsGapWithoutCreatingBackup()
     {
         using var directory = new TemporaryDirectory(); var path = Path.Combine(directory.Path, "old.tww3c"); await SchemaVersionZeroFixture.CreateAsync(path);
@@ -60,6 +75,24 @@ public sealed class MigrationRunnerTests
     {
         public int FromVersion => 0; public int ToVersion => 1;
         public async Task ApplyAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken token)
-        { await using var command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = "CREATE TABLE migrated(value TEXT);"; await command.ExecuteNonQueryAsync(token); if (fail) throw new InvalidOperationException("expected"); }
+        { await ApplyValidStructureAsync(connection, transaction, token); if (fail) throw new InvalidOperationException("expected"); }
+    }
+    private sealed class InvalidStructureMigration : IMigration
+    {
+        public int FromVersion => 0; public int ToVersion => 1;
+        public async Task ApplyAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken token)
+        { await ApplyValidStructureAsync(connection, transaction, token); await using var command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = "CREATE TABLE unexpected(value TEXT);"; await command.ExecuteNonQueryAsync(token); }
+    }
+
+    private static async Task ApplyValidStructureAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken token)
+    {
+        await using var command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = """
+            ALTER TABLE application_metadata RENAME TO old_application_metadata;
+            CREATE TABLE application_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1), application_id TEXT NOT NULL CHECK(application_id='com.ozzifan.tww3-companion.workspace'), schema_version INTEGER NOT NULL CHECK(schema_version>=1));
+            INSERT INTO application_metadata SELECT singleton, application_id, 1 FROM old_application_metadata;
+            DROP TABLE old_application_metadata;
+            """;
+        await command.ExecuteNonQueryAsync(token);
     }
 }
