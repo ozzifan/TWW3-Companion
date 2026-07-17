@@ -6,7 +6,7 @@
 
 **Architecture:** Four production projects enforce inward dependencies: Desktop and Infrastructure depend on Application and Domain, while Domain is independent. Application defines lifecycle ports and typed results; Infrastructure implements SQLite, filesystem, settings, logging, backup, and Windows process behaviour; Desktop composes them through Avalonia MVVM.
 
-**Tech Stack:** .NET SDK 10.0.302, C# 14, `net10.0`, Avalonia 12.1.0, Microsoft.Data.Sqlite 10.0.10, Microsoft.Extensions.Logging 10.0.10, Serilog 4.4.0, xUnit v3 3.2.2, VSTest adapter 3.1.5.
+**Tech Stack:** .NET SDK 10.0.302, C# 14, `net10.0`, Avalonia 12.1.0, Microsoft.Data.Sqlite.Core 10.0.10 with SQLitePCLRaw.bundle_winsqlite3 2.1.11, Microsoft.Extensions.Logging 10.0.10, Serilog 4.4.0, xUnit v3 3.2.2, VSTest adapter 3.1.5.
 
 **Design:** [Workspace Foundation Design](../specs/2026-07-18-workspace-foundation-design.md)
 
@@ -119,7 +119,8 @@ Write `Directory.Packages.props` with central package management enabled and the
     <PackageVersion Include="Avalonia" Version="12.1.0" />
     <PackageVersion Include="Avalonia.Desktop" Version="12.1.0" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.0" />
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="10.0.10" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_winsqlite3" Version="2.1.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageVersion Include="Serilog" Version="4.4.0" />
@@ -159,7 +160,8 @@ Add exact package-reference ownership without versions:
 <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
 
 <!-- Tww3Companion.Infrastructure -->
-<PackageReference Include="Microsoft.Data.Sqlite" />
+<PackageReference Include="Microsoft.Data.Sqlite.Core" />
+<PackageReference Include="SQLitePCLRaw.bundle_winsqlite3" />
 <PackageReference Include="Serilog" />
 <PackageReference Include="Serilog.Extensions.Logging" />
 <PackageReference Include="Serilog.Sinks.File" />
@@ -496,7 +498,7 @@ git commit -m "feat: add managed settings and logging infrastructure"
 
 - [ ] **Step 1: Write failing SQLite integration tests**
 
-Verify every opened connection returns `1` for `PRAGMA foreign_keys`; schema v1 contains only `application_metadata`, `schema_migrations`, and `workspace`; create/open round-trips identity and timestamps; existing targets are untouched; unrelated SQLite, corrupt, duplicate-row, invalid UUID, blank-name, and newer-schema files return distinct codes.
+Verify the Windows SQLite provider is initialized before the first connection; every opened connection returns `1` for `PRAGMA foreign_keys`; schema v1 contains only `application_metadata`, `schema_migrations`, and `workspace`; create/open round-trips identity and timestamps; existing targets are untouched; unrelated SQLite, corrupt, duplicate-row, invalid UUID, blank-name, and newer-schema files return distinct codes.
 
 - [ ] **Step 2: Run tests and confirm red**
 
@@ -506,7 +508,7 @@ Expected: compilation fails for missing storage classes.
 
 - [ ] **Step 3: Implement the connection factory and exact schema**
 
-Open connections through one factory and execute `PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;` before returning them.
+Initialize the bundled provider once through `SQLitePCL.Batteries_V2.Init()` before opening any connection. This selects Windows 10-or-later's serviced native `winsqlite3.dll`; users do not install a separate SQLite runtime. Open connections through one factory and execute `PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;` before returning them.
 
 Use this schema inside one transaction:
 

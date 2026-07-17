@@ -2,7 +2,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Tww3Companion.Application\Tww3Companion.Application.csproj" />
     <ProjectReference Include="..\Tww3Companion.Domain\Tww3Companion.Domain.csproj" />
-    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+    <PackageReference Include="SQLitePCLRaw.bundle_winsqlite3" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Logging" />
     <PackageReference Include="Serilog.Sinks.File" />

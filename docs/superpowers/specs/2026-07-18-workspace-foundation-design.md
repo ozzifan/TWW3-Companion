@@ -16,8 +16,8 @@ This slice does not implement import, Mod or Membership editing, JSON export or 
 - target framework `net10.0`;
 - C# 14 with nullable reference types enabled;
 - Avalonia 12.1.0, with all Avalonia packages pinned to the same version;
-- `Microsoft.Data.Sqlite` 10.0.10 using direct parameterised SQL;
-- `SQLitePCLRaw.lib.e_sqlite3` 2.1.12 transitively pinned to avoid the high-severity SQLite vulnerability in versions through 2.1.11;
+- `Microsoft.Data.Sqlite.Core` 10.0.10 using direct parameterised SQL;
+- `SQLitePCLRaw.bundle_winsqlite3` 2.1.11, initialized once through `SQLitePCL.Batteries_V2.Init()` before any connection is opened, so Windows 10 or later services the native `winsqlite3.dll` library without bundling the vulnerable `e_sqlite3` native package;
 - `Microsoft.Extensions.Logging.Abstractions` 10.0.10 as the application-facing logging contract;
 - `Microsoft.Extensions.Logging` 10.0.10 for Desktop composition;
 - Serilog 4.4.0, `Serilog.Extensions.Logging` 10.0.0, and `Serilog.Sinks.File` 7.0.0 confined to Infrastructure and Desktop composition;
@@ -27,7 +27,7 @@ The application does not introduce Entity Framework Core or Dapper. Entity Frame
 
 Application and Desktop code depend only on Microsoft logging abstractions. Serilog configuration and sinks do not cross into Domain or Application. The file sink rolls daily or at 10 MiB, whichever comes first, and retains seven files. Installed logs live under `%LOCALAPPDATA%\TWW3 Companion\Logs\`; portable logs live under `Data\Logs\`.
 
-The installed and portable products publish self-contained for `win-x64`. Users do not separately install .NET, Avalonia, or SQLite.
+The installed and portable products publish self-contained for `win-x64`. Users do not separately install .NET, Avalonia, or SQLite; the supported Windows baseline supplies and services the native SQLite library.
 
 ## Solution Boundaries
 
@@ -47,7 +47,7 @@ Application results distinguish success, validation failure, inaccessible path, 
 
 Implements SQLite storage, schema creation and migration, managed backups, application settings, installed/portable paths, filesystem operations, and the Windows single-instance lock.
 
-Only this project references `Microsoft.Data.Sqlite`. SQL and SQLite-specific types do not cross its public boundary.
+Only this project references `Microsoft.Data.Sqlite.Core` and the Windows SQLite provider bundle. SQL and SQLite-specific types do not cross its public boundary.
 
 ### `Tww3Companion.Desktop`
 
