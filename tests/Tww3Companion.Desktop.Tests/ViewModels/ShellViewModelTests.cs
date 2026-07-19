@@ -11,13 +11,13 @@ public sealed class ShellViewModelTests
         var subject = new ShellViewModel();
 
         Assert.Equal(ShellScreen.Home, subject.CurrentScreen);
-        Assert.Equal(["Mod Library", "Collections"], subject.WorkspaceDestinations);
-        Assert.DoesNotContain(subject.WorkspaceDestinations, destination =>
+        Assert.Equal(["Mod Library", "Collections"], subject.Workspace.WorkspaceDestinations);
+        Assert.DoesNotContain(subject.Workspace.WorkspaceDestinations, destination =>
             destination.Contains("Import", StringComparison.OrdinalIgnoreCase)
             || destination.Contains("Search", StringComparison.OrdinalIgnoreCase)
             || destination.Contains("Profile", StringComparison.OrdinalIgnoreCase)
             || destination.Contains("Health", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("This Workspace contains no Mods or Collections yet. No data has been added.", subject.EmptyStateMessage);
+        Assert.Equal("This Workspace contains no Mods or Collections yet. No data has been added.", subject.Workspace.EmptyStateMessage);
     }
 
     [Fact]
@@ -56,11 +56,12 @@ public sealed class ShellViewModelTests
     [Fact]
     public void WorkspaceAndReturnHomeActionsChangeScreen()
     {
-        var subject = new ShellViewModel();
+        var subject = ShellViewModel.CreateForTest();
 
         subject.OpenWorkspace();
         Assert.Equal(ShellScreen.Workspace, subject.CurrentScreen);
 
+        subject.CompleteWorkspaceDisposalForTest();
         subject.ReturnHome();
         Assert.Equal(ShellScreen.Home, subject.CurrentScreen);
     }
