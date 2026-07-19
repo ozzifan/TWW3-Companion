@@ -35,6 +35,8 @@ Excluded:
 
 `ShellViewModel` is the single owner of this screen state. It exposes the commands and properties needed by the Home view and the workspace shell, and it remains the state source for theme and high-contrast precedence.
 
+The shared model is intentionally broader than Home alone. That is the tradeoff for keeping startup and navigation in one place during this slice.
+
 `HomeView` is a nested child view. It binds to the shared shell model and only renders the Home surface:
 
 - create workspace
@@ -55,6 +57,8 @@ Successful create/open transitions to the workspace shell. Failures stay on Home
 
 Recents remain visible even when some entries are missing. Removing a recent only affects that entry.
 
+The missing-entry check happens when settings are loaded, so Home can render stale recents immediately instead of waiting for a click.
+
 If settings save fails, the in-memory value remains active for the current session and the UI exposes recovery actions:
 
 - Retry
@@ -72,10 +76,11 @@ Startup uses one fixed order:
 6. construct Infrastructure adapters
 7. construct Application use cases
 8. construct the shared shell view model and nested views
-9. show Compatibility or Home
+9. evaluate the current work area and show Compatibility or Home
 
 Failure handling:
 
+- failures before step 4 are reported via native dialog only; no log entry is written
 - managed-path failure shows a blocking native error and exits
 - single-instance failure shows `TWW3 Companion is already running for this Windows user. Close the existing installed or portable copy and try again.` and exits before settings load
 - settings failure does not prevent startup; the app keeps the in-memory state and surfaces recovery inside Home
@@ -92,8 +97,11 @@ The slice includes two test hooks, both gated by `TWW3_COMPANION_TEST_MODE=1`.
 - `managedRoot`
 
 The hook succeeds only when the reopened UUID and display name match.
+The result file is written at `<directory>\smoke-result.json`.
 
 `--hold-single-instance <milliseconds>` acquires the normal single-instance lease, writes `lease-acquired.signal` under `TWW3_COMPANION_TEST_MANAGED_ROOT`, holds for the requested duration, and exits.
+
+If `TWW3_COMPANION_TEST_MANAGED_ROOT` is absent, the hook fails immediately with a clear argument error.
 
 Neither hook may bypass lifecycle use cases or call SQLite directly.
 
@@ -105,6 +113,12 @@ This slice is complete when:
 - the full desktop test project passes
 - the smoke hooks are covered by the implementation plan and use the same composition root as real startup
 - the shell from Task 8 remains unchanged in layout and accessibility behavior
+
+## Return-Home Disposal
+
+When the user leaves Workspace for Home, the workspace-scoped lifetime must be disposed before `ShellViewModel.CurrentScreen` changes to Home.
+
+If disposal fails, the transition stays on Workspace and surfaces the failure to the user instead of pretending the Home switch succeeded.
 
 ## Notes
 
