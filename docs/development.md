@@ -8,40 +8,40 @@ Install the pinned SDK from `global.json`:
 
 - .NET SDK `10.0.302`
 
-If `dotnet` resolves to a different SDK, use the bundled user profile copy:
+If `dotnet` resolves to a different SDK, point it at your pinned install or adjust the command to match your environment:
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' --info
+dotnet --info
 ```
 
 ## Restore
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' restore TWW3Companion.sln
+dotnet restore TWW3Companion.sln
 ```
 
 ## Format
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' format TWW3Companion.sln
+dotnet format TWW3Companion.sln
 ```
 
 To verify formatting without changing files:
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' format TWW3Companion.sln --verify-no-changes
+dotnet format TWW3Companion.sln --verify-no-changes
 ```
 
 ## Build
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' build TWW3Companion.sln -c Release
+dotnet build TWW3Companion.sln -c Release
 ```
 
 ## Test
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' test TWW3Companion.sln
+dotnet test TWW3Companion.sln
 ```
 
 ## Run
@@ -49,7 +49,7 @@ To verify formatting without changing files:
 Run the desktop app from source:
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' run --project src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj
+dotnet run --project src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj
 ```
 
 ## Publish
@@ -57,7 +57,7 @@ Run the desktop app from source:
 Create the self-contained Windows x64 portable artifact:
 
 ```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' publish src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj `
+dotnet publish src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj `
   -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `

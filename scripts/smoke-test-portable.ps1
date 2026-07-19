@@ -55,10 +55,7 @@ try {
 
     $secondWorkspace = Join-Path $work 'second-workspace'
     & $exe --smoke-test $secondWorkspace
-    $secondResult = Join-Path $secondWorkspace 'smoke-result.json'
-    $secondDeadline = [DateTime]::UtcNow.AddSeconds(5)
-    while (-not (Test-Path -LiteralPath $secondResult) -and [DateTime]::UtcNow -lt $secondDeadline) { Start-Sleep -Milliseconds 100 }
-    if (Test-Path -LiteralPath $secondResult) { throw 'Second process unexpectedly succeeded.' }
+    if (Test-Path -LiteralPath (Join-Path $secondWorkspace 'smoke-result.json')) { throw 'Second process unexpectedly succeeded.' }
     $holder.WaitForExit(20000) | Out-Null
 }
 finally {
