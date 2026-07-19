@@ -7,9 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-07-19
+
 ### Added
 
-- Initial repository structure and documentation bootstrap (v0.0.1)
+- RFC-0002 and [Decision-0004](decisions/Decision-0004.md) establishing the Workspace-centred domain model
+- RFC-0003 and [Decision-0005](decisions/Decision-0005.md) establishing embedded SQLite storage, lossless JSON export, and Windows distribution
+- RFC-0004 and [Decision-0006](decisions/Decision-0006.md) establishing deterministic staged import for informal Markdown and Workshop IDs
+- RFC-0005 and [Decision-0007](decisions/Decision-0007.md) establishing the C#/.NET, Avalonia, and MVVM user-interface architecture
+- Workspace foundation slice completed with Home composition, startup wiring, smoke-test hooks, and publish guidance
+- `docs/development.md` with exact build, test, publish, and smoke-test commands
+- `.github/workflows/ci.yml` for restore, format, build, test, publish, and smoke verification
+- `scripts/smoke-test-portable.ps1` for installed and portable smoke verification
+
+### Changed
+
+- [ROADMAP.md](ROADMAP.md) — v0.1 renamed to first working prototype; v0.0.1 marked complete
+- `README.md`, `ROADMAP.md`, and `docs/project-history.md` aligned with the completed Workspace foundation slice and developer guide
+
+## [0.0.1] - 2026-07-13
+
+### Added
+
+- Initial repository structure and documentation bootstrap
 - README as living design document ([Decision-0001](decisions/Decision-0001.md))
 - Offline-first architecture ([Decision-0002](decisions/Decision-0002.md))
 - User-owned collection data ([Decision-0003](decisions/Decision-0003.md))
@@ -20,32 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub issue and pull request templates
 - MIT license and Contributor Covenant Code of Conduct
 - `.gitignore` and `.editorconfig` for cross-platform development
-- v0.0.2 architecture milestone and implementation gate ([ROADMAP.md](ROADMAP.md))
-- v0.3 profiles milestone (profiles, multiple collections, campaign presets)
 - `schemas/` directory for future JSON schemas
 - Repository folder README files (`examples/`, `schemas/`, `tests/`)
 - Non-affiliation disclaimer in [README.md](README.md)
-- RFC-0002 and [Decision-0004](decisions/Decision-0004.md) establishing the Workspace-centred domain model
-- RFC-0003 and [Decision-0005](decisions/Decision-0005.md) establishing embedded SQLite storage, lossless JSON export, and Windows distribution
-- RFC-0004 and [Decision-0006](decisions/Decision-0006.md) establishing deterministic staged import for informal Markdown and Workshop IDs
-- RFC-0005 and [Decision-0007](decisions/Decision-0007.md) establishing the C#/.NET, Avalonia, and MVVM user-interface architecture
-- Workspace foundation slice completed with Home composition, startup wiring, smoke-test hooks, and publish guidance
-- `docs/development.md` with exact build, test, publish, and smoke-test commands
-
-### Changed
-
-- [AGENTS.md](AGENTS.md) — role-first headings; Product Owner wording for single-maintainer reality ([Issue #2](https://github.com/ozzifan/TWW3-Companion/issues/2))
-- [ROADMAP.md](ROADMAP.md) — v0.1 renamed to first working prototype; v0.0.1 marked complete
-- [.gitignore](.gitignore) — limited to Git, OS, editors, Node, and Python patterns
-- [CONTRIBUTING.md](CONTRIBUTING.md) — GitHub Issues and Discussions contact paths
-- [docs/architecture/data-model.md](docs/architecture/data-model.md) — repository folders clarified; no in-repo user storage
-- Architecture, glossary, roadmap, and project history aligned with the accepted Workspace-centred domain model
-- README, roadmap, and architecture documents aligned with the accepted storage architecture and initial Windows target
-- Architecture, roadmap, project history, and examples guidance aligned with the accepted import architecture
-- README, roadmap, architecture, and project history aligned with the accepted UI architecture and completed v0.0.2 milestone
-- Contributor, schema, screenshot, import/export, and v0.1 slice guidance aligned for the start of implementation
-- README, roadmap, changelog, and project history aligned with the completed Workspace foundation slice and developer guide
-
-### Removed
-
-- Repository `data/` directory
