@@ -1,0 +1,75 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Tww3Companion.Desktop.ViewModels"
+             x:Class="Tww3Companion.Desktop.Views.HomeView"
+             x:DataType="vm:ShellViewModel"
+             x:Name="HomeRoot"
+             AutomationProperties.Name="Home">
+  <ScrollViewer>
+    <StackPanel Margin="48" MaxWidth="720" Spacing="18">
+      <TextBlock FontSize="32" FontWeight="SemiBold" Text="TWW3 Companion" />
+      <TextBlock TextWrapping="Wrap" Text="Create a new local Workspace or open an existing .tww3c Workspace file." />
+
+      <StackPanel Orientation="Horizontal" Spacing="12">
+        <Button Content="{Binding Home.PrimaryActionLabel}"
+                AutomationProperties.Name="Create Workspace"
+                Command="{Binding CreateWorkspaceCommand}" />
+        <Button Content="{Binding Home.SecondaryActionLabel}"
+                AutomationProperties.Name="Open Workspace"
+                Command="{Binding OpenWorkspaceCommand}" />
+      </StackPanel>
+
+      <TextBlock FontWeight="SemiBold" Text="Create Workspace prompt" />
+      <TextBlock TextWrapping="Wrap" Text="Workspace display name" />
+      <TextBlock TextWrapping="Wrap" Text="TWW3 Companion Workspace (*.tww3c)" />
+
+      <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+        <TextBlock TextWrapping="Wrap"
+                   Text="Synchronized-folder warning: opening the same live Workspace from OneDrive, Dropbox, or another synchronized folder is unsupported and can create conflicts or corruption. Close TWW3 Companion on every machine before manually copying a .tww3c file, then open only the completed local copy on one machine at a time." />
+      </Border>
+
+      <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+              IsVisible="{Binding Home.HasSettingsSaveError}"
+              AutomationProperties.Name="Settings save failure recovery">
+        <StackPanel Spacing="8">
+          <TextBlock FontWeight="SemiBold" Text="Settings save issue" />
+          <TextBlock TextWrapping="Wrap" Text="{Binding Home.SettingsSaveError}" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button Content="Retry" AutomationProperties.Name="Retry settings save" Command="{Binding RetrySettingsSaveCommand}" />
+            <Button Content="Open Settings Folder" AutomationProperties.Name="Open Settings Folder" Command="{Binding OpenSettingsFolderCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <TextBlock FontWeight="SemiBold" Text="Recent Workspaces" />
+      <ItemsControl ItemsSource="{Binding Home.Recents}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:RecentWorkspaceItem">
+            <Border Margin="0,0,0,8" Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Spacing="4">
+                  <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
+                  <TextBlock TextWrapping="Wrap" Text="{Binding Path}" />
+                  <TextBlock Text="Missing or inaccessible" IsVisible="{Binding IsMissing}" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Content="Remove"
+                        AutomationProperties.Name="Remove recent Workspace"
+                        Command="{Binding #HomeRoot.DataContext.RemoveRecentCommand}"
+                        CommandParameter="{Binding}" />
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <TextBlock Text="{Binding Home.OperationStatusMessage}" />
+      <TextBlock Text="Theme" FontWeight="SemiBold" />
+      <ComboBox Width="180"
+                HorizontalAlignment="Left"
+                ItemsSource="{Binding ThemeChoices}"
+                SelectedItem="{Binding StoredTheme}"
+                AutomationProperties.Name="Application theme" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -4,13 +4,16 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform;
 using Avalonia.Styling;
 using System.ComponentModel;
-using Tww3Companion.Desktop.Views;
+using Tww3Companion.Desktop.Composition;
 using Tww3Companion.Desktop.ViewModels;
+using Tww3Companion.Desktop.Views;
 
 namespace Tww3Companion.Desktop;
 
 public partial class App : Avalonia.Application
 {
+    public static ApplicationRuntime? Runtime { get; set; }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -20,7 +23,9 @@ public partial class App : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var window = new MainWindow();
+            var runtime = Runtime;
+            var window = runtime is null ? new MainWindow() : new MainWindow(runtime.ShellViewModel);
+            runtime?.AttachTopLevel(window);
             var viewModel = (ShellViewModel)window.DataContext!;
             viewModel.PropertyChanged += (_, args) => ApplyTheme(viewModel, args);
             PlatformSettings!.ColorValuesChanged += (_, _) => ApplyPlatformContrast(viewModel);

@@ -28,7 +28,9 @@ public sealed class HomeCompositionTests
         var dialogs = new BlockingWorkspaceDialogService();
         var subject = ShellViewModel.CreateForTest(dialogs);
 
-        var createTask = Task.Run(() => subject.CreateWorkspaceCommand.Execute(null));
+        var createTask = Task.Run(
+            () => subject.CreateWorkspaceCommand.Execute(null),
+            TestContext.Current.CancellationToken);
         await WaitForBusyState(subject);
 
         Assert.True(subject.Home.IsBusy);

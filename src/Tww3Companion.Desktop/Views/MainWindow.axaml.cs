@@ -5,10 +5,14 @@ namespace Tww3Companion.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    public MainWindow()
+    public MainWindow() : this(new ShellViewModel())
+    {
+    }
+
+    public MainWindow(ShellViewModel viewModel)
     {
         InitializeComponent();
-        DataContext = new ShellViewModel();
+        DataContext = viewModel;
         Opened += (_, _) => EvaluateWorkArea();
     }
 

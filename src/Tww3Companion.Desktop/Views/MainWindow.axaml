@@ -14,15 +14,7 @@
   <Grid>
     <views:CompatibilityView IsVisible="{Binding IsCompatibilityVisible}" />
 
-    <ScrollViewer IsVisible="{Binding IsHomeVisible}" AutomationProperties.Name="Home">
-      <StackPanel Margin="48" MaxWidth="720" Spacing="18">
-        <TextBlock FontSize="32" FontWeight="SemiBold" Text="TWW3 Companion" />
-        <TextBlock TextWrapping="Wrap" Text="Create and Open Workspace actions arrive in the workspace-lifecycle slice. This shell prototype verifies the approved minimum layout." />
-        <Button HorizontalAlignment="Left" Content="Open representative empty Workspace" AutomationProperties.Name="Open representative empty Workspace" Command="{Binding OpenWorkspaceCommand}" />
-        <TextBlock Text="Theme" FontWeight="SemiBold" />
-        <ComboBox Width="180" HorizontalAlignment="Left" ItemsSource="{Binding ThemeChoices}" SelectedItem="{Binding StoredTheme}" AutomationProperties.Name="Application theme" />
-      </StackPanel>
-    </ScrollViewer>
+    <views:HomeView IsVisible="{Binding IsHomeVisible}" />
 
     <Grid Name="WorkspaceShell" IsVisible="{Binding IsWorkspaceVisible}" AutomationProperties.Name="Workspace shell">
       <Grid.ColumnDefinitions>
