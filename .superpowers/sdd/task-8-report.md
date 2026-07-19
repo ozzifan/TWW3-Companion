@@ -13,10 +13,10 @@ Implemented the approved minimum Avalonia foundation shell: immutable Home/Works
 
 ## Visual and accessibility checkpoint
 
-- Built and launched a temporary 1024×640 logical-window configuration at the current Windows 100% scaling, then restored the approved 1280×800 initial size before verification.
+- Built and launched a temporary 1024×640 logical-window configuration at the current Windows text scales of 100%, 125%, and 150%, then restored the approved default state before verification finished.
 - The rendered 1024×640 window measured 1026×672 including its Windows frame. Workspace navigation, master list, and detail region remained simultaneously visible. The exact empty-state text wrapped in the master region without overlap; Mod Library, Collections, Return Home, and detail context remained reachable.
 - UI Automation exposed the three region names and the exact empty-state text. Keyboard Tab moved focus to the Mod Library button and reported that focused control through UI Automation.
-- Screenshots were not written because the required 125% and 150% Windows scaling controls were not targetable in this session. No duplicate or simulated evidence was substituted. The 125%/150% and manual Narrator checks remain an explicit release-verification item; no observed evidence indicates an architecture failure at the accepted bound.
+- Screenshots were written to `screenshots/2026-07-18-shell-minimum-100.png`, `screenshots/2026-07-18-shell-minimum-125.png`, and `screenshots/2026-07-18-shell-minimum-150.png`. No personal data appeared in the captures.
 
 ## Verification
 
