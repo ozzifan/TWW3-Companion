@@ -69,7 +69,7 @@ We document and organise. We do not modify game files or automate risky changes 
 
 ## Roadmap
 
-High-level milestones are maintained in [ROADMAP.md](ROADMAP.md). Architecture must be approved (**v0.0.2**) before implementation begins.
+High-level milestones are maintained in [ROADMAP.md](ROADMAP.md), and shipped releases are recorded in [CHANGELOG.md](CHANGELOG.md). Architecture must be approved (**v0.0.2**) before implementation begins.
 
 | Version | Focus |
 |---------|--------|
@@ -80,8 +80,6 @@ High-level milestones are maintained in [ROADMAP.md](ROADMAP.md). Architecture m
 | **v0.3** | Profiles — per-Collection play configurations and campaign presets |
 | **v0.5** | Dependency tracking, compatibility notes, health score |
 | **v1.0** | Stable collection manager suitable for everyday use |
-
-See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 
