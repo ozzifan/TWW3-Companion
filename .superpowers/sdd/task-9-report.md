@@ -68,3 +68,38 @@ Smoke and composition hooks are exercised from the approved xUnit harness:
 ## Concerns
 
 None open.
+
+## Final whole-branch review fixes - 2026-07-19
+
+### Scope
+
+- Fixed Important 1 by gating `TWW3_COMPANION_TEST_MANAGED_ROOT` behind `TWW3_COMPANION_TEST_MODE=1`; normal runtime path detection now uses `ManagedPaths.Detect(...)` when test mode is off.
+- Fixed Important 2 by adding Workspace-visible operation error state and binding it near `Return Home`; disposal failure keeps `CurrentScreen == Workspace` and displays the failure on the Workspace shell.
+- Removed the stale no-op `CompleteWorkspaceDisposalForTest()` seam; tests now use `IWorkspaceDisposalCoordinator`.
+- Did not modify historical Task 3 reports. This Task 9 section supersedes the older limitation note above that said disposal errors surfaced through `Home.SettingsSaveError`.
+
+### Regression coverage
+
+- `ApplicationCompositionTests.RuntimeWithoutTestModeIgnoresManagedRootEnvironmentVariable`
+- `HomeCompositionTests.ReturnHomeDisposalFailureStaysOnWorkspaceAndShowsWorkspaceError`
+- `ShellViewModelTests.WorkspaceAndReturnHomeActionsChangeScreen` now exercises the real coordinator seam.
+
+### Required verification evidence
+
+```powershell
+& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj --filter "HomeCompositionTests|ApplicationCompositionTests|ShellViewModelTests"
+```
+
+Exit code `0`; `Failed: 0, Passed: 21, Skipped: 0, Total: 21`.
+
+```powershell
+& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj
+```
+
+Exit code `0`; `Failed: 0, Passed: 34, Skipped: 0, Total: 34`.
+
+```powershell
+git diff --check
+```
+
+Exit code `0`; no whitespace errors. Git reported line-ending normalization warnings for touched files only.

@@ -94,6 +94,20 @@ public sealed class HomeCompositionTests
     }
 
     [Fact]
+    public async Task ReturnHomeDisposalFailureStaysOnWorkspaceAndShowsWorkspaceError()
+    {
+        var subject = ShellViewModel.CreateForTest(
+            workspaceDisposalCoordinator: new FailingWorkspaceDisposalCoordinator("Workspace disposal failed."));
+
+        subject.OpenWorkspace();
+        subject.ReturnHome();
+
+        await WaitForWorkspaceError(subject, "Workspace disposal failed.");
+        Assert.Equal(ShellScreen.Workspace, subject.CurrentScreen);
+        Assert.Equal("Workspace disposal failed.", subject.Workspace.OperationError);
+    }
+
+    [Fact]
     public void CreateWorkspaceDialogPromptsForDisplayNameInsteadOfUsingHardcodedDefault()
     {
         var source = File.ReadAllText(Path.Combine(DesktopDirectory, "Services", "WorkspaceDialogService.cs"));
@@ -142,6 +156,21 @@ public sealed class HomeCompositionTests
         }
 
         throw new InvalidOperationException($"The shell did not enter {screen}.");
+    }
+
+    private static async Task WaitForWorkspaceError(ShellViewModel subject, string error)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            if (subject.Workspace.OperationError == error)
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        throw new InvalidOperationException($"The workspace did not show '{error}'.");
     }
 
     private sealed class BlockingWorkspaceDialogService : IWorkspaceDialogService
@@ -198,5 +227,11 @@ public sealed class HomeCompositionTests
         public Task DisposeWorkspaceScopeAsync(CancellationToken cancellationToken) => _disposal.Task.WaitAsync(cancellationToken);
 
         public void CompleteDisposal() => _disposal.SetResult();
+    }
+
+    private sealed class FailingWorkspaceDisposalCoordinator(string message) : IWorkspaceDisposalCoordinator
+    {
+        public Task DisposeWorkspaceScopeAsync(CancellationToken cancellationToken) =>
+            Task.FromException(new InvalidOperationException(message));
     }
 }

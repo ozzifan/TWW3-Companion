@@ -33,7 +33,9 @@ public sealed record HomeShellState(
 
 public sealed record WorkspaceShellState(
     string EmptyStateMessage,
-    IReadOnlyList<string> WorkspaceDestinations);
+    IReadOnlyList<string> WorkspaceDestinations,
+    string OperationError,
+    bool HasOperationError);
 
 public sealed class ShellViewModel : ViewModelBase
 {
@@ -41,6 +43,7 @@ public sealed class ShellViewModel : ViewModelBase
     public const double MinimumHeight = 640;
     private const string EmptyWorkspaceMessage = "This Workspace contains no Mods or Collections yet. No data has been added.";
     private const string FinalizingMessage = "Finalizing — please wait";
+    private static readonly IReadOnlyList<string> DefaultWorkspaceDestinations = ["Mod Library", "Collections"];
 
     private ShellScreen _currentScreen = ShellScreen.Home;
     private ThemeChoice _storedTheme = ThemeChoice.System;
@@ -79,7 +82,7 @@ public sealed class ShellViewModel : ViewModelBase
 
         // RFC-0005 keeps Home navigation in the shared shell; the next slice adds Import here.
         Home = CreateHomeState(WorkspaceOperationState.Idle, string.Empty);
-        Workspace = new WorkspaceShellState(EmptyWorkspaceMessage, WorkspaceDestinations);
+        Workspace = CreateWorkspaceState(string.Empty);
         createWorkspaceCommand = new DelegateCommand(_ => _ = RunCreateWorkspaceAsync(), _ => !Home.IsBusy);
         openWorkspaceCommand = new DelegateCommand(_ => _ = RunOpenWorkspaceAsync(), _ => !Home.IsBusy);
         removeRecentCommand = new DelegateCommand(RemoveRecent, parameter => parameter is RecentWorkspaceItem { IsRemovable: true });
@@ -136,12 +139,12 @@ public sealed class ShellViewModel : ViewModelBase
     public bool IsHomeVisible => _currentScreen == ShellScreen.Home;
     public bool IsWorkspaceVisible => _currentScreen == ShellScreen.Workspace;
     public bool IsCompatibilityVisible => _currentScreen == ShellScreen.Compatibility;
-    public IReadOnlyList<string> WorkspaceDestinations { get; } = ["Mod Library", "Collections"];
+    public IReadOnlyList<string> WorkspaceDestinations { get; } = DefaultWorkspaceDestinations;
     public IReadOnlyList<ThemeChoice> ThemeChoices { get; } = [ThemeChoice.System, ThemeChoice.Light, ThemeChoice.Dark];
     public IReadOnlyList<CompatibilityAction> CompatibilityActions { get; } = [CompatibilityAction.Exit, CompatibilityAction.ContinueAnyway];
     public string EmptyStateMessage { get; } = EmptyWorkspaceMessage;
     public HomeShellState Home { get; private set; }
-    public WorkspaceShellState Workspace { get; }
+    public WorkspaceShellState Workspace { get; private set; }
     public bool HasCompatibilityWarning { get; private set; }
     public ThemeChoice StoredTheme
     {
@@ -158,7 +161,11 @@ public sealed class ShellViewModel : ViewModelBase
     public ICommand ReturnHomeCommand { get; }
     public ICommand ContinueAnywayCommand { get; }
 
-    public void OpenWorkspace() => SetScreen(ShellScreen.Workspace);
+    public void OpenWorkspace()
+    {
+        UpdateWorkspaceError(string.Empty);
+        SetScreen(ShellScreen.Workspace);
+    }
 
     public void ReturnHome() => _ = ReturnHomeAsync();
 
@@ -205,10 +212,6 @@ public sealed class ShellViewModel : ViewModelBase
     public void BeginCreateWorkspaceForTest() => SetOperationState(WorkspaceOperationState.Busy);
 
     public void EnterFinalizingForTest() => SetOperationState(WorkspaceOperationState.Finalizing);
-
-    public void CompleteWorkspaceDisposalForTest()
-    {
-    }
 
     private async Task RunCreateWorkspaceAsync()
     {
@@ -374,12 +377,7 @@ public sealed class ShellViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Home = Home with
-            {
-                SettingsSaveError = exception.Message,
-                HasSettingsSaveError = !string.IsNullOrWhiteSpace(exception.Message)
-            };
-            OnPropertyChanged(nameof(Home));
+            UpdateWorkspaceError(exception.Message);
         }
         finally
         {
@@ -434,6 +432,24 @@ public sealed class ShellViewModel : ViewModelBase
             state,
             state == WorkspaceOperationState.Finalizing ? FinalizingMessage : string.Empty,
             ["Home", "Mod Library", "Collections"]);
+
+    private static WorkspaceShellState CreateWorkspaceState(string operationError) =>
+        new(
+            EmptyWorkspaceMessage,
+            DefaultWorkspaceDestinations,
+            operationError,
+            !string.IsNullOrWhiteSpace(operationError));
+
+    private void UpdateWorkspaceError(string operationError)
+    {
+        if (Workspace.OperationError == operationError)
+        {
+            return;
+        }
+
+        Workspace = CreateWorkspaceState(operationError);
+        OnPropertyChanged(nameof(Workspace));
+    }
 
     private static IReadOnlyList<RecentWorkspaceItem> CreateRecentItems(ApplicationSettings settings) =>
         settings.RecentWorkspaces

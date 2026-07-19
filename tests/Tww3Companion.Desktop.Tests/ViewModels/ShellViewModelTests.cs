@@ -1,3 +1,4 @@
+using Tww3Companion.Desktop.Services;
 using Tww3Companion.Desktop.ViewModels;
 using Xunit;
 
@@ -54,15 +55,43 @@ public sealed class ShellViewModelTests
     }
 
     [Fact]
-    public void WorkspaceAndReturnHomeActionsChangeScreen()
+    public async Task WorkspaceAndReturnHomeActionsChangeScreen()
     {
-        var subject = ShellViewModel.CreateForTest();
+        var coordinator = new CompletingWorkspaceDisposalCoordinator();
+        var subject = ShellViewModel.CreateForTest(workspaceDisposalCoordinator: coordinator);
 
         subject.OpenWorkspace();
         Assert.Equal(ShellScreen.Workspace, subject.CurrentScreen);
 
-        subject.CompleteWorkspaceDisposalForTest();
         subject.ReturnHome();
+        await WaitForScreen(subject, ShellScreen.Home);
+        Assert.True(coordinator.WasDisposed);
         Assert.Equal(ShellScreen.Home, subject.CurrentScreen);
+    }
+
+    private static async Task WaitForScreen(ShellViewModel subject, ShellScreen screen)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            if (subject.CurrentScreen == screen)
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        throw new InvalidOperationException($"The shell did not enter {screen}.");
+    }
+
+    private sealed class CompletingWorkspaceDisposalCoordinator : IWorkspaceDisposalCoordinator
+    {
+        public bool WasDisposed { get; private set; }
+
+        public Task DisposeWorkspaceScopeAsync(CancellationToken cancellationToken)
+        {
+            WasDisposed = true;
+            return Task.CompletedTask;
+        }
     }
 }

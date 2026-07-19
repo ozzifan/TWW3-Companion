@@ -31,6 +31,11 @@
             <TextBlock Margin="8,8,0,0" FontWeight="SemiBold" Text="Collections" />
             <TextBlock Margin="8,0,0,0" Text="No Collections" />
             <Button Margin="0,24,0,0" HorizontalContentAlignment="Left" Content="Return Home" AutomationProperties.Name="Return Home" Command="{Binding ReturnHomeCommand}" />
+            <Border Padding="8" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                    IsVisible="{Binding Workspace.HasOperationError}"
+                    AutomationProperties.Name="Workspace operation error">
+              <TextBlock TextWrapping="Wrap" Text="{Binding Workspace.OperationError}" />
+            </Border>
           </StackPanel>
         </ScrollViewer>
       </Border>

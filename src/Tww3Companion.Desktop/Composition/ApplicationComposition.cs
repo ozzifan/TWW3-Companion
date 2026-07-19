@@ -159,7 +159,8 @@ public sealed class ApplicationComposition
     internal static ManagedPaths DetectManagedPaths(string executableDirectory, string localApplicationDataDirectory)
     {
         var testManagedRoot = Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MANAGED_ROOT");
-        return string.IsNullOrWhiteSpace(testManagedRoot)
+        return Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MODE") != "1"
+            || string.IsNullOrWhiteSpace(testManagedRoot)
             ? ManagedPaths.Detect(executableDirectory, localApplicationDataDirectory)
             : ManagedPaths.ForRoot(ApplicationMode.Installed, testManagedRoot);
     }

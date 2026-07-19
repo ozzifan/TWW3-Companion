@@ -87,6 +87,41 @@ public sealed class ApplicationCompositionTests
     }
 
     [Fact]
+    public void RuntimeWithoutTestModeIgnoresManagedRootEnvironmentVariable()
+    {
+        using var executableDirectory = new TemporaryDirectory();
+        using var localApplicationData = new TemporaryDirectory();
+        using var managed = new TemporaryDirectory();
+        var previousTestMode = Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MODE");
+        var previousManagedRoot = Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MANAGED_ROOT");
+
+        Environment.SetEnvironmentVariable("TWW3_COMPANION_TEST_MODE", null);
+        Environment.SetEnvironmentVariable("TWW3_COMPANION_TEST_MANAGED_ROOT", managed.Path);
+        try
+        {
+            var runtime = ApplicationComposition.CreateRuntimeForTest(new CompositionTestOptions
+            {
+                ExecutableDirectory = executableDirectory.Path,
+                LocalApplicationDataDirectory = localApplicationData.Path
+            });
+
+            using (runtime)
+            {
+                Assert.NotNull(runtime);
+                Assert.Equal(
+                    Path.Combine(localApplicationData.Path, "TWW3 Companion"),
+                    runtime.ManagedPaths.RootDirectory);
+                Assert.NotEqual(managed.Path, runtime.ManagedPaths.RootDirectory);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TWW3_COMPANION_TEST_MODE", previousTestMode);
+            Environment.SetEnvironmentVariable("TWW3_COMPANION_TEST_MANAGED_ROOT", previousManagedRoot);
+        }
+    }
+
+    [Fact]
     public void StartupNoLongerReliesOnMainWindowOpenedToChooseInitialScreen()
     {
         var desktopDirectory = Path.GetFullPath(Path.Combine(
