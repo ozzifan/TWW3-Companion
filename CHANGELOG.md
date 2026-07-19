@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RFC-0003 and [Decision-0005](decisions/Decision-0005.md) establishing embedded SQLite storage, lossless JSON export, and Windows distribution
 - RFC-0004 and [Decision-0006](decisions/Decision-0006.md) establishing deterministic staged import for informal Markdown and Workshop IDs
 - RFC-0005 and [Decision-0007](decisions/Decision-0007.md) establishing the C#/.NET, Avalonia, and MVVM user-interface architecture
+- Workspace foundation slice completed with Home composition, startup wiring, smoke-test hooks, and publish guidance
+- `docs/development.md` with exact build, test, publish, and smoke-test commands
 
 ### Changed
 
@@ -42,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture, roadmap, project history, and examples guidance aligned with the accepted import architecture
 - README, roadmap, architecture, and project history aligned with the accepted UI architecture and completed v0.0.2 milestone
 - Contributor, schema, screenshot, import/export, and v0.1 slice guidance aligned for the start of implementation
+- README, roadmap, changelog, and project history aligned with the completed Workspace foundation slice and developer guide
 
 ### Removed
 

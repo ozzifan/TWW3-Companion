@@ -47,6 +47,11 @@ The initial release uses C#/.NET, Avalonia, and MVVM on Windows 10 or later x64 
 
 v0.1 is delivered through reviewed vertical slices rather than one undivided implementation. The first slice is the [Workspace foundation](docs/superpowers/specs/2026-07-18-workspace-foundation-design.md): startup, Home, empty Workspace creation/opening, SQLite schema and migration infrastructure, and the milestone-bounded shell. Later v0.1 slices add the accepted import, complete Home actions, domain tables, JSON backup/restore, and packaging workflows.
 
+Workspace foundation slice:
+
+- Home composition and startup wiring complete
+- Later v0.1 slices still add the accepted import, complete Home actions, domain tables, JSON backup/restore, and packaging workflows
+
 - Markdown importer
 - Workshop ID importer
 - Local Workspace persistence

@@ -5,8 +5,8 @@ namespace Tww3Companion.Desktop.Views;
 
 public partial class CompatibilityView : UserControl
 {
-    public CompatibilityView() => InitializeComponent();
+  public CompatibilityView() => InitializeComponent();
 
-    private void Exit_Click(object? sender, RoutedEventArgs e) =>
-        (TopLevel.GetTopLevel(this) as Window)?.Close();
+  private void Exit_Click(object? sender, RoutedEventArgs e) =>
+      (TopLevel.GetTopLevel(this) as Window)?.Close();
 }

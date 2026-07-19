@@ -18,9 +18,9 @@ namespace Tww3Companion.Desktop.Composition;
 
 public sealed class ApplicationComposition
 {
-    private static readonly string[] ApprovedStartupSteps =
-    [
-        "detect application mode",
+  private static readonly string[] ApprovedStartupSteps =
+  [
+      "detect application mode",
         "initialize and probe managed paths",
         "acquire single-instance lease",
         "configure logging",
@@ -29,185 +29,194 @@ public sealed class ApplicationComposition
         "construct Application use cases",
         "construct the shared shell view model and nested views",
         "evaluate the current work area and show Compatibility or Home"
-    ];
+  ];
 
-    private ApplicationComposition()
+  private ApplicationComposition()
+  {
+    StartupSteps = ApprovedStartupSteps;
+  }
+
+  public IReadOnlyList<string> StartupSteps { get; }
+
+  public static ApplicationComposition CreateForTest() => new();
+
+  public static int RunStartupForTest(CompositionTestOptions? options = null)
+  {
+    options ??= new CompositionTestOptions();
+    var runtime = CreateRuntimeForTest(options);
+    runtime?.Dispose();
+    return runtime is null ? 1 : 0;
+  }
+
+  public static ApplicationRuntime? CreateRuntimeForTest(CompositionTestOptions options) =>
+      CreateRuntime(
+          new CompositionOptions(
+              options.ExecutableDirectory,
+              options.LocalApplicationDataDirectory,
+              options.NativeStartupDialog,
+              options.SingleInstanceGuard,
+              options.ManagedPathInitializer,
+              options.WorkAreaWidth,
+              options.WorkAreaHeight,
+              options.WorkspaceDisposalCoordinator));
+
+  public static ApplicationRuntime? CreateSmokeTestRuntime(ISingleInstanceGuard singleInstanceGuard) =>
+      CreateRuntime(new CompositionOptions(
+          AppContext.BaseDirectory,
+          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+          new NativeStartupDialog(),
+          singleInstanceGuard,
+          ManagedPathInitializer: null,
+          WorkAreaWidth: null,
+          WorkAreaHeight: null,
+          WorkspaceDisposalCoordinator: null));
+
+  public static int RunDesktopStartup(
+      string[] args,
+      ISingleInstanceGuard guard,
+      IStartupNotification startupDialog,
+      Func<ApplicationRuntime, int> startApplication)
+  {
+    var runtime = CreateRuntime(new CompositionOptions(
+        AppContext.BaseDirectory,
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        startupDialog,
+        guard,
+        ManagedPathInitializer: null,
+        WorkAreaWidth: null,
+        WorkAreaHeight: null,
+        WorkspaceDisposalCoordinator: null));
+    if (runtime is null)
     {
-        StartupSteps = ApprovedStartupSteps;
+      return 1;
     }
 
-    public IReadOnlyList<string> StartupSteps { get; }
-
-    public static ApplicationComposition CreateForTest() => new();
-
-    public static int RunStartupForTest(CompositionTestOptions? options = null)
+    using (runtime)
     {
-        options ??= new CompositionTestOptions();
-        var runtime = CreateRuntimeForTest(options);
-        runtime?.Dispose();
-        return runtime is null ? 1 : 0;
+      return startApplication(runtime);
+    }
+  }
+
+  internal static ApplicationRuntime? CreateRuntime(CompositionOptions options)
+  {
+    var paths = DetectManagedPaths(options.ExecutableDirectory, options.LocalApplicationDataDirectory);
+    var initialized = InitializeManagedPaths(options, paths);
+    if (initialized is OperationResult<ManagedPaths>.Failure managedPathFailure)
+    {
+      options.StartupDialog.ShowBlockingError(managedPathFailure.Error.Message);
+      return null;
     }
 
-    public static ApplicationRuntime? CreateRuntimeForTest(CompositionTestOptions options) =>
-        CreateRuntime(
-            new CompositionOptions(
-                options.ExecutableDirectory,
-                options.LocalApplicationDataDirectory,
-                options.NativeStartupDialog,
-                options.SingleInstanceGuard,
-                options.ManagedPathInitializer,
-                options.WorkAreaWidth,
-                options.WorkAreaHeight,
-                options.WorkspaceDisposalCoordinator));
-
-    public static ApplicationRuntime? CreateSmokeTestRuntime(ISingleInstanceGuard singleInstanceGuard) =>
-        CreateRuntime(new CompositionOptions(
-            AppContext.BaseDirectory,
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            new NativeStartupDialog(),
-            singleInstanceGuard,
-            ManagedPathInitializer: null,
-            WorkAreaWidth: null,
-            WorkAreaHeight: null,
-            WorkspaceDisposalCoordinator: null));
-
-    public static int RunDesktopStartup(
-        string[] args,
-        ISingleInstanceGuard guard,
-        IStartupNotification startupDialog,
-        Func<ApplicationRuntime, int> startApplication)
+    var lease = options.SingleInstanceGuard.TryAcquire();
+    if (lease is null)
     {
-        var runtime = CreateRuntime(new CompositionOptions(
-            AppContext.BaseDirectory,
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            startupDialog,
-            guard,
-            ManagedPathInitializer: null,
-            WorkAreaWidth: null,
-            WorkAreaHeight: null,
-            WorkspaceDisposalCoordinator: null));
-        if (runtime is null)
-        {
-            return 1;
-        }
-
-        using (runtime)
-        {
-            return startApplication(runtime);
-        }
+      options.StartupDialog.ShowBlockingError(SingleInstanceStartup.AlreadyRunningMessage);
+      return null;
     }
 
-    internal static ApplicationRuntime? CreateRuntime(CompositionOptions options)
+    var loggingProvider = LoggingConfiguration.CreateProvider(paths);
+    var settingsStore = new JsonApplicationSettingsStore(paths.SettingsFile);
+    var settings = settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+    var lifecycle = CreateWorkspaceLifecycle(settingsStore);
+    var workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator();
+
+    TopLevel? topLevel = null;
+    var workspaceDialogService = new WorkspaceDialogService(() => topLevel);
+    var shell = ShellViewModel.Create(
+        settings,
+        settingsStore,
+        workspaceDialogService,
+        lifecycle.CreateWorkspace,
+        lifecycle.OpenWorkspace,
+        paths.WorkspacesDirectory,
+        Path.GetDirectoryName(paths.SettingsFile)!,
+        workspaceDisposalCoordinator);
+    if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
     {
-        var paths = DetectManagedPaths(options.ExecutableDirectory, options.LocalApplicationDataDirectory);
-        var initialized = InitializeManagedPaths(options, paths);
-        if (initialized is OperationResult<ManagedPaths>.Failure managedPathFailure)
-        {
-            options.StartupDialog.ShowBlockingError(managedPathFailure.Error.Message);
-            return null;
-        }
-
-        var lease = options.SingleInstanceGuard.TryAcquire();
-        if (lease is null)
-        {
-            options.StartupDialog.ShowBlockingError(SingleInstanceStartup.AlreadyRunningMessage);
-            return null;
-        }
-
-        var loggingProvider = LoggingConfiguration.CreateProvider(paths);
-        var settingsStore = new JsonApplicationSettingsStore(paths.SettingsFile);
-        var settings = settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
-        var lifecycle = CreateWorkspaceLifecycle(settingsStore);
-        var workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator();
-
-        TopLevel? topLevel = null;
-        var workspaceDialogService = new WorkspaceDialogService(() => topLevel);
-        var shell = ShellViewModel.Create(
-            settings,
-            settingsStore,
-            workspaceDialogService,
-            lifecycle.CreateWorkspace,
-            lifecycle.OpenWorkspace,
-            paths.WorkspacesDirectory,
-            Path.GetDirectoryName(paths.SettingsFile)!,
-            workspaceDisposalCoordinator);
-        if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
-        {
-            shell.EvaluateWorkArea(width, height);
-        }
-
-        return new ApplicationRuntime(
-            shell,
-            paths,
-            lifecycle.CreateWorkspace,
-            lifecycle.OpenWorkspace,
-            () => topLevel = null,
-            control => topLevel = control,
-            lease,
-            loggingProvider);
+      shell.EvaluateWorkArea(width, height);
     }
 
-    internal static WorkspaceLifecycle CreateWorkspaceLifecycle(IApplicationSettingsStore settingsStore)
+    return new ApplicationRuntime(
+        shell,
+        paths,
+        lifecycle.CreateWorkspace,
+        lifecycle.OpenWorkspace,
+        () => topLevel = null,
+        control => topLevel = control,
+        lease,
+        loggingProvider);
+  }
+
+  internal static WorkspaceLifecycle CreateWorkspaceLifecycle(IApplicationSettingsStore settingsStore)
+  {
+    var workspaceStore = new SqliteWorkspaceStore();
+    var clock = new SystemClock();
+    return new WorkspaceLifecycle(
+        new CreateWorkspace(workspaceStore, settingsStore, clock, new GuidUuidGenerator()),
+        new OpenWorkspace(workspaceStore, settingsStore, clock));
+  }
+
+  internal static ManagedPaths DetectManagedPaths(string executableDirectory, string localApplicationDataDirectory)
+  {
+    var testManagedRoot = Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MANAGED_ROOT");
+    if (Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MODE") != "1")
     {
-        var workspaceStore = new SqliteWorkspaceStore();
-        var clock = new SystemClock();
-        return new WorkspaceLifecycle(
-            new CreateWorkspace(workspaceStore, settingsStore, clock, new GuidUuidGenerator()),
-            new OpenWorkspace(workspaceStore, settingsStore, clock));
+      return ManagedPaths.Detect(executableDirectory, localApplicationDataDirectory);
     }
 
-    internal static ManagedPaths DetectManagedPaths(string executableDirectory, string localApplicationDataDirectory)
+    if (File.Exists(Path.Combine(executableDirectory, "portable.flag")))
     {
-        var testManagedRoot = Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MANAGED_ROOT");
-        return Environment.GetEnvironmentVariable("TWW3_COMPANION_TEST_MODE") != "1"
-            || string.IsNullOrWhiteSpace(testManagedRoot)
-            ? ManagedPaths.Detect(executableDirectory, localApplicationDataDirectory)
-            : ManagedPaths.ForRoot(ApplicationMode.Installed, testManagedRoot);
+      return ManagedPaths.Detect(executableDirectory, localApplicationDataDirectory);
     }
 
-    private static OperationResult<ManagedPaths> InitializeManagedPaths(CompositionOptions options, ManagedPaths paths)
-    {
-        var initializer = options.ManagedPathInitializer ?? new ManagedPathInitializer();
-        return initializer.InitializeAsync(paths, CancellationToken.None).GetAwaiter().GetResult();
-    }
+    return string.IsNullOrWhiteSpace(testManagedRoot)
+        ? ManagedPaths.Detect(executableDirectory, localApplicationDataDirectory)
+        : ManagedPaths.ForRoot(ApplicationMode.Installed, testManagedRoot);
+  }
 
-    private sealed class SystemClock : IClock
-    {
-        public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
-    }
+  private static OperationResult<ManagedPaths> InitializeManagedPaths(CompositionOptions options, ManagedPaths paths)
+  {
+    var initializer = options.ManagedPathInitializer ?? new ManagedPathInitializer();
+    return initializer.InitializeAsync(paths, CancellationToken.None).GetAwaiter().GetResult();
+  }
 
-    private sealed class GuidUuidGenerator : IUuidGenerator
-    {
-        public string NewUuid() => Guid.NewGuid().ToString("D").ToLowerInvariant();
-    }
+  private sealed class SystemClock : IClock
+  {
+    public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
+  }
 
-    internal sealed record WorkspaceLifecycle(
-        CreateWorkspace CreateWorkspace,
-        OpenWorkspace OpenWorkspace);
+  private sealed class GuidUuidGenerator : IUuidGenerator
+  {
+    public string NewUuid() => Guid.NewGuid().ToString("D").ToLowerInvariant();
+  }
+
+  internal sealed record WorkspaceLifecycle(
+      CreateWorkspace CreateWorkspace,
+      OpenWorkspace OpenWorkspace);
 }
 
 public sealed class CompositionTestOptions
 {
-    public string ExecutableDirectory { get; init; } = AppContext.BaseDirectory;
-    public string LocalApplicationDataDirectory { get; init; } = Path.GetTempPath();
-    public IStartupNotification NativeStartupDialog { get; init; } = new NativeStartupDialog();
-    public ISingleInstanceGuard SingleInstanceGuard { get; init; } = new AcquiringTestSingleInstanceGuard();
-    public IManagedPathInitializer? ManagedPathInitializer { get; init; }
-    public double? WorkAreaWidth { get; init; }
-    public double? WorkAreaHeight { get; init; }
-    public IWorkspaceDisposalCoordinator? WorkspaceDisposalCoordinator { get; init; }
+  public string ExecutableDirectory { get; init; } = AppContext.BaseDirectory;
+  public string LocalApplicationDataDirectory { get; init; } = Path.GetTempPath();
+  public IStartupNotification NativeStartupDialog { get; init; } = new NativeStartupDialog();
+  public ISingleInstanceGuard SingleInstanceGuard { get; init; } = new AcquiringTestSingleInstanceGuard();
+  public IManagedPathInitializer? ManagedPathInitializer { get; init; }
+  public double? WorkAreaWidth { get; init; }
+  public double? WorkAreaHeight { get; init; }
+  public IWorkspaceDisposalCoordinator? WorkspaceDisposalCoordinator { get; init; }
 
-    private sealed class AcquiringTestSingleInstanceGuard : ISingleInstanceGuard
+  private sealed class AcquiringTestSingleInstanceGuard : ISingleInstanceGuard
+  {
+    public ISingleInstanceLease? TryAcquire() => new Lease();
+
+    private sealed class Lease : ISingleInstanceLease
     {
-        public ISingleInstanceLease? TryAcquire() => new Lease();
-
-        private sealed class Lease : ISingleInstanceLease
-        {
-            public void Dispose()
-            {
-            }
-        }
+      public void Dispose()
+      {
+      }
     }
+  }
 }
 
 internal sealed record CompositionOptions(
@@ -230,34 +239,34 @@ public sealed class ApplicationRuntime(
     ISingleInstanceLease singleInstanceLease,
     ILoggerProvider loggingProvider) : IDisposable
 {
-    public ShellViewModel ShellViewModel { get; } = shellViewModel;
-    public ManagedPaths ManagedPaths { get; } = managedPaths;
-    public CreateWorkspace CreateWorkspace { get; } = createWorkspace;
-    public OpenWorkspace OpenWorkspace { get; } = openWorkspace;
+  public ShellViewModel ShellViewModel { get; } = shellViewModel;
+  public ManagedPaths ManagedPaths { get; } = managedPaths;
+  public CreateWorkspace CreateWorkspace { get; } = createWorkspace;
+  public OpenWorkspace OpenWorkspace { get; } = openWorkspace;
 
-    public void AttachTopLevel(TopLevel topLevel)
+  public void AttachTopLevel(TopLevel topLevel)
+  {
+    attachTopLevel(topLevel);
+    EvaluateAttachedWorkArea(topLevel);
+  }
+
+  public void Dispose()
+  {
+    clearTopLevel();
+    loggingProvider.Dispose();
+    singleInstanceLease.Dispose();
+  }
+
+  private void EvaluateAttachedWorkArea(TopLevel topLevel)
+  {
+    var primary = topLevel.Screens?.Primary;
+    if (primary is null)
     {
-        attachTopLevel(topLevel);
-        EvaluateAttachedWorkArea(topLevel);
+      return;
     }
 
-    public void Dispose()
-    {
-        clearTopLevel();
-        loggingProvider.Dispose();
-        singleInstanceLease.Dispose();
-    }
-
-    private void EvaluateAttachedWorkArea(TopLevel topLevel)
-    {
-        var primary = topLevel.Screens?.Primary;
-        if (primary is null)
-        {
-            return;
-        }
-
-        ShellViewModel.EvaluateWorkArea(
-            primary.WorkingArea.Width / primary.Scaling,
-            primary.WorkingArea.Height / primary.Scaling);
-    }
+    ShellViewModel.EvaluateWorkArea(
+        primary.WorkingArea.Width / primary.Scaling,
+        primary.WorkingArea.Height / primary.Scaling);
+  }
 }

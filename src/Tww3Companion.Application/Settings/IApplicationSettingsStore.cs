@@ -4,9 +4,9 @@ namespace Tww3Companion.Application.Settings;
 
 public interface IApplicationSettingsStore
 {
-    Task<ApplicationSettings> LoadAsync(CancellationToken cancellationToken);
+  Task<ApplicationSettings> LoadAsync(CancellationToken cancellationToken);
 
-    Task<OperationResult<ApplicationSettings>> SaveAsync(
-        ApplicationSettings settings,
-        CancellationToken cancellationToken);
+  Task<OperationResult<ApplicationSettings>> SaveAsync(
+      ApplicationSettings settings,
+      CancellationToken cancellationToken);
 }

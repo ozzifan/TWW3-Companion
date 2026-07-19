@@ -5,13 +5,13 @@ namespace Tww3Companion.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    public MainWindow() : this(new ShellViewModel())
-    {
-    }
+  public MainWindow() : this(new ShellViewModel())
+  {
+  }
 
-    public MainWindow(ShellViewModel viewModel)
-    {
-        InitializeComponent();
-        DataContext = viewModel;
-    }
+  public MainWindow(ShellViewModel viewModel)
+  {
+    InitializeComponent();
+    DataContext = viewModel;
+  }
 }

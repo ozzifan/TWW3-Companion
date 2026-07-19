@@ -10,21 +10,21 @@ public sealed class OpenWorkspace(
     IApplicationSettingsStore settingsStore,
     IClock clock)
 {
-    public async Task<OperationResult<Workspace>> ExecuteAsync(string path, CancellationToken cancellationToken)
+  public async Task<OperationResult<Workspace>> ExecuteAsync(string path, CancellationToken cancellationToken)
+  {
+    var result = await workspaceStore.OpenAsync(path, cancellationToken);
+    if (result is not OperationResult<Workspace>.Success)
     {
-        var result = await workspaceStore.OpenAsync(path, cancellationToken);
-        if (result is not OperationResult<Workspace>.Success)
-        {
-            return result;
-        }
-
-        var success = (OperationResult<Workspace>.Success)result;
-        var settingsError = await RecentWorkspaceUpdater.AddAsync(
-            settingsStore,
-            path,
-            success.Value.Name.ToString(),
-            clock.UtcNow,
-            cancellationToken);
-        return settingsError is null ? result : new OperationResult<Workspace>.Failure(settingsError);
+      return result;
     }
+
+    var success = (OperationResult<Workspace>.Success)result;
+    var settingsError = await RecentWorkspaceUpdater.AddAsync(
+        settingsStore,
+        path,
+        success.Value.Name.ToString(),
+        clock.UtcNow,
+        cancellationToken);
+    return settingsError is null ? result : new OperationResult<Workspace>.Failure(settingsError);
+  }
 }

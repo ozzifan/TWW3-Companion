@@ -107,6 +107,8 @@ We welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before 
 - **RFCs** for significant design or architectural changes.
 - **Small PRs** are easier to review and merge.
 
+For local setup, build, test, publish, and smoke-test commands, see [docs/development.md](docs/development.md).
+
 Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---

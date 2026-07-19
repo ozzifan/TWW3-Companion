@@ -6,47 +6,47 @@ using Tww3Companion.Infrastructure.Startup;
 
 return args[0] switch
 {
-    "hold" => Hold(args[1]),
-    "contend" => SingleInstanceStartup.Run(
-        new WindowsSingleInstanceLease(),
-        new FileNotification(args[2]),
-        () => File.WriteAllText(args[1], "startup action ran")),
-    _ => 2,
+  "hold" => Hold(args[1]),
+  "contend" => SingleInstanceStartup.Run(
+      new WindowsSingleInstanceLease(),
+      new FileNotification(args[2]),
+      () => File.WriteAllText(args[1], "startup action ran")),
+  _ => 2,
 };
 
 static int Hold(string signalPath)
 {
-    var deadline = DateTime.UtcNow.AddSeconds(10);
-    do
-    {
-        var result = SingleInstanceStartup.Run(
-            new WindowsSingleInstanceLease(),
-            new NullNotification(),
-            () =>
-            {
-                File.WriteAllText(signalPath, "acquired");
-                Thread.Sleep(TimeSpan.FromSeconds(30));
-            });
-        if (result == 0)
+  var deadline = DateTime.UtcNow.AddSeconds(10);
+  do
+  {
+    var result = SingleInstanceStartup.Run(
+        new WindowsSingleInstanceLease(),
+        new NullNotification(),
+        () =>
         {
-            return 0;
-        }
-
-        Thread.Sleep(25);
+          File.WriteAllText(signalPath, "acquired");
+          Thread.Sleep(TimeSpan.FromSeconds(30));
+        });
+    if (result == 0)
+    {
+      return 0;
     }
-    while (DateTime.UtcNow < deadline);
 
-    return 3;
+    Thread.Sleep(25);
+  }
+  while (DateTime.UtcNow < deadline);
+
+  return 3;
 }
 
 internal sealed class FileNotification(string path) : IStartupNotification
 {
-    public void ShowBlockingError(string message) => File.WriteAllText(path, message);
+  public void ShowBlockingError(string message) => File.WriteAllText(path, message);
 }
 
 internal sealed class NullNotification : IStartupNotification
 {
-    public void ShowBlockingError(string message)
-    {
-    }
+  public void ShowBlockingError(string message)
+  {
+  }
 }

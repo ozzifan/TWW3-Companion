@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-test-publish:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Restore
+        run: dotnet restore Tww3Companion.sln
+        shell: pwsh
+
+      - name: Format verification
+        run: dotnet format Tww3Companion.sln --verify-no-changes
+        shell: pwsh
+
+      - name: Build
+        run: dotnet build Tww3Companion.sln -c Release
+        shell: pwsh
+
+      - name: Test
+        run: dotnet test Tww3Companion.sln -c Release --no-build
+        shell: pwsh
+
+      - name: Publish self-contained artifact
+        run: |
+          dotnet publish src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o artifacts/portable/win-x64
+        shell: pwsh
+
+      - name: Smoke test installed mode
+        run: |
+          & scripts/smoke-test-portable.ps1 `
+            -PublishDirectory artifacts/portable/win-x64 `
+            -WorkingDirectory artifacts/smoke-installed `
+            -Mode Installed
+        shell: pwsh
+
+      - name: Smoke test portable mode
+        run: |
+          & scripts/smoke-test-portable.ps1 `
+            -PublishDirectory artifacts/portable/win-x64 `
+            -WorkingDirectory artifacts/smoke-portable `
+            -Mode Portable
+        shell: pwsh
+
+      - name: Diff check
+        run: git diff --check
+        shell: pwsh

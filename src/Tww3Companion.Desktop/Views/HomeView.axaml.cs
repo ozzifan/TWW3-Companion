@@ -4,5 +4,5 @@ namespace Tww3Companion.Desktop.Views;
 
 public partial class HomeView : UserControl
 {
-    public HomeView() => InitializeComponent();
+  public HomeView() => InitializeComponent();
 }

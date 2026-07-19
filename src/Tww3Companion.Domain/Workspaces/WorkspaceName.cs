@@ -4,31 +4,31 @@ namespace Tww3Companion.Domain.Workspaces;
 
 public readonly record struct WorkspaceName
 {
-    private const int MaximumLength = 120;
-    private readonly string value;
+  private const int MaximumLength = 120;
+  private readonly string value;
 
-    private WorkspaceName(string value)
+  private WorkspaceName(string value)
+  {
+    this.value = value;
+  }
+
+  public static ValidationResult<WorkspaceName> Create(string? value)
+  {
+    var trimmed = value?.Trim();
+    if (string.IsNullOrEmpty(trimmed))
     {
-        this.value = value;
+      return new ValidationResult<WorkspaceName>.Failure(
+          new ValidationError("workspace.name.required", "Workspace name is required."));
     }
 
-    public static ValidationResult<WorkspaceName> Create(string? value)
+    if (trimmed.EnumerateRunes().Count() > MaximumLength)
     {
-        var trimmed = value?.Trim();
-        if (string.IsNullOrEmpty(trimmed))
-        {
-            return new ValidationResult<WorkspaceName>.Failure(
-                new ValidationError("workspace.name.required", "Workspace name is required."));
-        }
-
-        if (trimmed.EnumerateRunes().Count() > MaximumLength)
-        {
-            return new ValidationResult<WorkspaceName>.Failure(
-                new ValidationError("workspace.name.too-long", "Workspace name cannot exceed 120 characters."));
-        }
-
-        return new ValidationResult<WorkspaceName>.Success(new WorkspaceName(trimmed));
+      return new ValidationResult<WorkspaceName>.Failure(
+          new ValidationError("workspace.name.too-long", "Workspace name cannot exceed 120 characters."));
     }
 
-    public override string ToString() => value;
+    return new ValidationResult<WorkspaceName>.Success(new WorkspaceName(trimmed));
+  }
+
+  public override string ToString() => value;
 }
