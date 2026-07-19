@@ -15,6 +15,14 @@ public sealed class WindowPlacementServiceTests
         Assert.Equal(saved, WindowPlacementService.Restore(saved, [Primary]));
     }
 
+    [Fact]
+    public void KeepsPartiallyVisiblePlacementWhenTheTitleBarAndPrimaryContentRemainReachable()
+    {
+        var saved = new WindowPlacement(-120, 10, 1280, 800, false);
+
+        Assert.Equal(saved, WindowPlacementService.Restore(saved, [Primary]));
+    }
+
     [Theory]
     [InlineData(2000, 50, 1200, 700)]
     [InlineData(100, 50, 1000, 700)]
@@ -33,6 +41,6 @@ public sealed class WindowPlacementServiceTests
 
         Assert.Equal(1280, restored.Width);
         Assert.Equal(800, restored.Height);
-        Assert.True(Primary.Contains(restored));
+        Assert.True(Primary.CanKeepReachable(restored));
     }
 }

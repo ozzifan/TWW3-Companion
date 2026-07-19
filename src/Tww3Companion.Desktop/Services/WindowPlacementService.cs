@@ -4,10 +4,23 @@ public sealed record WindowPlacement(double X, double Y, double Width, double He
 
 public sealed record WorkArea(double X, double Y, double Width, double Height, bool IsPrimary)
 {
-    public bool Contains(WindowPlacement placement) =>
-        placement.X >= X && placement.Y >= Y
-        && placement.X + placement.Width <= X + Width
-        && placement.Y + placement.Height <= Y + Height;
+    public bool CanKeepReachable(WindowPlacement placement)
+    {
+        var left = Math.Max(X, placement.X);
+        var top = Math.Max(Y, placement.Y);
+        var right = Math.Min(X + Width, placement.X + placement.Width);
+        var bottom = Math.Min(Y + Height, placement.Y + placement.Height);
+
+        if (right <= left || bottom <= top)
+        {
+            return false;
+        }
+
+        return placement.Y + 48 > Y
+            && placement.Y < Y + Height
+            && placement.X + 320 > X
+            && placement.X < X + Width;
+    }
 }
 
 public static class WindowPlacementService
@@ -17,7 +30,7 @@ public static class WindowPlacementService
         ArgumentOutOfRangeException.ThrowIfZero(workAreas.Count);
 
         if (saved is { Width: >= 1024, Height: >= 640 }
-            && workAreas.Any(workArea => workArea.Contains(saved)))
+            && workAreas.Any(workArea => workArea.CanKeepReachable(saved)))
         {
             return saved;
         }
