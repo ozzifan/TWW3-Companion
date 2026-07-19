@@ -62,11 +62,12 @@ public sealed class HomeCompositionTests
     }
 
     [Fact]
-    public void SettingsSaveFailureRetainsInMemoryValueAndExposesRecoveryCommands()
+    public async Task SettingsSaveFailureRetainsInMemoryValueAndExposesRecoveryCommands()
     {
         var subject = ShellViewModel.CreateForTest(settingsStore: new FailingApplicationSettingsStore());
 
         subject.SetTheme(ThemeChoice.Dark);
+        await WaitForSettingsSaveError(subject);
 
         Assert.Equal(ThemeChoice.Dark, subject.StoredTheme);
         Assert.NotEmpty(subject.Home.SettingsSaveError);
@@ -74,6 +75,27 @@ public sealed class HomeCompositionTests
         Assert.NotNull(subject.OpenSettingsFolderCommand);
         Assert.True(subject.RetrySettingsSaveCommand.CanExecute(null));
         Assert.True(subject.OpenSettingsFolderCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void RecentWorkspaceDisplayNamePreservesCharactersUnsafeForFilenames()
+    {
+        var settings = new ApplicationSettings(
+            SchemaVersion: 1,
+            Theme: nameof(ThemeChoice.System),
+            WindowPlacement: null,
+            RecentWorkspaces:
+            [
+                new RecentWorkspace(
+                    @"C:\Workspaces\Advanced - Expert Mods -5-.tww3c",
+                    DateTimeOffset.UtcNow,
+                    "Advanced & Expert Mods #5")
+            ]);
+        var subject = ShellViewModel.CreateForTest(settingsStore: new StaticApplicationSettingsStore(settings));
+
+        Assert.Contains(
+            subject.Home.Recents,
+            recent => recent.DisplayName == "Advanced & Expert Mods #5");
     }
 
     [Fact]
@@ -173,6 +195,21 @@ public sealed class HomeCompositionTests
         throw new InvalidOperationException($"The workspace did not show '{error}'.");
     }
 
+    private static async Task WaitForSettingsSaveError(ShellViewModel subject)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            if (!string.IsNullOrWhiteSpace(subject.Home.SettingsSaveError))
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        throw new InvalidOperationException("The shell did not surface a settings save error.");
+    }
+
     private sealed class BlockingWorkspaceDialogService : IWorkspaceDialogService
     {
         private readonly TaskCompletionSource _createPromptRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -203,7 +240,7 @@ public sealed class HomeCompositionTests
             WindowPlacement: null,
             RecentWorkspaces:
             [
-                new RecentWorkspace(@"C:\Missing\Workspace.tww3c", DateTimeOffset.UtcNow)
+                new RecentWorkspace(@"C:\Missing\Workspace.tww3c", DateTimeOffset.UtcNow, "Missing Workspace")
             ]);
 
         public Task<ApplicationSettings> LoadAsync(CancellationToken cancellationToken) =>
@@ -218,6 +255,18 @@ public sealed class HomeCompositionTests
                 new OperationResult<ApplicationSettings>.Failure(
                     new("settings.save.failed", "Saving application settings failed.", false, "Retry saving application settings.")));
         }
+    }
+
+    private sealed class StaticApplicationSettingsStore(ApplicationSettings settings) : IApplicationSettingsStore
+    {
+        public Task<ApplicationSettings> LoadAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(settings);
+
+        public Task<OperationResult<ApplicationSettings>> SaveAsync(
+            ApplicationSettings updatedSettings,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<OperationResult<ApplicationSettings>>(
+                new OperationResult<ApplicationSettings>.Success(updatedSettings));
     }
 
     private sealed class ControllableWorkspaceDisposalCoordinator : IWorkspaceDisposalCoordinator

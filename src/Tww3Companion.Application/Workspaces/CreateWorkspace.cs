@@ -52,6 +52,7 @@ public sealed class CreateWorkspace(
         var settingsError = await RecentWorkspaceUpdater.AddAsync(
             settingsStore,
             path,
+            ((ValidationResult<WorkspaceName>.Success)nameResult).Value.ToString(),
             now,
             cancellationToken);
         return settingsError is null ? result : new OperationResult<Workspace>.Failure(settingsError);

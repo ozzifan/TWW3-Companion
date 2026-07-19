@@ -85,8 +85,12 @@ public sealed class ShellViewModel : ViewModelBase
         Workspace = CreateWorkspaceState(string.Empty);
         createWorkspaceCommand = new DelegateCommand(_ => _ = RunCreateWorkspaceAsync(), _ => !Home.IsBusy);
         openWorkspaceCommand = new DelegateCommand(_ => _ = RunOpenWorkspaceAsync(), _ => !Home.IsBusy);
-        removeRecentCommand = new DelegateCommand(RemoveRecent, parameter => parameter is RecentWorkspaceItem { IsRemovable: true });
-        retrySettingsSaveCommand = new DelegateCommand(_ => RetrySettingsSave(), _ => !string.IsNullOrWhiteSpace(Home.SettingsSaveError));
+        removeRecentCommand = new DelegateCommand(
+            parameter => _ = RemoveRecentAsync(parameter),
+            parameter => parameter is RecentWorkspaceItem { IsRemovable: true });
+        retrySettingsSaveCommand = new DelegateCommand(
+            _ => _ = SaveSettingsAsync(),
+            _ => !string.IsNullOrWhiteSpace(Home.SettingsSaveError));
 
         CreateWorkspaceCommand = createWorkspaceCommand;
         OpenWorkspaceCommand = openWorkspaceCommand;
@@ -193,9 +197,9 @@ public sealed class ShellViewModel : ViewModelBase
 
         _storedTheme = choice;
         settings = settings with { Theme = choice.ToString() };
-        SaveSettings();
         OnPropertyChanged(nameof(StoredTheme));
         OnPropertyChanged(nameof(EffectiveTheme));
+        _ = SaveSettingsAsync();
     }
 
     public void SetHighContrast(bool active)
@@ -324,7 +328,7 @@ public sealed class ShellViewModel : ViewModelBase
         }
     }
 
-    private void RemoveRecent(object? parameter)
+    private async Task RemoveRecentAsync(object? parameter)
     {
         if (parameter is not RecentWorkspaceItem item)
         {
@@ -337,11 +341,9 @@ public sealed class ShellViewModel : ViewModelBase
                 .Where(recent => !StringComparer.OrdinalIgnoreCase.Equals(recent.Path, item.Path))
                 .ToArray()
         };
-        SaveSettings();
+        await SaveSettingsAsync();
         UpdateHome(Home.SettingsSaveError);
     }
-
-    private void RetrySettingsSave() => SaveSettings();
 
     private void OpenSettingsFolder()
     {
@@ -375,7 +377,13 @@ public sealed class ShellViewModel : ViewModelBase
             await workspaceDisposalCoordinator.DisposeWorkspaceScopeAsync(CancellationToken.None);
             SetScreen(ShellScreen.Home);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (OperationCanceledException exception)
+        {
+            // Fire-and-forget ReturnHome must still surface cancellation; otherwise the discarded
+            // task fails silently and neither screen change nor error is visible.
+            UpdateWorkspaceError(exception.Message);
+        }
+        catch (Exception exception)
         {
             UpdateWorkspaceError(exception.Message);
         }
@@ -385,9 +393,9 @@ public sealed class ShellViewModel : ViewModelBase
         }
     }
 
-    private void SaveSettings()
+    private async Task SaveSettingsAsync()
     {
-        var result = settingsStore.SaveAsync(settings, CancellationToken.None).GetAwaiter().GetResult();
+        var result = await settingsStore.SaveAsync(settings, CancellationToken.None);
         var error = result is OperationResult<ApplicationSettings>.Failure failure
             ? failure.Error.Message
             : string.Empty;
@@ -454,17 +462,23 @@ public sealed class ShellViewModel : ViewModelBase
     private static IReadOnlyList<RecentWorkspaceItem> CreateRecentItems(ApplicationSettings settings) =>
         settings.RecentWorkspaces
             .Select(recent => new RecentWorkspaceItem(
-                DisplayNameForRecent(recent.Path),
+                DisplayNameForRecent(recent),
                 recent.Path,
                 !File.Exists(recent.Path),
                 true))
             .ToArray();
 
-    private static string DisplayNameForRecent(string path) =>
-        File.Exists(path)
-            ? Path.GetFileNameWithoutExtension(path)
-            : "Missing Workspace";
+    private static string DisplayNameForRecent(RecentWorkspace recent)
+    {
+        if (!string.IsNullOrWhiteSpace(recent.DisplayName))
+        {
+            return recent.DisplayName;
+        }
 
+        return File.Exists(recent.Path)
+            ? Path.GetFileNameWithoutExtension(recent.Path)
+            : "Missing Workspace";
+    }
     private static string SafeFileName(string displayName)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -509,7 +523,7 @@ public sealed class ShellViewModel : ViewModelBase
         SchemaVersion: 1,
         Theme: nameof(ThemeChoice.System),
         WindowPlacement: null,
-        RecentWorkspaces: [new RecentWorkspace(@"C:\Missing\Workspace.tww3c", DateTimeOffset.UnixEpoch)]);
+        RecentWorkspaces: [new RecentWorkspace(@"C:\Missing\Workspace.tww3c", DateTimeOffset.UnixEpoch, "Missing Workspace")]);
 
     private sealed class ShellViewModelOptions
     {

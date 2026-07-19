@@ -19,10 +19,6 @@
                 Command="{Binding OpenWorkspaceCommand}" />
       </StackPanel>
 
-      <TextBlock FontWeight="SemiBold" Text="Create Workspace prompt" />
-      <TextBlock TextWrapping="Wrap" Text="Workspace display name" />
-      <TextBlock TextWrapping="Wrap" Text="TWW3 Companion Workspace (*.tww3c)" />
-
       <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
         <TextBlock TextWrapping="Wrap"
                    Text="Synchronized-folder warning: opening the same live Workspace from OneDrive, Dropbox, or another synchronized folder is unsupported and can create conflicts or corruption. Close TWW3 Companion on every machine before manually copying a .tww3c file, then open only the completed local copy on one machine at a time." />

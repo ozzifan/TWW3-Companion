@@ -1,6 +1,9 @@
 namespace Tww3Companion.Application.Settings;
 
-public sealed record RecentWorkspace(string Path, DateTimeOffset LastOpenedUtc);
+public sealed record RecentWorkspace(
+    string Path,
+    DateTimeOffset LastOpenedUtc,
+    string DisplayName = "");
 
 public sealed record ApplicationSettings(
     int SchemaVersion,

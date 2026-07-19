@@ -63,7 +63,9 @@ Smoke and composition hooks are exercised from the approved xUnit harness:
 
 **Pre-logging failure path:** Only managed-path initialization and single-instance acquisition failures occur before `LoggingConfiguration.CreateProvider`. Both call `ShowBlockingError` and return exit code `1` without creating log files. Failures after logging starts follow the normal logging path and are not covered by the native-dialog-only constraint.
 
-**Return-home disposal boundary:** On disposal failure, `CurrentScreen` remains `Workspace` and the exception message is surfaced on `Home.SettingsSaveError`. There is no retry-disposal command; the user must attempt Return Home again. Concurrent Return Home calls are ignored while `isDisposingWorkspace` is true. Production disposal is currently immediate (`Task.CompletedTask`), so the async wait is a contract placeholder until workspace resources exist.
+**Return-home disposal boundary:** On disposal failure, `CurrentScreen` remains `Workspace` and the exception message is surfaced on `Workspace.OperationError` (bound near Return Home). There is no retry-disposal command; the user must attempt Return Home again. Concurrent Return Home calls are ignored while `isDisposingWorkspace` is true. Production disposal is currently immediate (`Task.CompletedTask`), so the async wait is a contract placeholder until workspace resources exist.
+
+**Return-home fire-and-forget:** `ReturnHome()` discards `ReturnHomeAsync()` (`_ = ReturnHomeAsync()`). Cancellation and other exceptions are caught inside `ReturnHomeAsync` and surfaced on `Workspace.OperationError`. If a future disposal coordinator cancels, the UI still receives the failure instead of a silently lost discarded-task exception.
 
 ## Concerns
 
@@ -76,7 +78,7 @@ None open.
 - Fixed Important 1 by gating `TWW3_COMPANION_TEST_MANAGED_ROOT` behind `TWW3_COMPANION_TEST_MODE=1`; normal runtime path detection now uses `ManagedPaths.Detect(...)` when test mode is off.
 - Fixed Important 2 by adding Workspace-visible operation error state and binding it near `Return Home`; disposal failure keeps `CurrentScreen == Workspace` and displays the failure on the Workspace shell.
 - Removed the stale no-op `CompleteWorkspaceDisposalForTest()` seam; tests now use `IWorkspaceDisposalCoordinator`.
-- Did not modify historical Task 3 reports. This Task 9 section supersedes the older limitation note above that said disposal errors surfaced through `Home.SettingsSaveError`.
+- Did not modify historical Task 3 reports. Disposal errors are surfaced through `Workspace.OperationError`, not `Home.SettingsSaveError`.
 
 ### Regression coverage
 
@@ -103,3 +105,18 @@ git diff --check
 ```
 
 Exit code `0`; no whitespace errors. Git reported line-ending normalization warnings for touched files only.
+
+## External review fixes - 2026-07-20
+
+### Must fix
+
+1. Removed stray Create-dialog description `TextBlock`s from `HomeView.axaml` (dialog copy remains only in `WorkspaceDialogService`).
+2. Settings save from `SetTheme`, `RemoveRecent`, and `RetrySettingsSave` is now async (`SaveSettingsAsync`) and no longer blocks the UI thread with `.GetAwaiter().GetResult()`.
+3. `RecentWorkspace` now stores `DisplayName` at create/open time; Home recents prefer that value over the sanitized filename.
+
+### Noted
+
+4. Replaced reflection-based managed-path test seam with `IManagedPathInitializer`.
+5. `CompositionTestOptions.NativeStartupDialog` is now `IStartupNotification`.
+6. Corrected the stale disposal-error limitation in this report.
+7. Documented Return Home fire-and-forget cancellation handling above.

@@ -1,7 +1,9 @@
 using System.Text.Json;
+using Tww3Companion.Application.Common;
 using Tww3Companion.Application.Startup;
 using Tww3Companion.Desktop.Composition;
 using Tww3Companion.Desktop.Startup;
+using Tww3Companion.Infrastructure.Paths;
 using Xunit;
 
 namespace Tww3Companion.Desktop.Tests.Composition;
@@ -210,11 +212,11 @@ public sealed class ApplicationCompositionTests
         public void Dispose() => Directory.Delete(Path, recursive: true);
     }
 
-    private sealed class RecordingNativeStartupDialog : NativeStartupDialog
+    private sealed class RecordingNativeStartupDialog : IStartupNotification
     {
         public List<string> Messages { get; } = [];
 
-        public override void ShowBlockingError(string message) => Messages.Add(message);
+        public void ShowBlockingError(string message) => Messages.Add(message);
     }
 
     private sealed class RejectingSingleInstanceGuard : ISingleInstanceGuard
@@ -222,9 +224,16 @@ public sealed class ApplicationCompositionTests
         public ISingleInstanceLease? TryAcquire() => null;
     }
 
-    private sealed class FailingManagedPathInitializer
+    private sealed class FailingManagedPathInitializer : IManagedPathInitializer
     {
-        public Task<int> InitializeAsync(CompositionTestOptions options, CancellationToken cancellationToken) =>
-            Task.FromResult(1);
+        public Task<OperationResult<ManagedPaths>> InitializeAsync(
+            ManagedPaths paths,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<OperationResult<ManagedPaths>>(
+                new OperationResult<ManagedPaths>.Failure(new OperationError(
+                    "startup.managed-path.failed",
+                    "Managed paths could not be initialized.",
+                    false,
+                    "Correct the managed directory permissions and try again.")));
     }
 }

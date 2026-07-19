@@ -74,7 +74,7 @@ public sealed class ApplicationComposition
     public static int RunDesktopStartup(
         string[] args,
         ISingleInstanceGuard guard,
-        NativeStartupDialog startupDialog,
+        IStartupNotification startupDialog,
         Func<ApplicationRuntime, int> startApplication)
     {
         var runtime = CreateRuntime(new CompositionOptions(
@@ -167,52 +167,8 @@ public sealed class ApplicationComposition
 
     private static OperationResult<ManagedPaths> InitializeManagedPaths(CompositionOptions options, ManagedPaths paths)
     {
-        if (options.ManagedPathInitializer is not null)
-        {
-            return InvokeManagedPathInitializer(options.ManagedPathInitializer, options, paths);
-        }
-
-        return new ManagedPathInitializer()
-            .InitializeAsync(paths, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
-    }
-
-    private static OperationResult<ManagedPaths> InvokeManagedPathInitializer(
-        object initializer,
-        CompositionOptions options,
-        ManagedPaths paths)
-    {
-        if (initializer is ManagedPathInitializer managedPathInitializer)
-        {
-            return managedPathInitializer.InitializeAsync(paths, CancellationToken.None).GetAwaiter().GetResult();
-        }
-
-        var testOptions = new CompositionTestOptions
-        {
-            ExecutableDirectory = options.ExecutableDirectory,
-            LocalApplicationDataDirectory = options.LocalApplicationDataDirectory,
-            NativeStartupDialog = options.StartupDialog,
-            SingleInstanceGuard = options.SingleInstanceGuard,
-            ManagedPathInitializer = initializer,
-            WorkAreaWidth = options.WorkAreaWidth,
-            WorkAreaHeight = options.WorkAreaHeight,
-            WorkspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator
-        };
-        var method = initializer.GetType().GetMethod(
-            "InitializeAsync",
-            [typeof(CompositionTestOptions), typeof(CancellationToken)]);
-        if (method?.Invoke(initializer, [testOptions, CancellationToken.None]) is Task<int> exitCodeTask
-            && exitCodeTask.GetAwaiter().GetResult() != 0)
-        {
-            return new OperationResult<ManagedPaths>.Failure(new OperationError(
-                "startup.managed-path.failed",
-                "Managed paths could not be initialized.",
-                false,
-                "Correct the managed directory permissions and try again."));
-        }
-
-        return new OperationResult<ManagedPaths>.Success(paths);
+        var initializer = options.ManagedPathInitializer ?? new ManagedPathInitializer();
+        return initializer.InitializeAsync(paths, CancellationToken.None).GetAwaiter().GetResult();
     }
 
     private sealed class SystemClock : IClock
@@ -234,9 +190,9 @@ public sealed class CompositionTestOptions
 {
     public string ExecutableDirectory { get; init; } = AppContext.BaseDirectory;
     public string LocalApplicationDataDirectory { get; init; } = Path.GetTempPath();
-    public NativeStartupDialog NativeStartupDialog { get; init; } = new();
+    public IStartupNotification NativeStartupDialog { get; init; } = new NativeStartupDialog();
     public ISingleInstanceGuard SingleInstanceGuard { get; init; } = new AcquiringTestSingleInstanceGuard();
-    public object? ManagedPathInitializer { get; init; }
+    public IManagedPathInitializer? ManagedPathInitializer { get; init; }
     public double? WorkAreaWidth { get; init; }
     public double? WorkAreaHeight { get; init; }
     public IWorkspaceDisposalCoordinator? WorkspaceDisposalCoordinator { get; init; }
@@ -257,9 +213,9 @@ public sealed class CompositionTestOptions
 internal sealed record CompositionOptions(
     string ExecutableDirectory,
     string LocalApplicationDataDirectory,
-    NativeStartupDialog StartupDialog,
+    IStartupNotification StartupDialog,
     ISingleInstanceGuard SingleInstanceGuard,
-    object? ManagedPathInitializer,
+    IManagedPathInitializer? ManagedPathInitializer,
     double? WorkAreaWidth,
     double? WorkAreaHeight,
     IWorkspaceDisposalCoordinator? WorkspaceDisposalCoordinator);

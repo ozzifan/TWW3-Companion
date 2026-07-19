@@ -3,7 +3,7 @@ using Tww3Companion.Infrastructure.Settings;
 
 namespace Tww3Companion.Infrastructure.Paths;
 
-public sealed class ManagedPathInitializer(IAtomicFileSystem? fileSystem = null)
+public sealed class ManagedPathInitializer(IAtomicFileSystem? fileSystem = null) : IManagedPathInitializer
 {
     private readonly IAtomicFileSystem fileSystem = fileSystem ?? new AtomicFileSystem();
 

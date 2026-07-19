@@ -59,6 +59,7 @@ public sealed class CreateWorkspaceTests
         Assert.Equal("Campaign", success.Value.Name.ToString());
         Assert.Equal(new[] { "create", "save-settings" }, events);
         Assert.Equal(@"C:\Workspaces\campaign.tww3c", settings.Saved!.RecentWorkspaces[0].Path);
+        Assert.Equal("Campaign", settings.Saved.RecentWorkspaces[0].DisplayName);
         Assert.Equal(Now, settings.Saved.RecentWorkspaces[0].LastOpenedUtc);
     }
 

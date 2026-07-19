@@ -18,9 +18,11 @@ public sealed class OpenWorkspace(
             return result;
         }
 
+        var success = (OperationResult<Workspace>.Success)result;
         var settingsError = await RecentWorkspaceUpdater.AddAsync(
             settingsStore,
             path,
+            success.Value.Name.ToString(),
             clock.UtcNow,
             cancellationToken);
         return settingsError is null ? result : new OperationResult<Workspace>.Failure(settingsError);

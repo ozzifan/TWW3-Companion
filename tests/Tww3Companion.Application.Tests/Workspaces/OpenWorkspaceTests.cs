@@ -43,6 +43,7 @@ public sealed class OpenWorkspaceTests
         Assert.Equal(new[] { "open", "save-settings" }, events);
         Assert.Equal(10, settings.Saved!.RecentWorkspaces.Count);
         Assert.Equal(path, settings.Saved.RecentWorkspaces[0].Path);
+        Assert.Equal("Campaign", settings.Saved.RecentWorkspaces[0].DisplayName);
         Assert.Single(settings.Saved.RecentWorkspaces, recent => string.Equals(recent.Path, path, StringComparison.OrdinalIgnoreCase));
     }
 
