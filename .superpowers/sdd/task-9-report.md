@@ -1,0 +1,70 @@
+# Task 9 Report: Home composition slice verification
+
+## Status
+
+Verified. Branch `codex/workspace-foundation` at `9f8199b` is ready for the next packaging/documentation stage.
+
+## Verification evidence
+
+Full desktop test project:
+
+```powershell
+& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj
+```
+
+Exit code `0`; `Failed: 0, Passed: 32, Skipped: 0, Total: 32`.
+
+Focused Home/composition/shell filter:
+
+```powershell
+& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj --filter "HomeCompositionTests|ApplicationCompositionTests|ShellViewModelTests"
+```
+
+Exit code `0`; `Failed: 0, Passed: 19, Skipped: 0, Total: 19`.
+
+Whitespace validation:
+
+```powershell
+git diff --check
+```
+
+Exit code `0`; no whitespace errors.
+
+## In-process hook coverage
+
+Smoke and composition hooks are exercised from the approved xUnit harness:
+
+| Test | Hook exercised |
+|------|----------------|
+| `ManagedPathFailureShowsNativeBlockingDialogAndDoesNotWriteLogEntry` | Pre-logging managed-path failure via `RunStartupForTest`; native dialog only, no `*.log` files |
+| `SingleInstanceFailureShowsAlreadyRunningMessage` | Pre-logging single-instance failure with exact already-running copy |
+| `SmokeTestWritesResultJsonAtDirectoryRoot` | `--smoke-test` in-process via `SmokeTestCommand.Run`; writes `<directory>\smoke-result.json` with required fields |
+| `SmokeTestUsesApplicationCompositionRootInsteadOfManualStartupWiring` | Source guard that smoke uses `ApplicationComposition.CreateSmokeTestRuntime` |
+| `HoldSingleInstanceFailsCleanlyWhenManagedRootEnvironmentVariableIsMissing` | `--hold-single-instance` argument guard |
+| `ReturnHomeDisposalPreventsScreenChangeUntilDisposalSucceeds` | Return-home disposal boundary via `IWorkspaceDisposalCoordinator` |
+
+## Self-review checklist
+
+- Home is a nested view inside `MainWindow`, not a separate window.
+- One shared `ShellViewModel` owns Home, Compatibility, Workspace, theme, and recovery state.
+- Return-home disposal is explicit: `CurrentScreen` stays `Workspace` until `DisposeWorkspaceScopeAsync` completes.
+- `smoke-result.json` is written only at `<directory>\smoke-result.json`.
+- Pre-logging failures (managed paths, single-instance) use `NativeStartupDialog` only; logging is configured after both gates pass.
+- Startup order matches the nine approved steps in `ApplicationComposition.StartupSteps`.
+- No placeholder implementation steps remain in this slice.
+
+## Tradeoffs
+
+- `WorkspaceDisposalCoordinator` is a production no-op stub; real workspace-scope teardown will land with the workspace runtime slice. The disposal boundary contract is typed and tested now so return-home behavior does not regress.
+- `CompositionTestOptions` / `RunStartupForTest` remain test-only seams rather than public API.
+- Display-name and open-file prompts are Avalonia dialogs behind `IWorkspaceDialogService`; headless CI cannot exercise the visual prompt, only source and command-path guards.
+
+## Limitations
+
+**Pre-logging failure path:** Only managed-path initialization and single-instance acquisition failures occur before `LoggingConfiguration.CreateProvider`. Both call `ShowBlockingError` and return exit code `1` without creating log files. Failures after logging starts follow the normal logging path and are not covered by the native-dialog-only constraint.
+
+**Return-home disposal boundary:** On disposal failure, `CurrentScreen` remains `Workspace` and the exception message is surfaced on `Home.SettingsSaveError`. There is no retry-disposal command; the user must attempt Return Home again. Concurrent Return Home calls are ignored while `isDisposingWorkspace` is true. Production disposal is currently immediate (`Task.CompletedTask`), so the async wait is a contract placeholder until workspace resources exist.
+
+## Concerns
+
+None open.
