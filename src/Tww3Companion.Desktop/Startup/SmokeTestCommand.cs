@@ -3,8 +3,6 @@ using Tww3Companion.Application.Common;
 using Tww3Companion.Application.Startup;
 using Tww3Companion.Desktop.Composition;
 using Tww3Companion.Domain.Workspaces;
-using Tww3Companion.Infrastructure.Paths;
-using Tww3Companion.Infrastructure.Settings;
 using Tww3Companion.Infrastructure.Startup;
 
 namespace Tww3Companion.Desktop.Startup;
@@ -35,22 +33,14 @@ public static class SmokeTestCommand
     private static int RunSmokeTest(string directory)
     {
         Directory.CreateDirectory(directory);
-        var paths = ApplicationComposition.DetectManagedPaths(
-            AppContext.BaseDirectory,
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
-        var initialization = new ManagedPathInitializer()
-            .InitializeAsync(paths, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
-        if (initialization is OperationResult<ManagedPaths>.Failure)
+        using var runtime = ApplicationComposition.CreateSmokeTestRuntime(CreateSingleInstanceGuard());
+        if (runtime is null)
         {
             return 1;
         }
 
-        var settingsStore = new JsonApplicationSettingsStore(paths.SettingsFile);
-        var lifecycle = ApplicationComposition.CreateWorkspaceLifecycle(settingsStore);
         var workspacePath = Path.Combine(directory, "smoke.tww3c");
-        var createResult = lifecycle.CreateWorkspace
+        var createResult = runtime.CreateWorkspace
             .ExecuteAsync("Smoke Workspace", workspacePath, CancellationToken.None)
             .GetAwaiter()
             .GetResult();
@@ -59,7 +49,7 @@ public static class SmokeTestCommand
             return 1;
         }
 
-        var openResult = lifecycle.OpenWorkspace
+        var openResult = runtime.OpenWorkspace
             .ExecuteAsync(workspacePath, CancellationToken.None)
             .GetAwaiter()
             .GetResult();
@@ -78,8 +68,8 @@ public static class SmokeTestCommand
                 {
                     WorkspaceId = opened.Value.Id.ToString(),
                     DisplayName = opened.Value.Name.ToString(),
-                    ApplicationMode = paths.Mode.ToString(),
-                    ManagedRoot = paths.RootDirectory
+                    ApplicationMode = runtime.ManagedPaths.Mode.ToString(),
+                    ManagedRoot = runtime.ManagedPaths.RootDirectory
                 },
                 SerializerOptions));
         return 0;

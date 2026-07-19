@@ -1,4 +1,4 @@
-using System.Reflection;
+using System.Diagnostics;
 using System.Windows.Input;
 using Tww3Companion.Application.Common;
 using Tww3Companion.Application.Settings;
@@ -53,11 +53,12 @@ public sealed class ShellViewModel : ViewModelBase
     private readonly OpenWorkspace? openWorkspace;
     private readonly string defaultWorkspaceDirectory;
     private readonly string settingsDirectory;
-    private readonly object? workspaceLifetime;
+    private readonly IWorkspaceDisposalCoordinator workspaceDisposalCoordinator;
     private readonly DelegateCommand createWorkspaceCommand;
     private readonly DelegateCommand openWorkspaceCommand;
     private readonly DelegateCommand removeRecentCommand;
     private readonly DelegateCommand retrySettingsSaveCommand;
+    private bool isDisposingWorkspace;
 
     public ShellViewModel() : this(CreateDefaultOptions())
     {
@@ -74,7 +75,7 @@ public sealed class ShellViewModel : ViewModelBase
         openWorkspace = options.OpenWorkspace;
         defaultWorkspaceDirectory = options.DefaultWorkspaceDirectory;
         settingsDirectory = options.SettingsDirectory;
-        workspaceLifetime = options.WorkspaceLifetime;
+        workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator;
 
         // RFC-0005 keeps Home navigation in the shared shell; the next slice adds Import here.
         Home = CreateHomeState(WorkspaceOperationState.Idle, string.Empty);
@@ -96,7 +97,7 @@ public sealed class ShellViewModel : ViewModelBase
     public static ShellViewModel CreateForTest(
         IWorkspaceDialogService? workspaceDialogService = null,
         IApplicationSettingsStore? settingsStore = null,
-        object? workspaceLifetime = null) =>
+        IWorkspaceDisposalCoordinator? workspaceDisposalCoordinator = null) =>
         new(new ShellViewModelOptions
         {
             SettingsStore = settingsStore ?? new InMemoryApplicationSettingsStore(DefaultSettings()),
@@ -106,7 +107,7 @@ public sealed class ShellViewModel : ViewModelBase
             PromptOpenPath = cancellationToken =>
                 (workspaceDialogService?.PromptForOpenPathAsync(cancellationToken))
                 ?? Task.FromResult<string?>(null),
-            WorkspaceLifetime = workspaceLifetime
+            WorkspaceDisposalCoordinator = workspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator()
         });
 
     public static ShellViewModel Create(
@@ -116,7 +117,8 @@ public sealed class ShellViewModel : ViewModelBase
         CreateWorkspace createWorkspace,
         OpenWorkspace openWorkspace,
         string defaultWorkspaceDirectory,
-        string settingsDirectory) =>
+        string settingsDirectory,
+        IWorkspaceDisposalCoordinator workspaceDisposalCoordinator) =>
         new(new ShellViewModelOptions
         {
             InitialSettings = initialSettings,
@@ -126,7 +128,8 @@ public sealed class ShellViewModel : ViewModelBase
             CreateWorkspace = createWorkspace,
             OpenWorkspace = openWorkspace,
             DefaultWorkspaceDirectory = defaultWorkspaceDirectory,
-            SettingsDirectory = settingsDirectory
+            SettingsDirectory = settingsDirectory,
+            WorkspaceDisposalCoordinator = workspaceDisposalCoordinator
         });
 
     public ShellScreen CurrentScreen => _currentScreen;
@@ -157,19 +160,7 @@ public sealed class ShellViewModel : ViewModelBase
 
     public void OpenWorkspace() => SetScreen(ShellScreen.Workspace);
 
-    public void ReturnHome()
-    {
-        if (_currentScreen != ShellScreen.Workspace)
-        {
-            SetScreen(ShellScreen.Home);
-            return;
-        }
-
-        if (!RegisterWorkspaceDisposalCompletion())
-        {
-            SetScreen(ShellScreen.Home);
-        }
-    }
+    public void ReturnHome() => _ = ReturnHomeAsync();
 
     public void EvaluateWorkArea(double width, double height)
     {
@@ -354,6 +345,45 @@ public sealed class ShellViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(settingsDirectory))
         {
             Directory.CreateDirectory(settingsDirectory);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = settingsDirectory,
+                UseShellExecute = true
+            });
+        }
+    }
+
+    private async Task ReturnHomeAsync()
+    {
+        if (_currentScreen != ShellScreen.Workspace)
+        {
+            SetScreen(ShellScreen.Home);
+            return;
+        }
+
+        if (isDisposingWorkspace)
+        {
+            return;
+        }
+
+        isDisposingWorkspace = true;
+        try
+        {
+            await workspaceDisposalCoordinator.DisposeWorkspaceScopeAsync(CancellationToken.None);
+            SetScreen(ShellScreen.Home);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Home = Home with
+            {
+                SettingsSaveError = exception.Message,
+                HasSettingsSaveError = !string.IsNullOrWhiteSpace(exception.Message)
+            };
+            OnPropertyChanged(nameof(Home));
+        }
+        finally
+        {
+            isDisposingWorkspace = false;
         }
     }
 
@@ -432,28 +462,6 @@ public sealed class ShellViewModel : ViewModelBase
             ? theme
             : ThemeChoice.System;
 
-    private bool RegisterWorkspaceDisposalCompletion()
-    {
-        if (workspaceLifetime is null)
-        {
-            return false;
-        }
-
-        var method = workspaceLifetime.GetType().GetMethod(
-            "RegisterDisposalCompletion",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null,
-            types: [typeof(Action)],
-            modifiers: null);
-        if (method is null)
-        {
-            return false;
-        }
-
-        method.Invoke(workspaceLifetime, [new Action(() => SetScreen(ShellScreen.Home))]);
-        return true;
-    }
-
     private void RaiseCommandStateChanged()
     {
         createWorkspaceCommand.RaiseCanExecuteChanged();
@@ -497,7 +505,7 @@ public sealed class ShellViewModel : ViewModelBase
         public OpenWorkspace? OpenWorkspace { get; init; }
         public string DefaultWorkspaceDirectory { get; init; } = Path.GetTempPath();
         public string SettingsDirectory { get; init; } = Path.GetTempPath();
-        public object? WorkspaceLifetime { get; init; }
+        public IWorkspaceDisposalCoordinator WorkspaceDisposalCoordinator { get; init; } = new WorkspaceDisposalCoordinator();
     }
 
     private sealed class InMemoryApplicationSettingsStore(ApplicationSettings initialSettings) : IApplicationSettingsStore

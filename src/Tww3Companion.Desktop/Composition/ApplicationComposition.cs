@@ -43,7 +43,13 @@ public sealed class ApplicationComposition
     public static int RunStartupForTest(CompositionTestOptions? options = null)
     {
         options ??= new CompositionTestOptions();
-        var runtime = CreateRuntime(
+        var runtime = CreateRuntimeForTest(options);
+        runtime?.Dispose();
+        return runtime is null ? 1 : 0;
+    }
+
+    public static ApplicationRuntime? CreateRuntimeForTest(CompositionTestOptions options) =>
+        CreateRuntime(
             new CompositionOptions(
                 options.ExecutableDirectory,
                 options.LocalApplicationDataDirectory,
@@ -51,10 +57,19 @@ public sealed class ApplicationComposition
                 options.SingleInstanceGuard,
                 options.ManagedPathInitializer,
                 options.WorkAreaWidth,
-                options.WorkAreaHeight));
-        runtime?.Dispose();
-        return runtime is null ? 1 : 0;
-    }
+                options.WorkAreaHeight,
+                options.WorkspaceDisposalCoordinator));
+
+    public static ApplicationRuntime? CreateSmokeTestRuntime(ISingleInstanceGuard singleInstanceGuard) =>
+        CreateRuntime(new CompositionOptions(
+            AppContext.BaseDirectory,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            new NativeStartupDialog(),
+            singleInstanceGuard,
+            ManagedPathInitializer: null,
+            WorkAreaWidth: null,
+            WorkAreaHeight: null,
+            WorkspaceDisposalCoordinator: null));
 
     public static int RunDesktopStartup(
         string[] args,
@@ -69,7 +84,8 @@ public sealed class ApplicationComposition
             guard,
             ManagedPathInitializer: null,
             WorkAreaWidth: null,
-            WorkAreaHeight: null));
+            WorkAreaHeight: null,
+            WorkspaceDisposalCoordinator: null));
         if (runtime is null)
         {
             return 1;
@@ -102,6 +118,7 @@ public sealed class ApplicationComposition
         var settingsStore = new JsonApplicationSettingsStore(paths.SettingsFile);
         var settings = settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
         var lifecycle = CreateWorkspaceLifecycle(settingsStore);
+        var workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator();
 
         TopLevel? topLevel = null;
         var workspaceDialogService = new WorkspaceDialogService(() => topLevel);
@@ -112,7 +129,8 @@ public sealed class ApplicationComposition
             lifecycle.CreateWorkspace,
             lifecycle.OpenWorkspace,
             paths.WorkspacesDirectory,
-            Path.GetDirectoryName(paths.SettingsFile)!);
+            Path.GetDirectoryName(paths.SettingsFile)!,
+            workspaceDisposalCoordinator);
         if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
         {
             shell.EvaluateWorkArea(width, height);
@@ -121,6 +139,8 @@ public sealed class ApplicationComposition
         return new ApplicationRuntime(
             shell,
             paths,
+            lifecycle.CreateWorkspace,
+            lifecycle.OpenWorkspace,
             () => topLevel = null,
             control => topLevel = control,
             lease,
@@ -175,7 +195,8 @@ public sealed class ApplicationComposition
             SingleInstanceGuard = options.SingleInstanceGuard,
             ManagedPathInitializer = initializer,
             WorkAreaWidth = options.WorkAreaWidth,
-            WorkAreaHeight = options.WorkAreaHeight
+            WorkAreaHeight = options.WorkAreaHeight,
+            WorkspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator
         };
         var method = initializer.GetType().GetMethod(
             "InitializeAsync",
@@ -217,6 +238,7 @@ public sealed class CompositionTestOptions
     public object? ManagedPathInitializer { get; init; }
     public double? WorkAreaWidth { get; init; }
     public double? WorkAreaHeight { get; init; }
+    public IWorkspaceDisposalCoordinator? WorkspaceDisposalCoordinator { get; init; }
 
     private sealed class AcquiringTestSingleInstanceGuard : ISingleInstanceGuard
     {
@@ -238,11 +260,14 @@ internal sealed record CompositionOptions(
     ISingleInstanceGuard SingleInstanceGuard,
     object? ManagedPathInitializer,
     double? WorkAreaWidth,
-    double? WorkAreaHeight);
+    double? WorkAreaHeight,
+    IWorkspaceDisposalCoordinator? WorkspaceDisposalCoordinator);
 
 public sealed class ApplicationRuntime(
     ShellViewModel shellViewModel,
     ManagedPaths managedPaths,
+    CreateWorkspace createWorkspace,
+    OpenWorkspace openWorkspace,
     Action clearTopLevel,
     Action<TopLevel> attachTopLevel,
     ISingleInstanceLease singleInstanceLease,
@@ -250,13 +275,32 @@ public sealed class ApplicationRuntime(
 {
     public ShellViewModel ShellViewModel { get; } = shellViewModel;
     public ManagedPaths ManagedPaths { get; } = managedPaths;
+    public CreateWorkspace CreateWorkspace { get; } = createWorkspace;
+    public OpenWorkspace OpenWorkspace { get; } = openWorkspace;
 
-    public void AttachTopLevel(TopLevel topLevel) => attachTopLevel(topLevel);
+    public void AttachTopLevel(TopLevel topLevel)
+    {
+        attachTopLevel(topLevel);
+        EvaluateAttachedWorkArea(topLevel);
+    }
 
     public void Dispose()
     {
         clearTopLevel();
         loggingProvider.Dispose();
         singleInstanceLease.Dispose();
+    }
+
+    private void EvaluateAttachedWorkArea(TopLevel topLevel)
+    {
+        var primary = topLevel.Screens?.Primary;
+        if (primary is null)
+        {
+            return;
+        }
+
+        ShellViewModel.EvaluateWorkArea(
+            primary.WorkingArea.Width / primary.Scaling,
+            primary.WorkingArea.Height / primary.Scaling);
     }
 }

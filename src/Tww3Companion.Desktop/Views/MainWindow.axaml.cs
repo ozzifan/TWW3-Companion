@@ -13,19 +13,5 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
-        Opened += (_, _) => EvaluateWorkArea();
-    }
-
-    private void EvaluateWorkArea()
-    {
-        var primary = Screens.Primary;
-        if (primary is null || DataContext is not ShellViewModel viewModel)
-        {
-            return;
-        }
-
-        viewModel.EvaluateWorkArea(
-            primary.WorkingArea.Width / primary.Scaling,
-            primary.WorkingArea.Height / primary.Scaling);
     }
 }

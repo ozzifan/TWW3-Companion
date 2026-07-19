@@ -58,8 +58,11 @@ public sealed class MainWindowLayoutTests
     {
         var windowCode = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "MainWindow.axaml.cs"));
         var appCode = File.ReadAllText(Path.Combine(DesktopDirectory, "App.axaml.cs"));
+        var compositionCode = File.ReadAllText(Path.Combine(DesktopDirectory, "Composition", "ApplicationComposition.cs"));
 
-        Assert.Contains("EvaluateWorkArea", windowCode);
+        Assert.DoesNotContain("Opened +=", windowCode);
+        Assert.Contains("AttachTopLevel", appCode);
+        Assert.Contains("EvaluateAttachedWorkArea", compositionCode);
         Assert.Contains("ColorValuesChanged", appCode);
         Assert.Contains("RequestedThemeVariant", appCode);
     }

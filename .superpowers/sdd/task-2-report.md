@@ -88,3 +88,42 @@ Exit code `0`. Git reported only the repository's normal LF-to-CRLF working-copy
 ## Concerns
 
 None open.
+
+## Review fix pass: Critical/Important findings
+
+Status: complete on branch `codex/workspace-foundation`.
+
+Fixes:
+
+- Replaced the hardcoded create-workspace `"New Workspace"` value with a real Avalonia display-name prompt using the approved `Workspace display name` and `TWW3 Companion Workspace (*.tww3c)` copy; the open picker keeps the `.tww3c` filter.
+- Replaced the reflection-only return-home disposal hook with a typed `IWorkspaceDisposalCoordinator`, wired through production `ApplicationComposition`, so Workspace remains current until workspace-scope disposal completes.
+- Moved initial work-area evaluation into runtime attachment through the composition root before `desktop.MainWindow` is assigned; `MainWindow` remains the shell host and no longer waits for `Opened` to choose Home vs Compatibility.
+- Reworked `--smoke-test` to create an `ApplicationRuntime` through `ApplicationComposition.CreateSmokeTestRuntime` and use the runtime lifecycle use cases; `smoke-result.json` is still written to `<directory>\smoke-result.json`.
+- Updated `OpenSettingsFolderCommand` so it creates and opens the settings folder via the OS shell.
+
+TDD evidence:
+
+- Red focused run after adding regression tests: exit code `1`; expected missing contract failure `CS0246: IWorkspaceDisposalCoordinator could not be found`.
+- Intermediate focused run after implementation: exit code `1`; async disposal assertion stayed on `Workspace` until the test awaited the completion continuation.
+
+Validation:
+
+```powershell
+& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj --filter "HomeCompositionTests|ApplicationCompositionTests|ShellViewModelTests"
+```
+
+Final result: exit code `0`; `Failed: 0, Passed: 19, Skipped: 0, Total: 19`.
+
+```powershell
+& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj
+```
+
+Final result: exit code `0`; `Failed: 0, Passed: 32, Skipped: 0, Total: 32`.
+
+```powershell
+git diff --check
+```
+
+Final result: exit code `0`; only normal LF-to-CRLF working-copy warnings were reported.
+
+Concerns: none open.

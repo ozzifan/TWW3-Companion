@@ -8,6 +8,9 @@ namespace Tww3Companion.Desktop.Tests.ViewModels;
 
 public sealed class HomeCompositionTests
 {
+    private static readonly string DesktopDirectory = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Tww3Companion.Desktop"));
+
     [Fact]
     public void HomeStartsVisibleAndShowsOnlyApprovedActions()
     {
@@ -74,10 +77,10 @@ public sealed class HomeCompositionTests
     }
 
     [Fact]
-    public void ReturnHomeDisposalPreventsScreenChangeUntilDisposalSucceeds()
+    public async Task ReturnHomeDisposalPreventsScreenChangeUntilDisposalSucceeds()
     {
-        var lifetime = new ControllableWorkspaceLifetime();
-        var subject = ShellViewModel.CreateForTest(workspaceLifetime: lifetime);
+        var coordinator = new ControllableWorkspaceDisposalCoordinator();
+        var subject = ShellViewModel.CreateForTest(workspaceDisposalCoordinator: coordinator);
 
         subject.OpenWorkspace();
         Assert.Equal(ShellScreen.Workspace, subject.CurrentScreen);
@@ -85,8 +88,19 @@ public sealed class HomeCompositionTests
         subject.ReturnHome();
         Assert.Equal(ShellScreen.Workspace, subject.CurrentScreen);
 
-        lifetime.CompleteDisposal();
+        coordinator.CompleteDisposal();
+        await WaitForScreen(subject, ShellScreen.Home);
         Assert.Equal(ShellScreen.Home, subject.CurrentScreen);
+    }
+
+    [Fact]
+    public void CreateWorkspaceDialogPromptsForDisplayNameInsteadOfUsingHardcodedDefault()
+    {
+        var source = File.ReadAllText(Path.Combine(DesktopDirectory, "Services", "WorkspaceDialogService.cs"));
+
+        Assert.Contains("Workspace display name", source);
+        Assert.Contains("TextBox", source);
+        Assert.DoesNotContain("Task.FromResult<string?>(\"New Workspace\")", source);
     }
 
     [Fact]
@@ -113,6 +127,21 @@ public sealed class HomeCompositionTests
         }
 
         throw new InvalidOperationException("The shell did not enter a busy state.");
+    }
+
+    private static async Task WaitForScreen(ShellViewModel subject, ShellScreen screen)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            if (subject.CurrentScreen == screen)
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        throw new InvalidOperationException($"The shell did not enter {screen}.");
     }
 
     private sealed class BlockingWorkspaceDialogService : IWorkspaceDialogService
@@ -162,12 +191,12 @@ public sealed class HomeCompositionTests
         }
     }
 
-    private sealed class ControllableWorkspaceLifetime
+    private sealed class ControllableWorkspaceDisposalCoordinator : IWorkspaceDisposalCoordinator
     {
-        private Action? _onDisposalCompleted;
+        private readonly TaskCompletionSource _disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public void RegisterDisposalCompletion(Action onCompleted) => _onDisposalCompleted = onCompleted;
+        public Task DisposeWorkspaceScopeAsync(CancellationToken cancellationToken) => _disposal.Task.WaitAsync(cancellationToken);
 
-        public void CompleteDisposal() => _onDisposalCompleted?.Invoke();
+        public void CompleteDisposal() => _disposal.SetResult();
     }
 }

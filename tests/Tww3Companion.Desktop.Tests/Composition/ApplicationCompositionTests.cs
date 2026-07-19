@@ -68,6 +68,40 @@ public sealed class ApplicationCompositionTests
     }
 
     [Fact]
+    public void RuntimeEvaluatesWorkAreaBeforeShellCanBePresented()
+    {
+        using var directory = new TemporaryDirectory();
+        var runtime = ApplicationComposition.CreateRuntimeForTest(new CompositionTestOptions
+        {
+            ExecutableDirectory = directory.Path,
+            LocalApplicationDataDirectory = directory.Path,
+            WorkAreaWidth = 1000,
+            WorkAreaHeight = 620
+        });
+
+        using (runtime)
+        {
+            Assert.NotNull(runtime);
+            Assert.Equal(Tww3Companion.Desktop.ViewModels.ShellScreen.Compatibility, runtime.ShellViewModel.CurrentScreen);
+        }
+    }
+
+    [Fact]
+    public void StartupNoLongerReliesOnMainWindowOpenedToChooseInitialScreen()
+    {
+        var desktopDirectory = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Tww3Companion.Desktop"));
+        var windowCode = File.ReadAllText(Path.Combine(desktopDirectory, "Views", "MainWindow.axaml.cs"));
+        var appCode = File.ReadAllText(Path.Combine(desktopDirectory, "App.axaml.cs"));
+
+        Assert.DoesNotContain("Opened +=", windowCode);
+        Assert.Contains("AttachTopLevel", appCode);
+        Assert.True(
+            appCode.IndexOf("AttachTopLevel", StringComparison.Ordinal) <
+            appCode.IndexOf("desktop.MainWindow", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SmokeTestWritesResultJsonAtDirectoryRoot()
     {
         using var directory = new TemporaryDirectory();
@@ -96,6 +130,18 @@ public sealed class ApplicationCompositionTests
             Environment.SetEnvironmentVariable("TWW3_COMPANION_TEST_MODE", previousTestMode);
             Environment.SetEnvironmentVariable("TWW3_COMPANION_TEST_MANAGED_ROOT", previousManagedRoot);
         }
+    }
+
+    [Fact]
+    public void SmokeTestUsesApplicationCompositionRootInsteadOfManualStartupWiring()
+    {
+        var desktopDirectory = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "Tww3Companion.Desktop"));
+        var source = File.ReadAllText(Path.Combine(desktopDirectory, "Startup", "SmokeTestCommand.cs"));
+
+        Assert.Contains("ApplicationComposition.CreateSmokeTestRuntime", source);
+        Assert.DoesNotContain("new ManagedPathInitializer", source);
+        Assert.DoesNotContain("new JsonApplicationSettingsStore", source);
     }
 
     [Fact]
