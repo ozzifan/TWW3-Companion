@@ -19,8 +19,17 @@ public sealed class SteamImportAdapterTests
     var result = await SteamSingleItemImportAdapter.ParseAsync("""
         123456789
         https://steamcommunity.com/sharedfiles/filedetails/?id=987654321
-        """, TestContext.Current.CancellationToken);
+        """, new FakeSteamMetadataClient(), TestContext.Current.CancellationToken);
 
     Assert.NotEmpty(result.Candidates);
+  }
+
+  private sealed class FakeSteamMetadataClient : ISteamMetadataClient
+  {
+    public Task<SteamCollectionMetadata> GetCollectionAsync(string collectionId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public Task<SteamWorkshopItemMetadata> GetWorkshopItemAsync(string workshopItemId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new SteamWorkshopItemMetadata(workshopItemId, "Fixture mod"));
   }
 }
