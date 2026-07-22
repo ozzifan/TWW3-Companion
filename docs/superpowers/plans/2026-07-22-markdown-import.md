@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement the first v0.1 import slice for Markdown notes so pasted or file-based Markdown can be parsed into import candidates, previewed with diagnostics, and applied only after explicit confirmation.
+**Goal:** Implement the first v0.1 import slice for Markdown notes so pasted or file-based Markdown can be parsed into import candidates and previewed with diagnostics, with an explicit confirmation gate for the validated handoff.
 
-**Architecture:** One Markdown adapter translates note text into the shared import candidate model. The adapter stays pure: it parses, normalizes, and records source locations, while the existing import pipeline handles preview, resolution, validation, and the atomic transaction. Workshop ID extraction is limited to exact source references inside Markdown; Steam Workshop-only import behavior remains a separate slice.
+**Architecture:** One Markdown adapter translates note text into the shared import candidate model. The adapter stays pure: it parses, normalizes, and records source locations, while the existing application layer handles preview and validation for the handoff. The actual workspace write/atomic transaction boundary is deferred to a later slice. Workshop ID extraction is limited to exact source references inside Markdown; Steam Workshop-only import behavior remains a separate slice.
 
 **Tech Stack:** .NET 10, existing TWW3 Companion domain/application layers, existing import pipeline and test projects, Markdown parsing utilities already present in the repo if any, xUnit.
 
@@ -177,7 +177,7 @@ git add src/Tww3Companion.Application/Importing tests/Tww3Companion.Application.
 git commit -m "feat: parse markdown import candidates"
 ```
 
-### Task 3: Wire Markdown parse results into the preview and atomic apply path
+### Task 3: Wire Markdown parse results into the preview and validated handoff path
 
 **Files:**
 - Modify: `src/Tww3Companion.Application/Importing/MarkdownImportAdapter.cs`
@@ -190,11 +190,11 @@ git commit -m "feat: parse markdown import candidates"
 
 **Interfaces:**
 - Consumes: `MarkdownImportResult` from Task 2
-- Produces: preview-ready import candidates that respect additive-only behavior, explicit conflict resolution, and rollback on validation failure
+- Produces: preview-ready import candidates that respect additive-only behavior and explicit conflict resolution, with validation gating the handoff
 
 - [ ] **Step 1: Write the failing tests**
 
-Add tests that prove the adapter output reaches the existing import pipeline without implicit writes:
+Add tests that prove the adapter output reaches the existing preview/handoff path without implicit writes:
 
 ```csharp
 [Fact]
@@ -229,9 +229,9 @@ public async Task MarkdownImport_rolls_back_when_validation_fails()
 
 Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "MarkdownImport_preview_does_not_write_until_confirmed|MarkdownImport_rolls_back_when_validation_fails" -v normal`
 
-Expected: fail until the Markdown result is connected to preview/apply behavior.
+Expected: fail until the Markdown result is connected to preview/handoff behavior.
 
-- [ ] **Step 3: Connect the result to the existing import pipeline**
+- [ ] **Step 3: Connect the result to the existing preview/handoff pipeline**
 
 Keep the behavior additive-only:
 
@@ -240,8 +240,8 @@ Keep the behavior additive-only:
 - unresolved names remain pending until the user resolves or skips them;
 - blank fields may be enriched later during preview;
 - scalar conflicts require an explicit choice;
-- apply remains a single atomic transaction;
-- validation failure rolls back everything.
+- apply remains a validated handoff;
+- validation failure rejects the handoff.
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -254,7 +254,7 @@ Expected: pass with the integrated pipeline.
 
 ```bash
 git add src/Tww3Companion.Application/Importing tests/Tww3Companion.Application.Tests/Importing tests/Tww3Companion.Infrastructure.Tests
-git commit -m "feat: wire markdown import through preview and apply"
+git commit -m "feat: wire markdown import through preview and handoff"
 ```
 
 ### Task 4: Verify the full slice with format, build, tests, and diff check

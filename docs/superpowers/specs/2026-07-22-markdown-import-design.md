@@ -34,7 +34,7 @@ The Markdown import flow is preview-first:
 2. the adapter parses the document and emits candidates plus diagnostics;
 3. exact source references match automatically when possible;
 4. name-only entries remain unresolved until the user explicitly resolves or skips them;
-5. the user reviews the preview and confirms the atomic import transaction.
+5. the user reviews the preview and confirms the validated handoff.
 
 Imports are additive-only. Omission never removes a Mod or Membership.
 
@@ -50,10 +50,11 @@ Markdown input
 → produce candidates
 → attach diagnostics and source locations
 → preview / resolution
-→ validated atomic apply
+→ validated handoff
 ```
 
 The adapter is responsible only for translation from Markdown into the shared candidate model. It does not decide persistence behavior, and it does not own the domain transaction.
+The actual workspace write path is deferred to a later slice.
 
 ## Candidate Rules
 
@@ -71,7 +72,7 @@ Parsing should be forgiving enough to keep partial progress visible.
 
 - Structural issues become diagnostics attached to the relevant source location.
 - Unsupported sections are skipped, not fatal, unless they block safe interpretation of the current document.
-- If validation fails during apply, the whole transaction rolls back.
+- If validation fails during apply, the whole confirmed handoff is rejected.
 - If source enrichment or name matching fails, the import still proceeds for explicit user-entered or accepted identities.
 
 ## Testing
@@ -83,8 +84,7 @@ The first implementation should be covered by tests for:
 - Workshop IDs and URLs being extracted as exact references;
 - free-form prose remaining notes only;
 - diagnostics including source line information;
-- additive-only behavior;
-- rollback on validation failure;
+- preview/reporting behavior for validated handoff;
 - no persistence or network access from the adapter.
 
 ## Non-Goals
@@ -107,4 +107,4 @@ The first implementation should be covered by tests for:
 
 ## Success Criteria
 
-This slice is done when a Markdown note can be parsed into deterministic import candidates, previewed with source-aware diagnostics, and applied only after explicit confirmation, with no persistence writes before that final transaction.
+This slice is done when a Markdown note can be parsed into deterministic import candidates and previewed with source-aware diagnostics, with explicit confirmation gating the validated handoff and no persistence writes from the Markdown slice itself.
