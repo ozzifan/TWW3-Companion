@@ -18,6 +18,7 @@
 - The Steam import slice must not write to Steam Workshop or game data folders.
 - Steam collection import must not be mixed with pasted single-item import in one UI action.
 - Exact source references should be preserved where available.
+- Steam metadata lookup is injected behind a small interface so tests can supply deterministic collection/member fixtures without a live network dependency.
 - Imports remain additive-only.
 
 ---
@@ -108,6 +109,8 @@ git commit -m "feat: add steam import adapter boundary"
 **Files:**
 - Modify: `src/Tww3Companion.Application/Importing/SteamCollectionImportAdapter.cs`
 - Modify: `src/Tww3Companion.Application/Importing/SteamImportAdapter.cs`
+- Create: `src/Tww3Companion.Application/Importing/ISteamMetadataClient.cs`
+- Create: `src/Tww3Companion.Application/Importing/SteamMetadataClient.cs`
 - Modify: `src/Tww3Companion.Application/Importing/SteamImportResult.cs`
 - Modify: `src/Tww3Companion.Application/Importing/SteamImportCandidate.cs`
 - Modify: `src/Tww3Companion.Application/Importing/SteamImportDiagnostic.cs`
@@ -115,11 +118,12 @@ git commit -m "feat: add steam import adapter boundary"
 
 **Interfaces:**
 - Consumes: `SteamCollectionImportAdapter.ParseAsync(string collectionId, CancellationToken cancellationToken = default)`
+- Consumes: `ISteamMetadataClient`
 - Produces: collection-member candidates with per-item metadata enrichment, source-aware diagnostics, and partial success for failed lookups
 
 - [ ] **Step 1: Write the failing tests**
 
-Add tests that describe the collection-first behavior:
+Add tests that describe the collection-first behavior and the injectable metadata seam:
 
 ```csharp
 [Fact]
@@ -137,13 +141,22 @@ public async Task ParseSteamCollection_reports_failed_member_lookups_without_blo
 
     Assert.Contains(result.Diagnostics, diagnostic => diagnostic.IsLookupFailure);
 }
+
+[Fact]
+public async Task ParseSteamCollection_uses_injected_metadata_client()
+{
+    var client = new FakeSteamMetadataClient(/* deterministic collection/member fixture */);
+    var result = await SteamCollectionImportAdapter.ParseAsync("123456789", client);
+
+    Assert.NotEmpty(result.Candidates);
+}
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "ParseSteamCollection_expands_collection_into_member_candidates|ParseSteamCollection_reports_failed_member_lookups_without_blocking_successful_items" -v normal`
 
-Expected: fail until collection expansion and metadata lookup exist.
+Expected: fail until collection expansion, metadata lookup, and the injectable client seam exist.
 
 - [ ] **Step 3: Implement collection expansion and enrichment**
 
@@ -152,6 +165,7 @@ Teach the collection adapter to:
 ```csharp
 - accept exactly one collection ID;
 - expand the collection into its member Workshop items;
+- call the injected metadata client for the collection and its members;
 - enrich each member immediately;
 - preserve exact source references when they exist;
 - emit per-item diagnostics for failed lookups;
@@ -162,9 +176,9 @@ Keep the importer item-scoped: a bad member lookup should not discard successful
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "ParseSteamCollection_expands_collection_into_member_candidates|ParseSteamCollection_reports_failed_member_lookups_without_blocking_successful_items" -v normal`
+Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "ParseSteamCollection_expands_collection_into_member_candidates|ParseSteamCollection_reports_failed_member_lookups_without_blocking_successful_items|ParseSteamCollection_uses_injected_metadata_client" -v normal`
 
-Expected: pass with the collection adapter wired to metadata enrichment.
+Expected: pass with the collection adapter wired to metadata enrichment and the injected client seam.
 
 - [ ] **Step 5: Commit**
 

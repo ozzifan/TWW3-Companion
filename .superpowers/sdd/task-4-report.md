@@ -1,29 +1,38 @@
-# Task 4: Full markdown import slice verification
+# Task 4 Report: Steam preview/handoff verification
 
 ## Status
 
-Completed. No production fix-up was required.
+Completed.
 
-## Required verification
+## Delivered scope
 
-Executed from `E:\TWW3-Companion\.worktrees\import-slice-rebuild`:
+- Added `SteamImportService` as the application-layer preview/handoff entry point for Steam import results.
+- Preview always returns a non-applied copy of the Steam import result.
+- Confirmed apply validates the preview and marks it applied when confirmation is granted.
+- Added focused tests for the collection action, the multi-item single-item action, and the applied flag.
 
-```powershell
-dotnet format Tww3Companion.sln --verify-no-changes
-dotnet build Tww3Companion.sln -c Release --no-restore
-dotnet test Tww3Companion.sln -c Release --no-build
-git diff --check
-```
+## Test-first evidence
 
-All commands exited with code `0`. The Release build completed with `0 Warning(s)` and `0 Error(s)`. The test suite passed all 117 tests: Domain 16, Application 20, Infrastructure 45, and Desktop 36; no tests failed or were skipped. The diff check reported no whitespace errors.
+The required filtered test command initially failed to compile because `SteamImportService` and the applied-state handling did not exist.
+
+After the minimal service contract was added, the same focused command passed 3/3 tests.
+
+## Verification
+
+- Focused Steam handoff behavior:
+  `dotnet test tests/Tww3Companion.Application.Tests --filter "SteamCollection_preview_uses_the_collection_action|SteamSingleItem_preview_accepts_multiple_items|SteamImport_apply_marks_the_preview_as_applied_when_confirmed" -v normal`
+  Result: 3 passed, 0 warnings, 0 errors.
+- Full application test project:
+  `dotnet test tests/Tww3Companion.Application.Tests -v minimal`
+  Result: 30 passed, 0 warnings, 0 errors.
+- `git diff --check` completed without whitespace errors.
 
 ## Self-review
 
-- Reviewed the import-slice changes from `ac984cc` through `HEAD`.
-- Confirmed the parser handles headings, `-`/`*` bullets, free-form notes, bare Workshop IDs, and both accepted Steam Workshop URL path variants.
-- Confirmed preview returns a non-applied result and apply validates unresolved candidates before marking the result applied.
-- Confirmed the only uncommitted pre-existing files were the Task 2 and Task 3 reports for this slice; they are included with this task report in the requested slice-completion commit.
+- Verified the Steam collection and single-item adapters remain distinct.
+- Verified the new Steam preview/handoff service is application-layer only and does not touch persistence.
+- Verified the Steam result now carries the applied flag needed for the shared handoff contract.
 
-## Concern
+## Concerns
 
-`Applied` remains the validated application-layer handoff rather than a persistence write. This is the existing scope boundary documented by Task 3; a later slice must connect it to the RFC-0003 atomic transaction boundary.
+The default metadata client remains intentionally unconfigured; production still needs a real injected/configured `ISteamMetadataClient`. That is outside this task’s scope and was already accepted in Tasks 2 and 3.

@@ -1,39 +1,30 @@
-# Task 3: Markdown preview and apply report
+# Task 3 Report: Multi-item Steam single import
 
 ## Status
 
-Completed and reviewed.
+Completed and committed as `7673e3b` (`feat: import multiple steam items with metadata enrichment`).
 
-## Delivered scope
+## Implementation
 
-- Added `MarkdownImportService` as the application-layer preview/apply entry point.
-- Preview always returns a non-applied copy of the parsed Markdown result.
-- Confirmed apply validates every candidate before it marks the result as applied.
-- Name-only candidates are rejected with `ImportValidationException`, keeping them pending for future explicit resolution rather than applying them implicitly.
-- Added focused tests for non-writing preview and validation failure.
+- Added a metadata-client overload to `SteamSingleItemImportAdapter.ParseAsync` while retaining the default-client entry point.
+- Normalized whitespace-separated numeric Workshop IDs and Steam Workshop detail URLs.
+- Enriched each valid item immediately through `ISteamMetadataClient` and retained its original pasted ID or URL as the candidate source reference.
+- Continued processing after invalid input or an item metadata failure, producing an item-scoped lookup-failure diagnostic for each.
+- Updated the existing generic single-item test to use the established injectable metadata-client seam.
 
-## Test-first evidence
+## Tests and verification
 
-The required focused test command initially failed to compile because `MarkdownImportService` and `ImportValidationException` did not exist. After the minimal service contract was added, the same command passed 2/2 tests.
+- RED: the required focused command initially failed at compile time because the injected metadata-client overload did not exist.
+- GREEN: `dotnet test tests\Tww3Companion.Application.Tests --filter "ParseSteamSingleItems_accepts_multiple_ids_and_urls_in_one_paste|ParseSteamSingleItems_reports_failed_lookups_per_item_without_stopping_the_batch" -v normal` passed 2/2.
+- Full suite: `dotnet test tests\Tww3Companion.Application.Tests -v minimal` passed 27/27.
+- `git diff --check` passed with no whitespace errors.
 
-## Verification
+## Self-review
 
-- Focused import behavior:
-  `dotnet test tests/Tww3Companion.Application.Tests --filter "MarkdownImport_preview_does_not_write_until_confirmed|MarkdownImport_rolls_back_when_validation_fails" -v normal`
-  Result: 2 passed, 0 warnings, 0 errors.
-- Full application test project:
-  `dotnet test tests/Tww3Companion.Application.Tests -v normal`
-  Result: 20 passed, 0 warnings, 0 errors.
-- `git diff --check` completed without whitespace errors.
+- Confirmed parsing is limited to the single-item multi-ID/URL path; collection import behavior is unchanged.
+- Confirmed a real per-item metadata exception does not discard previously successful candidates.
+- No findings requiring changes.
 
-## Review
+## Concerns
 
-Independent review found no functional issue in the preview/apply contract. It identified a pre-existing unrelated rewrite to `task-2-report.md`; that file was preserved and excluded from this Task 3 commit.
-
-## Concern
-
-The current baseline contains no domain import planner or persistence applier. Accordingly, `Applied` represents completion of the validated application-layer handoff, not a SQLite write; a later import slice must connect this contract to RFC-0003's atomic transaction boundary.
-
-## Commit
-
-`feat: wire markdown import through preview and apply`
+None.

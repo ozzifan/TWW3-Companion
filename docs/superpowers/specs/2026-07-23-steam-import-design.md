@@ -21,12 +21,14 @@ It must support:
 - partial success when some lookups fail;
 - clear per-item diagnostics for failures;
 - preservation of exact source references where available.
+- an injectable metadata lookup seam so the importer can be tested without real network calls.
 
 It must not:
 
 - mix collection import with pasted single-item import in one UI action;
 - write to Steam Workshop or game data folders;
 - require the user to defer metadata enrichment to a later step;
+- hard-code collection contents or metadata lookups into the importer;
 - treat lossless Workspace JSON as import input;
 - infer relationships or compatibility from prose;
 - replace or synchronise collections;
@@ -50,7 +52,7 @@ The import flow is preview-first and metadata-aware:
 
 ## Architecture
 
-The slice uses two Steam-facing adapters that feed the shared import candidate model.
+The slice uses two Steam-facing adapters that feed the shared import candidate model, plus a small injectable metadata lookup boundary for expansion/enrichment.
 
 ```text
 Steam collection ID
@@ -71,6 +73,7 @@ Pasted Workshop IDs / URLs
 ```
 
 The adapters are responsible only for translation and enrichment. They do not own persistence. The later handoff path remains the same application-layer boundary used by the Markdown slice.
+Metadata lookup is abstracted behind an interface so tests can provide deterministic collection/member fixtures without a live Steam dependency.
 
 ## Candidate Rules
 
