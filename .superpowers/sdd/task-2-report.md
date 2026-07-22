@@ -1,129 +1,31 @@
-# Task 2 Report: Shared shell, nested Home view, and startup composition
+# Task 2 Report: Markdown import parsing
 
 ## Status
 
-Complete. The shared `ShellViewModel`, nested `HomeView`, `MainWindow` host swap, startup composition root, native startup dialog, and smoke/native test hooks are implemented on branch `codex/workspace-foundation`.
+Completed and committed as `70d70c2 feat: parse markdown import candidates`.
 
-## Implementation summary
+## Delivered scope
 
-- Expanded `ShellViewModel` into the shared Home/Compatibility/Workspace state owner required by the Task 1 tests.
-  - Added `ShellViewModel.Home`, `ShellViewModel.Workspace`, `ShellViewModel.CurrentScreen`, Home commands, operation state, recents, settings-save recovery state, and return-home disposal registration.
-  - Preserved Task 8 theme/high-contrast behavior, compatibility warning behavior, `1024 x 640` minimums, and fixed workspace destinations.
-  - Added the requested RFC-0005 Home navigation comment that points to the next Import slice.
-- Added `HomeView.axaml` and code-behind as a nested child view bound to the shared `ShellViewModel`.
-  - Includes Create/Open buttons, recents with Remove, synchronized-folder warning guidance, settings failure recovery buttons, display-name prompt copy, and `.tww3c` filter copy.
-- Updated `MainWindow.axaml` and code-behind so the shell hosts `HomeView`, `CompatibilityView`, and the unchanged three-column `WorkspaceShell`.
-- Added `IWorkspaceDialogService` and `WorkspaceDialogService` for Home command dialog boundaries.
-- Added `ApplicationComposition`, `CompositionTestOptions`, and `ApplicationRuntime`.
-  - Startup order exactly matches the approved nine-step list.
-  - Managed-path failures use native dialog before logging.
-  - Single-instance failures use the exact already-running message before settings load.
-  - Real startup composes managed paths, logging, settings, infrastructure adapters, use cases, shared shell, and view attachment through one root.
-- Added virtual `NativeStartupDialog` as a thin `MessageBoxW` wrapper.
-- Added `SmokeTestCommand`.
-  - `--smoke-test <directory>` initializes managed paths, creates `Smoke Workspace` at `<directory>\smoke.tww3c`, reopens through `OpenWorkspace`, validates the round trip, and writes `<directory>\smoke-result.json`.
-  - `--hold-single-instance <milliseconds>` fails immediately with an `ArgumentException` if `TWW3_COMPANION_TEST_MANAGED_ROOT` is absent, otherwise acquires the normal guard and writes `lease-acquired.signal`.
-- Updated `Program.cs` and `App.axaml.cs` to use the composition root while preserving existing Avalonia theme/high-contrast wiring.
-- Made a minimal test-harness-only analyzer fix in `HomeCompositionTests`: `Task.Run` now receives `TestContext.Current.CancellationToken`. Assertions and API expectations were not changed.
+- Parses Markdown line-by-line.
+- Converts headings into `CategoryHint` candidates.
+- Converts `-` and `*` bullets into candidate entries.
+- Preserves unstructured non-empty lines as `Note` candidates.
+- Extracts Workshop IDs from bare numeric values and Steam Workshop details URLs, with or without the trailing path slash.
+- Carries source lines on candidates, diagnostics, and Workshop source references.
 
-## TDD RED evidence
+## Tests and verification
 
-Initial focused command:
+- Focused parser tests passed: 7/7.
+- Full application test project passed: 18/18.
+- `git diff --check` completed without whitespace errors.
 
-```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj --filter "HomeCompositionTests|ApplicationCompositionTests|ShellViewModelTests"
-```
+## Review and fix pass
 
-Exit code: `1`.
+Independent review found two medium parser issues, both fixed before the final verification:
 
-Expected missing-surface failures:
-
-- `CS0234: The type or namespace name 'Composition' does not exist in the namespace 'Tww3Companion.Desktop'`
-- `CS0246: The type or namespace name 'NativeStartupDialog' could not be found`
-- `CS0246: The type or namespace name 'IWorkspaceDialogService' could not be found`
-- `CS0246: The type or namespace name 'CompositionTestOptions' could not be found`
-
-After those missing production surfaces were added, the next run exposed only the Task 1 test harness analyzer issue:
-
-- `xUnit1051: Calls to methods which accept CancellationToken should use TestContext.Current.CancellationToken`
-
-That was fixed without changing behavioral assertions.
-
-## TDD GREEN evidence
-
-Focused Home/composition/shell command:
-
-```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj --filter "HomeCompositionTests|ApplicationCompositionTests|ShellViewModelTests"
-```
-
-Final result: exit code `0`; `Failed: 0, Passed: 15, Skipped: 0, Total: 15`.
-
-Full desktop test command:
-
-```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj
-```
-
-Final result: exit code `0`; `Failed: 0, Passed: 28, Skipped: 0, Total: 28`.
-
-Whitespace validation:
-
-```powershell
-git diff --check
-```
-
-Exit code `0`. Git reported only the repository's normal LF-to-CRLF working-copy warnings for Windows files; no whitespace errors were reported.
-
-## Self-review
-
-- Verified `MainWindow.axaml` still declares `Width="1280"`, `Height="800"`, `MinWidth="1024"`, `MinHeight="640"`, and the `WorkspaceShell` grid columns `208`, `*`, and `384`.
-- Verified no `WindowPlacementService` changes were made.
-- Verified `CompatibilityView` and existing single-instance startup tests still pass.
-- Verified return-home disposal holds the Workspace screen until the registered disposal completion callback runs.
-- Verified successful create/open command paths reset Home operation state before entering Workspace, so later Return Home does not leave Home busy.
-- Verified settings-save post-commit failures surface the recovery banner without blocking the workspace transition.
-- Verified smoke output contains `workspaceId`, `displayName`, `applicationMode`, and `managedRoot` and uses application use cases rather than direct SQLite calls.
+1. Accepted the valid `/sharedfiles/filedetails?id=...` Steam URL form as well as the trailing-slash form.
+2. Prevented empty bullet/query values from becoming empty Workshop IDs.
 
 ## Concerns
 
-None open.
-
-## Review fix pass: Critical/Important findings
-
-Status: complete on branch `codex/workspace-foundation`.
-
-Fixes:
-
-- Replaced the hardcoded create-workspace `"New Workspace"` value with a real Avalonia display-name prompt using the approved `Workspace display name` and `TWW3 Companion Workspace (*.tww3c)` copy; the open picker keeps the `.tww3c` filter.
-- Replaced the reflection-only return-home disposal hook with a typed `IWorkspaceDisposalCoordinator`, wired through production `ApplicationComposition`, so Workspace remains current until workspace-scope disposal completes.
-- Moved initial work-area evaluation into runtime attachment through the composition root before `desktop.MainWindow` is assigned; `MainWindow` remains the shell host and no longer waits for `Opened` to choose Home vs Compatibility.
-- Reworked `--smoke-test` to create an `ApplicationRuntime` through `ApplicationComposition.CreateSmokeTestRuntime` and use the runtime lifecycle use cases; `smoke-result.json` is still written to `<directory>\smoke-result.json`.
-- Updated `OpenSettingsFolderCommand` so it creates and opens the settings folder via the OS shell.
-
-TDD evidence:
-
-- Red focused run after adding regression tests: exit code `1`; expected missing contract failure `CS0246: IWorkspaceDisposalCoordinator could not be found`.
-- Intermediate focused run after implementation: exit code `1`; async disposal assertion stayed on `Workspace` until the test awaited the completion continuation.
-
-Validation:
-
-```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj --filter "HomeCompositionTests|ApplicationCompositionTests|ShellViewModelTests"
-```
-
-Final result: exit code `0`; `Failed: 0, Passed: 19, Skipped: 0, Total: 19`.
-
-```powershell
-& 'C:\Users\steve\.dotnet\dotnet.exe' test tests/Tww3Companion.Desktop.Tests/Tww3Companion.Desktop.Tests.csproj
-```
-
-Final result: exit code `0`; `Failed: 0, Passed: 32, Skipped: 0, Total: 32`.
-
-```powershell
-git diff --check
-```
-
-Final result: exit code `0`; only normal LF-to-CRLF working-copy warnings were reported.
-
-Concerns: none open.
+None.
