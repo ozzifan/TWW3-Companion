@@ -2,6 +2,8 @@ namespace Tww3Companion.Application.Importing;
 
 internal static class SteamImportAdapter
 {
+  internal static ISteamMetadataClient DefaultMetadataClient { get; } = new SteamMetadataClient();
+
   internal static SteamImportResult ParseSingleItemInput(string pastedIdsAndUrls, CancellationToken cancellationToken)
   {
     ArgumentNullException.ThrowIfNull(pastedIdsAndUrls);
