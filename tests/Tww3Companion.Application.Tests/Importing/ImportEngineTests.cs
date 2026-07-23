@@ -25,10 +25,10 @@ public sealed class ImportEngineTests
   [Fact]
   public async Task ImportEngine_builds_preview_from_candidates_and_target_context()
   {
-    var engine = new FakeImportEngine(new FakeWorkspaceImportStore());
+    var engine = new ImportEngine(new FakeWorkspaceImportStore());
     var preview = await engine.BuildPreviewAsync(
         ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
-        new object[] { "candidate-1" },
+        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken);
 
     Assert.NotNull(preview);
@@ -61,7 +61,7 @@ public sealed class ImportEngineTests
   public async Task ImportEngine_builds_preview_through_a_store_port()
   {
     var store = new FakeWorkspaceImportStore();
-    var engine = new FakeImportEngine(store);
+    var engine = new ImportEngine(store);
     var preview = await engine.BuildPreviewAsync(
         ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
@@ -71,32 +71,37 @@ public sealed class ImportEngineTests
     Assert.True(store.ReadCandidatesCalled);
   }
 
-  private sealed class FakeImportEngine : IImportEngine
+  [Fact]
+  public async Task CurrentWorkspace_import_requires_all_required_resolutions()
   {
-    public FakeImportEngine(IWorkspaceImportStore store) => Store = store;
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
+    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
 
-    private IWorkspaceImportStore Store { get; }
+    var preview = await engine.BuildPreviewAsync(
+        target,
+        new object[] { ImportCandidate.Skipped("source-1") },
+        TestContext.Current.CancellationToken);
 
-    public Task<ImportPreview> BuildPreviewAsync(
-        ImportTargetContext targetContext,
-        IReadOnlyList<object> candidates,
-        CancellationToken cancellationToken = default) =>
-        BuildPreviewCoreAsync(targetContext, candidates, cancellationToken);
+    await Assert.ThrowsAsync<InvalidOperationException>(
+        () => engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken));
+  }
 
-    public Task<ImportOutcome> ApplyAsync(
-        ImportPreview preview,
-        bool confirm,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+  [Fact]
+  public async Task CurrentWorkspace_import_commits_all_changes_atomically()
+  {
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
+    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var preview = await engine.BuildPreviewAsync(
+        target,
+        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+        TestContext.Current.CancellationToken);
 
-    private async Task<ImportPreview> BuildPreviewCoreAsync(
-        ImportTargetContext targetContext,
-        IReadOnlyList<object> candidates,
-        CancellationToken cancellationToken)
-    {
-      await Store.ReadCandidatesAsync(targetContext, cancellationToken);
-      return new ImportPreview(targetContext, candidates, Applied: false);
-    }
+    var outcome = await engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.Applied);
+    Assert.True(store.CommitAtomicallyCalled);
   }
 
   private sealed class FakeWorkspaceImportStore : IWorkspaceImportStore
@@ -118,10 +123,15 @@ public sealed class ImportEngineTests
         CancellationToken cancellationToken = default) =>
         Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
 
-    public Task<ImportOutcome> CommitAsync(
+    public bool CommitAtomicallyCalled { get; private set; }
+
+    public Task<ImportOutcome> CommitAtomicallyAsync(
         ImportPreview preview,
         bool confirm,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+        CancellationToken cancellationToken = default)
+    {
+      CommitAtomicallyCalled = true;
+      return Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+    }
   }
 }

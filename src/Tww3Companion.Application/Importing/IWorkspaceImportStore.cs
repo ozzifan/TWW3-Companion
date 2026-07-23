@@ -12,7 +12,7 @@ public interface IWorkspaceImportStore
       IReadOnlyList<ImportResolution> resolutions,
       CancellationToken cancellationToken = default);
 
-  Task<ImportOutcome> CommitAsync(
+  Task<ImportOutcome> CommitAtomicallyAsync(
       ImportPreview preview,
       bool confirm,
       CancellationToken cancellationToken = default);
