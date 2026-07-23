@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows.Input;
 using Tww3Companion.Application.Common;
+using Tww3Companion.Application.Importing;
 using Tww3Companion.Application.Settings;
 using Tww3Companion.Application.Workspaces;
 using Tww3Companion.Desktop.Services;
@@ -37,6 +38,19 @@ public sealed record WorkspaceShellState(
     string OperationError,
     bool HasOperationError);
 
+public interface IShellImportService
+{
+  Task<ImportPreview> BuildPreviewAsync(
+      ImportTargetContext targetContext,
+      IReadOnlyList<object> candidates,
+      CancellationToken cancellationToken = default);
+
+  Task<ImportOutcome> ApplyAsync(
+      ImportPreview preview,
+      bool confirm,
+      CancellationToken cancellationToken = default);
+}
+
 public sealed class ShellViewModel : ViewModelBase
 {
   public const double MinimumWidth = 1024;
@@ -57,6 +71,7 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly string defaultWorkspaceDirectory;
   private readonly string settingsDirectory;
   private readonly IWorkspaceDisposalCoordinator workspaceDisposalCoordinator;
+  private readonly IShellImportService importService;
   private readonly DelegateCommand createWorkspaceCommand;
   private readonly DelegateCommand openWorkspaceCommand;
   private readonly DelegateCommand removeRecentCommand;
@@ -79,6 +94,7 @@ public sealed class ShellViewModel : ViewModelBase
     defaultWorkspaceDirectory = options.DefaultWorkspaceDirectory;
     settingsDirectory = options.SettingsDirectory;
     workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator;
+    importService = options.ImportService;
 
     // RFC-0005 keeps Home navigation in the shared shell; the next slice adds Import here.
     Home = CreateHomeState(WorkspaceOperationState.Idle, string.Empty);
@@ -104,7 +120,8 @@ public sealed class ShellViewModel : ViewModelBase
   public static ShellViewModel CreateForTest(
       IWorkspaceDialogService? workspaceDialogService = null,
       IApplicationSettingsStore? settingsStore = null,
-      IWorkspaceDisposalCoordinator? workspaceDisposalCoordinator = null) =>
+      IWorkspaceDisposalCoordinator? workspaceDisposalCoordinator = null,
+      IShellImportService? importService = null) =>
       new(new ShellViewModelOptions
       {
         SettingsStore = settingsStore ?? new InMemoryApplicationSettingsStore(DefaultSettings()),
@@ -114,7 +131,8 @@ public sealed class ShellViewModel : ViewModelBase
         PromptOpenPath = cancellationToken =>
               (workspaceDialogService?.PromptForOpenPathAsync(cancellationToken))
               ?? Task.FromResult<string?>(null),
-        WorkspaceDisposalCoordinator = workspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator()
+        WorkspaceDisposalCoordinator = workspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator(),
+        ImportService = importService ?? new PassiveShellImportService()
       });
 
   public static ShellViewModel Create(
@@ -149,6 +167,7 @@ public sealed class ShellViewModel : ViewModelBase
   public string EmptyStateMessage { get; } = EmptyWorkspaceMessage;
   public HomeShellState Home { get; private set; }
   public WorkspaceShellState Workspace { get; private set; }
+  public IShellImportService ImportService => importService;
   public bool HasCompatibilityWarning { get; private set; }
   public ThemeChoice StoredTheme
   {
@@ -216,6 +235,14 @@ public sealed class ShellViewModel : ViewModelBase
   public void BeginCreateWorkspaceForTest() => SetOperationState(WorkspaceOperationState.Busy);
 
   public void EnterFinalizingForTest() => SetOperationState(WorkspaceOperationState.Finalizing);
+
+  public void RequestImportIntoNewWorkspaceForTest() =>
+      _ = ImportService.BuildPreviewAsync(
+          ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
+          []);
+
+  public void RequestImportIntoCurrentWorkspaceForTest() =>
+      _ = ImportService.BuildPreviewAsync(ImportTargetContext.ForCurrentWorkspace("current-workspace-id"), []);
 
   private async Task RunCreateWorkspaceAsync()
   {
@@ -536,6 +563,22 @@ public sealed class ShellViewModel : ViewModelBase
     public string DefaultWorkspaceDirectory { get; init; } = Path.GetTempPath();
     public string SettingsDirectory { get; init; } = Path.GetTempPath();
     public IWorkspaceDisposalCoordinator WorkspaceDisposalCoordinator { get; init; } = new WorkspaceDisposalCoordinator();
+    public IShellImportService ImportService { get; init; } = new PassiveShellImportService();
+  }
+
+  private sealed class PassiveShellImportService : IShellImportService
+  {
+    public Task<ImportPreview> BuildPreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+
+    public Task<ImportOutcome> ApplyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
   }
 
   private sealed class InMemoryApplicationSettingsStore(ApplicationSettings initialSettings) : IApplicationSettingsStore

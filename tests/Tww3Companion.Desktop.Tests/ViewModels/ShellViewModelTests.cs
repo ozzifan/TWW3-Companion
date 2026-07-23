@@ -1,3 +1,4 @@
+using Tww3Companion.Application.Importing;
 using Tww3Companion.Desktop.Services;
 using Tww3Companion.Desktop.ViewModels;
 using Xunit;
@@ -6,6 +7,25 @@ namespace Tww3Companion.Desktop.Tests.ViewModels;
 
 public sealed class ShellViewModelTests
 {
+  [Fact]
+  public void ShellViewModel_exposes_a_test_import_service_seam()
+  {
+    var shell = ShellViewModel.CreateForTest();
+
+    Assert.NotNull(shell.ImportService);
+  }
+
+  [Fact]
+  public void ShellViewModel_test_seam_can_record_import_requests()
+  {
+    var importService = new RecordingImportService();
+    var shell = ShellViewModel.CreateForTest(importService: importService);
+
+    shell.RequestImportIntoNewWorkspaceForTest();
+
+    Assert.Equal(ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"), importService.LastTargetContext);
+  }
+
   [Fact]
   public void StartsOnHomeWithOnlyFoundationWorkspaceDestinations()
   {
@@ -93,5 +113,25 @@ public sealed class ShellViewModelTests
       WasDisposed = true;
       return Task.CompletedTask;
     }
+  }
+
+  private sealed class RecordingImportService : IShellImportService
+  {
+    public ImportTargetContext? LastTargetContext { get; private set; }
+
+    public Task<ImportPreview> BuildPreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken = default)
+    {
+      LastTargetContext = targetContext;
+      return Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+    }
+
+    public Task<ImportOutcome> ApplyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
   }
 }
