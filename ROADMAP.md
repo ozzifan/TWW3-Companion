@@ -39,7 +39,7 @@ No application code in this milestone.
 
 ## v0.1 — First working prototype
 
-**Status:** Planned
+**Status:** In Progress
 
 *Requires v0.0.2 approval.*
 
@@ -50,11 +50,12 @@ v0.1 is delivered through reviewed vertical slices rather than one undivided imp
 Workspace foundation slice:
 
 - Home composition and startup wiring complete
-- Later v0.1 slices still add the accepted import, complete Home actions, domain tables, JSON backup/restore, and packaging workflows
-
-- Markdown importer
-- Workshop ID importer
+- Markdown importer complete
+- Workshop ID importer complete
 - Local Workspace persistence
+- Shared import core and Desktop shell wiring in progress
+
+Later v0.1 slices still add domain tables, JSON backup/restore, and packaging workflows.
 
 Success: a user can import a list into a Collection, persist its Workspace locally, and reload it reliably.
 

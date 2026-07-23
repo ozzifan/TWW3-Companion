@@ -75,7 +75,7 @@ High-level milestones are maintained in [ROADMAP.md](ROADMAP.md), and shipped re
 |---------|--------|
 | **v0.0.1** | Repository bootstrap, documentation, standards |
 | **v0.0.2** | Architecture complete — domain, import, storage, and UI approved |
-| **v0.1** | Avalonia Windows prototype — importers and embedded SQLite persistence |
+| **v0.1** | Avalonia Windows prototype — importers and embedded SQLite persistence (in progress) |
 | **v0.2** | Search, tags, categories, notes |
 | **v0.3** | Profiles — per-Collection play configurations and campaign presets |
 | **v0.5** | Dependency tracking, compatibility notes, health score |

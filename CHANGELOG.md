@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Markdown import slice: staged preview/apply flow for informal markdown mod lists, including source parsing, candidate normalization, and user-confirmed import into a Workspace
+- Steam import slice: Workshop ID and collection import flows with metadata enrichment, staged preview/apply, and import hardening for shared shell workflows
+
+### Changed
+
+- Import architecture progressed toward the shared import engine and target-context model used by the Desktop shell wiring slice
+
 ## [0.0.2] - 2026-07-19
 
 ### Added

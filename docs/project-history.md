@@ -27,7 +27,9 @@ Making the project open source followed naturally from the problem domain. Mod c
 
 ## Current Phase
 
-**v0.0.1** (repository bootstrap), **v0.0.2 — Architecture complete**, and the **Workspace foundation slice** are complete. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target, [RFC-0004](../RFC/RFC-0004.md) established deterministic staged import, and [RFC-0005](../RFC/RFC-0005.md) established the C#/.NET, Avalonia, and MVVM user-interface architecture. The first implementation slice added the shell, Home composition, startup wiring, smoke-test hooks, and the supporting developer guide. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
+**v0.0.1** (repository bootstrap), **v0.0.2 — Architecture complete**, and the **Workspace foundation slice** are complete. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target, [RFC-0004](../RFC/RFC-0004.md) established deterministic staged import, and [RFC-0005](../RFC/RFC-0005.md) established the C#/.NET, Avalonia, and MVVM user-interface architecture. The first implementation slice added the shell, Home composition, startup wiring, smoke-test hooks, and the supporting developer guide.
+
+The first import milestone is now underway: the Markdown and Steam import slices are complete, and the import-core slice has added the shared import engine, target-context model, and Desktop shell wiring that routes Home and Workspace actions through the shared import flow. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
 
 ## Looking Ahead
 
