@@ -27,6 +27,17 @@ public sealed class SteamSingleItemImportAdapterTests
   }
 
   [Fact]
+  public async Task ParseSteamSingleItems_rejects_empty_query_ids()
+  {
+    var result = await SteamSingleItemImportAdapter.ParseAsync("""
+        https://steamcommunity.com/sharedfiles/filedetails/?id=
+        """, new FakeSteamMetadataClient(), TestContext.Current.CancellationToken);
+
+    Assert.Contains(result.Diagnostics, diagnostic => diagnostic.IsLookupFailure);
+    Assert.Empty(result.Candidates);
+  }
+
+  [Fact]
   public async Task ParseSteamSingleItems_reports_failed_lookups_per_item_without_stopping_the_batch()
   {
     var result = await SteamSingleItemImportAdapter.ParseAsync("""

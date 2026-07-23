@@ -4,18 +4,17 @@ public static class SteamImportService
 {
   public static Task<SteamImportResult> BuildPreviewAsync(SteamImportResult result)
   {
-    ArgumentNullException.ThrowIfNull(result);
-
-    return Task.FromResult(result with { Applied = false });
+    return ImportHandoffService.BuildPreviewAsync(result, static preview => preview with { Applied = false });
   }
 
   public static async Task<SteamImportResult> ApplyAsync(SteamImportResult result, bool confirm)
   {
-    var preview = await BuildPreviewAsync(result);
-    if (!confirm) return preview;
-
-    Validate(preview);
-    return preview with { Applied = true };
+    return await ImportHandoffService.ApplyAsync(
+        result,
+        confirm,
+        static preview => preview with { Applied = false },
+        Validate,
+        static preview => preview with { Applied = true });
   }
 
   private static void Validate(SteamImportResult result)

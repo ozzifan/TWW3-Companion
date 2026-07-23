@@ -52,7 +52,7 @@ internal static class SteamImportAdapter
       var id = uri.Query.TrimStart('?').Split('&')
           .Select(parameter => parameter.Split('=', 2))
           .FirstOrDefault(parameter => parameter.Length == 2 && parameter[0].Equals("id", StringComparison.OrdinalIgnoreCase))?[1];
-      if (id is not null && id.All(char.IsAsciiDigit))
+      if (!string.IsNullOrWhiteSpace(id) && id.All(char.IsAsciiDigit))
       {
         workshopItemId = id;
         return true;
