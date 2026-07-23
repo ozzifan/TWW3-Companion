@@ -2,8 +2,6 @@ namespace Tww3Companion.Application.Importing;
 
 internal static class SteamImportAdapter
 {
-  internal static ISteamMetadataClient DefaultMetadataClient { get; } = new SteamMetadataClient();
-
   internal static async Task<SteamImportResult> ParseSingleItemInputAsync(
       string pastedIdsAndUrls,
       ISteamMetadataClient metadataClient,
@@ -48,7 +46,8 @@ internal static class SteamImportAdapter
     if (Uri.TryCreate(sourceReference, UriKind.Absolute, out var uri) &&
         (uri.Host.Equals("steamcommunity.com", StringComparison.OrdinalIgnoreCase) ||
          uri.Host.Equals("www.steamcommunity.com", StringComparison.OrdinalIgnoreCase)) &&
-        uri.AbsolutePath.Equals("/sharedfiles/filedetails/", StringComparison.OrdinalIgnoreCase))
+        (uri.AbsolutePath.Equals("/sharedfiles/filedetails/", StringComparison.OrdinalIgnoreCase) ||
+         uri.AbsolutePath.Equals("/sharedfiles/filedetails", StringComparison.OrdinalIgnoreCase)))
     {
       var id = uri.Query.TrimStart('?').Split('&')
           .Select(parameter => parameter.Split('=', 2))

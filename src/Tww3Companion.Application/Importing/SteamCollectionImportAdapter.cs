@@ -2,11 +2,6 @@ namespace Tww3Companion.Application.Importing;
 
 public static class SteamCollectionImportAdapter
 {
-  public static Task<SteamImportResult> ParseAsync(string collectionId, CancellationToken cancellationToken = default)
-  {
-    return ParseAsync(collectionId, SteamImportAdapter.DefaultMetadataClient, cancellationToken);
-  }
-
   public static async Task<SteamImportResult> ParseAsync(
       string collectionId,
       ISteamMetadataClient metadataClient,
