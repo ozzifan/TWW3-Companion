@@ -24,6 +24,7 @@ public sealed class SteamSingleItemImportAdapterTests
         """, new FakeSteamMetadataClient(), TestContext.Current.CancellationToken);
 
     Assert.Single(result.Candidates);
+    Assert.Equal("Mod 987654321", result.Candidates[0].DisplayName);
   }
 
   [Fact]
@@ -64,9 +65,9 @@ public sealed class SteamSingleItemImportAdapterTests
 
     public Task<SteamWorkshopItemMetadata> GetWorkshopItemAsync(string workshopItemId, CancellationToken cancellationToken = default)
     {
-      if (workshopItemId == failingWorkshopItemId) throw new InvalidOperationException("Fixture lookup failure.");
+    if (workshopItemId == failingWorkshopItemId) throw new InvalidOperationException("Fixture lookup failure.");
 
-      return Task.FromResult(new SteamWorkshopItemMetadata(workshopItemId, $"Mod {workshopItemId}"));
-    }
+    return Task.FromResult(new SteamWorkshopItemMetadata(workshopItemId, $"Mod {workshopItemId}"));
   }
+}
 }
