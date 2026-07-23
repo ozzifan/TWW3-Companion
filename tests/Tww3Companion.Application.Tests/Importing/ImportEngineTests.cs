@@ -131,11 +131,29 @@ public sealed class ImportEngineTests
 
     var preview = await engine.BuildPreviewAsync(
         target,
-        new object[] { ImportCandidate.Skipped("source-1") },
+        new object[] { new ImportCandidate("source-1", LinkedModId: null, DisplayName: null, IsSkipped: false) },
         TestContext.Current.CancellationToken);
 
     await Assert.ThrowsAsync<InvalidOperationException>(
         () => engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_import_allows_optional_skips()
+  {
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
+    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var preview = await engine.BuildPreviewAsync(
+        target,
+        new object[] { ImportCandidate.Skipped("source-1") },
+        TestContext.Current.CancellationToken);
+
+    Assert.True(Assert.Single(preview.Resolutions!).CanSkip);
+
+    var outcome = await engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.Applied);
   }
 
   [Fact]

@@ -3,4 +3,5 @@ namespace Tww3Companion.Application.Importing;
 public sealed record ImportPreview(
     ImportTargetContext TargetContext,
     IReadOnlyList<object> Candidates,
-    bool Applied);
+    bool Applied,
+    IReadOnlyList<ImportResolution>? Resolutions = null);

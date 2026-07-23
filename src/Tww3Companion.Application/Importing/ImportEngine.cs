@@ -12,16 +12,18 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
     var importCandidates = NormalizeCandidates(candidates);
     var existingCandidates = await _store.ReadCandidatesAsync(targetContext, cancellationToken);
     var matchedCandidates = MatchExactSourceReferences(importCandidates, existingCandidates);
+    var resolutions = matchedCandidates.Select(candidate => new ImportResolution(
+        candidate.SourceId,
+        candidate.LinkedModId,
+        candidate.DisplayName,
+        CanSkip: string.IsNullOrWhiteSpace(candidate.LinkedModId))).ToArray();
 
-    return await _store.SavePreviewAsync(
+    var preview = await _store.SavePreviewAsync(
         targetContext,
         matchedCandidates,
-        matchedCandidates.Select(candidate => new ImportResolution(
-            candidate.SourceId,
-            candidate.LinkedModId,
-            candidate.DisplayName,
-            CanSkip: false)).ToArray(),
+        resolutions,
         cancellationToken);
+    return preview with { Resolutions = resolutions };
   }
 
   public Task<ImportOutcome> ApplyAsync(
@@ -36,7 +38,7 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
 
     if (!confirm) return Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false));
 
-    ImportPreviewValidation.Validate(preview.Candidates);
+    ImportPreviewValidation.Validate(preview);
     return _store.CommitAtomicallyAsync(preview, confirm: true, cancellationToken);
   }
 

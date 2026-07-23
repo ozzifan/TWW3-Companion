@@ -43,3 +43,10 @@ DONE
   - Passed: 2/2 tests.
 - `dotnet test tests\\Tww3Companion.Application.Tests\\Tww3Companion.Application.Tests.csproj -v minimal`
   - Passed: 42/42 tests.
+
+## Optional Skip Fix
+
+- Preserved import-resolution state on `ImportPreview` after the store preview call.
+- Marked explicitly skipped candidates as skippable and validated skips against that resolution state.
+- Required unresolved candidates still block the atomic commit.
+- Added regression coverage for an optional skip alongside the existing required-resolution and atomic-commit tests.
