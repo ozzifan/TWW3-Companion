@@ -78,6 +78,7 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly DelegateCommand retrySettingsSaveCommand;
   private readonly DelegateCommand importIntoNewWorkspaceCommand;
   private readonly DelegateCommand importIntoCurrentWorkspaceCommand;
+  private string? currentWorkspaceId;
   private bool isDisposingWorkspace;
 
   public ShellViewModel() : this(CreateDefaultOptions())
@@ -110,7 +111,9 @@ public sealed class ShellViewModel : ViewModelBase
         _ => _ = SaveSettingsAsync(),
         _ => !string.IsNullOrWhiteSpace(Home.SettingsSaveError));
     importIntoNewWorkspaceCommand = new DelegateCommand(_ => _ = RunImportIntoNewWorkspaceAsync());
-    importIntoCurrentWorkspaceCommand = new DelegateCommand(_ => _ = RunImportIntoCurrentWorkspaceAsync("current-workspace-id"));
+    importIntoCurrentWorkspaceCommand = new DelegateCommand(
+        _ => _ = RunImportIntoCurrentWorkspaceAsync(currentWorkspaceId),
+        _ => !string.IsNullOrWhiteSpace(currentWorkspaceId));
 
     CreateWorkspaceCommand = createWorkspaceCommand;
     OpenWorkspaceCommand = openWorkspaceCommand;
@@ -249,13 +252,26 @@ public sealed class ShellViewModel : ViewModelBase
   public Task RunImportIntoCurrentWorkspaceForTestAsync(string workspaceId) =>
       RunImportIntoCurrentWorkspaceAsync(workspaceId);
 
+  public void SetCurrentWorkspaceIdForTest(string workspaceId)
+  {
+    currentWorkspaceId = workspaceId;
+    importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
+  }
+
   private Task RunImportIntoNewWorkspaceAsync() =>
       ImportService.BuildPreviewAsync(
           ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
           []);
 
-  private Task RunImportIntoCurrentWorkspaceAsync(string workspaceId) =>
-      ImportService.BuildPreviewAsync(ImportTargetContext.ForCurrentWorkspace(workspaceId), []);
+  private Task RunImportIntoCurrentWorkspaceAsync(string? workspaceId)
+  {
+    if (string.IsNullOrWhiteSpace(workspaceId))
+    {
+      return Task.CompletedTask;
+    }
+
+    return ImportService.BuildPreviewAsync(ImportTargetContext.ForCurrentWorkspace(workspaceId), []);
+  }
 
   private async Task RunCreateWorkspaceAsync()
   {
@@ -292,6 +308,12 @@ public sealed class ShellViewModel : ViewModelBase
         }
         else
         {
+          currentWorkspaceId = result switch
+          {
+              OperationResult<Workspace>.Success success => success.Value.Id.ToString(),
+              _ => currentWorkspaceId
+          };
+          importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
         }
@@ -347,6 +369,12 @@ public sealed class ShellViewModel : ViewModelBase
         }
         else
         {
+          currentWorkspaceId = result switch
+          {
+              OperationResult<Workspace>.Success success => success.Value.Id.ToString(),
+              _ => currentWorkspaceId
+          };
+          importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
         }

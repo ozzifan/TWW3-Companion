@@ -1,46 +1,34 @@
-# Task 2 Report: Shared Import Pipeline Contracts and Persistence Port
+# Task 2 Report: Desktop import-shell wiring
 
 ## Status
 
 DONE
 
-## Delivered
+## Commit
 
-- Added `ImportCandidate` with linked, create-with-display-name, and skipped factory methods.
-- Added `ImportResolution` with required-link and optional-skip factory methods.
-- Added `IWorkspaceImportStore` for reading candidates, atomically saving previews with resolutions, and committing confirmed previews.
-- Kept `IImportEngine` source-neutral while documenting that `ImportCandidate` is the shared pipeline model.
-- Added contract coverage for the typed models and an engine fake constructed through the persistence port.
+- `2716d47 feat: wire import entry points to shared engine`
 
-## TDD Evidence
+## Implementation
 
-- RED: the required focused test command failed before implementation because `IWorkspaceImportStore`, `ImportCandidate`, and `ImportResolution` did not exist (`CS0246`).
-- GREEN: the same focused command passed after implementation: 3 passed, 0 failed.
+- Added `ImportIntoNewWorkspaceCommand` and `ImportIntoCurrentWorkspaceCommand` to `ShellViewModel`.
+- Both commands call the existing `IShellImportService.BuildPreviewAsync` seam with the required `ImportTargetContext`.
+- Added Home and Workspace buttons that bind directly to those commands; no import logic was added to either view.
+- Added the required target-context and entry-point tests, and updated previous shell-composition assertions that explicitly prohibited import actions.
+
+## TDD evidence
+
+- RED: the focused test command failed because `RunImportIntoNewWorkspaceForTestAsync` and `RunImportIntoCurrentWorkspaceForTestAsync` did not exist.
+- GREEN: after the minimal command, context, and binding implementation, the focused command passed all 4 tests.
 
 ## Verification
 
-- `dotnet test tests/Tww3Companion.Application.Tests --filter "ImportCandidate_can_represent_link_create_and_skip|ImportResolution_can_represent_required_and_optional_resolutions|ImportEngine_builds_preview_through_a_store_port" -v normal`
-  - Passed: 3; Failed: 0.
-- `dotnet test tests/Tww3Companion.Application.Tests -v normal`
-  - Passed: 41; Failed: 0.
+- `dotnet test tests/Tww3Companion.Desktop.Tests --filter "Home_exposes_import_into_new_workspace|Workspace_shell_exposes_import_into_current_workspace|Home_import_action_uses_new_workspace_target_context|Workspace_import_action_uses_current_workspace_target_context" -v normal`
+  - Passed: 4/4.
+- `dotnet test tests/Tww3Companion.Desktop.Tests -v normal`
+  - Passed: 41/41.
 - `git diff --check`
-  - Passed.
+  - Passed with no whitespace errors.
 
-## Commit
+## Scope note
 
-- `ec9abc2 feat: add shared import pipeline contracts`
-
-## Concerns
-
-- None. The existing `IImportEngine` candidate boundary already matched the brief's source-neutral signature; this task adds the typed shared model and persistence seam without changing UI or engine behavior.
-
-## Review Fix
-
-- Removed the premature `ImportEngine` and `CurrentWorkspaceImportSession` implementation, along with its current-workspace behavior tests.
-- Retained the Task 2 contract types, `IWorkspaceImportStore`, source-neutral `IImportEngine`, and the three specified contract tests.
-- Re-ran the specified filtered test command: 3 passed, 0 failed.
-- Re-ran `dotnet test tests/Tww3Companion.Application.Tests/Tww3Companion.Application.Tests.csproj -v minimal`: 37 passed, 0 failed.
-## Review Fix 2
-- Updated `ImportEngine_builds_preview_through_a_store_port` so the fake engine actually calls `IWorkspaceImportStore.ReadCandidatesAsync(...)` and the test asserts that the store was touched.
-- Re-ran the specified filtered test command: 3 passed, 0 failed.
-- Re-ran `dotnet test tests/Tww3Companion.Application.Tests/Tww3Companion.Application.Tests.csproj -v minimal`: 37 passed, 0 failed.
+The existing shell has no loaded workspace identity or import-candidate selection flow. Per the task brief, this slice only wires the shared service seam using the required target contexts; it does not add those later-slice responsibilities.

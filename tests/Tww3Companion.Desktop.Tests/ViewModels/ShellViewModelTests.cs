@@ -49,8 +49,9 @@ public sealed class ShellViewModelTests
   {
     var importService = new RecordingImportService();
     var shell = ShellViewModel.CreateForTest(importService: importService);
+    shell.SetCurrentWorkspaceIdForTest("workspace-id-123");
 
-    await shell.RunImportIntoCurrentWorkspaceForTestAsync("workspace-id-123");
+    shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
 
     Assert.Equal(
         ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
