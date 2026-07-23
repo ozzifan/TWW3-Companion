@@ -27,6 +27,17 @@ public sealed class ShellViewModelTests
   }
 
   [Fact]
+  public void ShellViewModel_test_seam_can_record_current_workspace_requests()
+  {
+    var importService = new RecordingImportService();
+    var shell = ShellViewModel.CreateForTest(importService: importService);
+
+    shell.RequestImportIntoCurrentWorkspaceForTest();
+
+    Assert.Equal(ImportTargetContext.ForCurrentWorkspace("current-workspace-id"), importService.LastTargetContext);
+  }
+
+  [Fact]
   public void StartsOnHomeWithOnlyFoundationWorkspaceDestinations()
   {
     var subject = new ShellViewModel();

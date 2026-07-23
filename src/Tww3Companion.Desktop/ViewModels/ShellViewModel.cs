@@ -578,7 +578,7 @@ public sealed class ShellViewModel : ViewModelBase
         ImportPreview preview,
         bool confirm,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false));
   }
 
   private sealed class InMemoryApplicationSettingsStore(ApplicationSettings initialSettings) : IApplicationSettingsStore
