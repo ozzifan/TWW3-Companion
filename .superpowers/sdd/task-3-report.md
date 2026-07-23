@@ -63,3 +63,16 @@ DONE
   - Passed: 2/2 tests.
 - `dotnet test tests\\Tww3Companion.Application.Tests\\Tww3Companion.Application.Tests.csproj -v minimal`
   - Passed: 44/44 tests.
+
+## Suggested-Name Match Fix
+
+- Added an explicit suggested-name-match stage after exact source-reference matching and before preview creation.
+- A unique, case-insensitive display-name match now records `SuggestedModId` without setting `LinkedModId`, preserving the required explicit link/create/skip choice.
+- Added regression coverage for the suggested match and verified the requested focused and full application test runs.
+
+## Suggested-Name Match Verification
+
+- `dotnet test tests\\Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_requires_all_required_resolutions|CurrentWorkspace_import_commits_all_changes_atomically" -v normal`
+  - Passed: 2/2 tests.
+- `dotnet test tests\\Tww3Companion.Application.Tests\\Tww3Companion.Application.Tests.csproj -v minimal`
+  - Passed: 45/45 tests.

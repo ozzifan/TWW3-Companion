@@ -12,7 +12,8 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
     var importCandidates = NormalizeCandidates(candidates);
     var existingCandidates = await _store.ReadCandidatesAsync(targetContext, cancellationToken);
     var matchedCandidates = MatchExactSourceReferences(importCandidates, existingCandidates);
-    var resolutions = matchedCandidates.Select(candidate => new ImportResolution(
+    var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
+    var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
         candidate.SourceId,
         candidate.LinkedModId,
         candidate.DisplayName,
@@ -20,7 +21,7 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
 
     var preview = await _store.SavePreviewAsync(
         targetContext,
-        matchedCandidates,
+        suggestedCandidates,
         resolutions,
         cancellationToken);
     return preview with { Resolutions = resolutions };
@@ -67,5 +68,26 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
         return match is null || !string.IsNullOrWhiteSpace(candidate.LinkedModId)
             ? candidate
             : candidate with { LinkedModId = match.LinkedModId };
+      }).ToArray();
+
+  private static IReadOnlyList<ImportCandidate> SuggestNameMatches(
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportCandidate> existingCandidates) =>
+      candidates.Select(candidate =>
+      {
+        if (!string.IsNullOrWhiteSpace(candidate.LinkedModId) || string.IsNullOrWhiteSpace(candidate.DisplayName))
+        {
+          return candidate;
+        }
+
+        var matches = existingCandidates.Where(existing =>
+            !string.IsNullOrWhiteSpace(existing.LinkedModId) &&
+            !string.IsNullOrWhiteSpace(existing.DisplayName) &&
+            string.Equals(existing.DisplayName.Trim(), candidate.DisplayName.Trim(), StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return matches.Length == 1
+            ? candidate with { SuggestedModId = matches[0].LinkedModId }
+            : candidate;
       }).ToArray();
 }

@@ -4,7 +4,8 @@ public sealed record ImportCandidate(
     string SourceId,
     string? LinkedModId,
     string? DisplayName,
-    bool IsSkipped)
+    bool IsSkipped,
+    string? SuggestedModId = null)
 {
   public static ImportCandidate Linked(string sourceId, string linkedModId) =>
       new(sourceId, linkedModId, DisplayName: null, IsSkipped: false);

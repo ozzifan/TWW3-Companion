@@ -123,6 +123,25 @@ public sealed class ImportEngineTests
   }
 
   [Fact]
+  public async Task ImportEngine_suggests_a_unique_display_name_match_without_linking_it()
+  {
+    var store = new FakeWorkspaceImportStore
+    {
+      ExistingCandidates = [ImportCandidate.Linked("existing-source-1", "existing-mod-1") with { DisplayName = "Existing Mod" }]
+    };
+    var engine = new ImportEngine(store);
+
+    var preview = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        new object[] { ImportCandidate.CreateWithDisplayName("source-1", "existing mod") },
+        TestContext.Current.CancellationToken);
+
+    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
+    Assert.Null(candidate.LinkedModId);
+    Assert.Equal("existing-mod-1", candidate.SuggestedModId);
+  }
+
+  [Fact]
   public async Task CurrentWorkspace_import_requires_all_required_resolutions()
   {
     var store = new FakeWorkspaceImportStore();
