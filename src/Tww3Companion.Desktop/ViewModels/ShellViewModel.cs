@@ -152,7 +152,8 @@ public sealed class ShellViewModel : ViewModelBase
       OpenWorkspace openWorkspace,
       string defaultWorkspaceDirectory,
       string settingsDirectory,
-      IWorkspaceDisposalCoordinator workspaceDisposalCoordinator) =>
+      IWorkspaceDisposalCoordinator workspaceDisposalCoordinator,
+      IShellImportService? importService = null) =>
       new(new ShellViewModelOptions
       {
         InitialSettings = initialSettings,
@@ -164,6 +165,7 @@ public sealed class ShellViewModel : ViewModelBase
         DefaultWorkspaceDirectory = defaultWorkspaceDirectory,
         SettingsDirectory = settingsDirectory,
         WorkspaceDisposalCoordinator = workspaceDisposalCoordinator
+        ,ImportService = importService ?? new PassiveShellImportService()
       });
 
   public ShellScreen CurrentScreen => _currentScreen;
