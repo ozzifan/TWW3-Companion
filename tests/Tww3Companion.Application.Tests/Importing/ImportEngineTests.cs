@@ -139,6 +139,23 @@ public sealed class ImportEngineTests
   }
 
   [Fact]
+  public async Task CurrentWorkspace_import_requires_linked_mod_to_exist_before_committing()
+  {
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
+    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var preview = await engine.BuildPreviewAsync(
+        target,
+        new object[] { ImportCandidate.Linked("source-1", "nonexistent-mod") },
+        TestContext.Current.CancellationToken);
+
+    await Assert.ThrowsAsync<InvalidOperationException>(
+        () => engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken));
+
+    Assert.False(store.CommitAtomicallyCalled);
+  }
+
+  [Fact]
   public async Task CurrentWorkspace_import_allows_optional_skips()
   {
     var store = new FakeWorkspaceImportStore();
@@ -179,6 +196,8 @@ public sealed class ImportEngineTests
 
     public IReadOnlyList<ImportCandidate> ExistingCandidates { get; init; } = [];
 
+    public IReadOnlySet<string> ExistingModIds { get; init; } = new HashSet<string>(StringComparer.Ordinal) { "mod-1" };
+
     public ImportPreview? CommittedPreview { get; private set; }
 
     public Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
@@ -188,6 +207,12 @@ public sealed class ImportEngineTests
       ReadCandidatesCalled = true;
       return Task.FromResult(ExistingCandidates);
     }
+
+    public Task<bool> ModExistsAsync(
+        ImportTargetContext.CurrentWorkspace targetContext,
+        string modId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(ExistingModIds.Contains(modId));
 
     public Task<ImportPreview> SavePreviewAsync(
         ImportTargetContext targetContext,

@@ -6,6 +6,11 @@ public interface IWorkspaceImportStore
       ImportTargetContext targetContext,
       CancellationToken cancellationToken = default);
 
+  Task<bool> ModExistsAsync(
+      ImportTargetContext.CurrentWorkspace targetContext,
+      string modId,
+      CancellationToken cancellationToken = default);
+
   Task<ImportPreview> SavePreviewAsync(
       ImportTargetContext targetContext,
       IReadOnlyList<ImportCandidate> candidates,

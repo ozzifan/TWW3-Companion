@@ -50,3 +50,16 @@ DONE
 - Marked explicitly skipped candidates as skippable and validated skips against that resolution state.
 - Required unresolved candidates still block the atomic commit.
 - Added regression coverage for an optional skip alongside the existing required-resolution and atomic-commit tests.
+
+## Existing-Mod Link Validation Fix
+
+- Added the current-Workspace-only `ModExistsAsync` store check before the atomic commit.
+- Confirmed linked candidates are rejected when their target Mod does not exist, so a caller-provided link cannot bypass domain validation.
+- Added regression coverage that verifies `ImportCandidate.Linked("source-1", "nonexistent-mod")` throws and never invokes the commit port.
+
+## Existing-Mod Link Validation Verification
+
+- `dotnet test tests\\Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_requires_all_required_resolutions|CurrentWorkspace_import_commits_all_changes_atomically" -v normal`
+  - Passed: 2/2 tests.
+- `dotnet test tests\\Tww3Companion.Application.Tests\\Tww3Companion.Application.Tests.csproj -v minimal`
+  - Passed: 44/44 tests.
