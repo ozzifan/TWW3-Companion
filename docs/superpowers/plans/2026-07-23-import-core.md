@@ -112,40 +112,170 @@ git add src/Tww3Companion.Application/Importing tests/Tww3Companion.Application.
 git commit -m "feat: add shared import engine contract"
 ```
 
-### Task 2: Implement import into current Workspace through the shared engine
+### Task 2: Add the shared import pipeline contracts and persistence port
+
+**Files:**
+- Create: `src/Tww3Companion.Application/Importing/ImportCandidate.cs`
+- Create: `src/Tww3Companion.Application/Importing/ImportResolution.cs`
+- Create: `src/Tww3Companion.Application/Importing/IWorkspaceImportStore.cs`
+- Modify: `src/Tww3Companion.Application/Importing/IImportEngine.cs`
+- Modify: `tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs`
+
+**Interfaces:**
+- Consumes: `ImportTargetContext`, source-neutral candidate data, and a workspace persistence abstraction
+- Produces: typed candidate/resolution models plus a store contract that later tasks use for atomic preview/apply
+
+- [ ] **Step 1: Write the failing tests**
+
+Add tests that pin the shared pipeline shapes and the persistence seam:
+
+```csharp
+[Fact]
+public void ImportCandidate_can_represent_link_create_and_skip()
+{
+    var linked = ImportCandidate.Linked("source-1", "mod-1");
+    var created = ImportCandidate.CreateWithDisplayName("source-2", "New Mod");
+    var skipped = ImportCandidate.Skipped("source-3");
+
+    Assert.Equal("source-1", linked.SourceId);
+    Assert.Equal("mod-1", linked.LinkedModId);
+    Assert.Equal("New Mod", created.DisplayName);
+    Assert.True(skipped.IsSkipped);
+}
+
+[Fact]
+public void ImportResolution_can_represent_required_and_optional_resolutions()
+{
+    var required = ImportResolution.RequireLink("candidate-1");
+    var optional = ImportResolution.OptionalSkip("candidate-2");
+
+    Assert.Equal("candidate-1", required.CandidateId);
+    Assert.True(optional.CanSkip);
+}
+
+[Fact]
+public async Task ImportEngine_builds_preview_through_a_store_port()
+{
+    var engine = new FakeImportEngine(new FakeWorkspaceImportStore());
+    var preview = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+        TestContext.Current.CancellationToken);
+
+    Assert.NotNull(preview);
+}
+
+private sealed class FakeImportEngine : IImportEngine
+{
+    public FakeImportEngine(IWorkspaceImportStore store) => Store = store;
+
+    private IWorkspaceImportStore Store { get; }
+
+    public Task<ImportPreview> BuildPreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+
+    public Task<ImportOutcome> ApplyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+}
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "ImportCandidate_can_represent_link_create_and_skip|ImportResolution_can_represent_required_and_optional_resolutions|ImportEngine_builds_preview_through_a_store_port" -v normal`
+
+Expected: fail because the typed pipeline models and store port do not exist yet.
+
+- [ ] **Step 3: Implement the current-Workspace path**
+
+Implement the shared pipeline contracts:
+
+```csharp
+public sealed record ImportCandidate(
+    string SourceId,
+    string? LinkedModId,
+    string? DisplayName,
+    bool IsSkipped)
+{
+  public static ImportCandidate Linked(string sourceId, string linkedModId);
+  public static ImportCandidate CreateWithDisplayName(string sourceId, string displayName);
+  public static ImportCandidate Skipped(string sourceId);
+}
+
+public sealed record ImportResolution(
+    string CandidateId,
+    string? LinkedModId,
+    string? DisplayName,
+    bool CanSkip)
+{
+  public static ImportResolution RequireLink(string candidateId);
+  public static ImportResolution OptionalSkip(string candidateId);
+}
+
+public interface IWorkspaceImportStore
+{
+  Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(ImportTargetContext targetContext, CancellationToken cancellationToken = default);
+  Task<ImportPreview> SavePreviewAsync(ImportTargetContext targetContext, IReadOnlyList<ImportCandidate> candidates, IReadOnlyList<ImportResolution> resolutions, CancellationToken cancellationToken = default);
+  Task<ImportOutcome> CommitAsync(ImportPreview preview, bool confirm, CancellationToken cancellationToken = default);
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "ImportCandidate_can_represent_link_create_and_skip|ImportResolution_can_represent_required_and_optional_resolutions|ImportEngine_builds_preview_through_a_store_port" -v normal`
+
+Expected: pass after the contracts and port exist.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Tww3Companion.Application/Importing tests/Tww3Companion.Application.Tests/Importing
+git commit -m "feat: add shared import pipeline contracts"
+```
+
+### Task 3: Implement atomic import into the current Workspace through the shared engine
 
 **Files:**
 - Modify: `src/Tww3Companion.Application/Importing/IImportEngine.cs`
-- Create: `src/Tww3Companion.Application/Importing/ImportEngine.cs`
+- Modify: `src/Tww3Companion.Application/Importing/ImportEngine.cs`
 - Create: `src/Tww3Companion.Application/Importing/CurrentWorkspaceImportSession.cs`
+- Modify: `src/Tww3Companion.Application/Importing/IWorkspaceImportStore.cs`
 - Modify: `tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs`
 
 **Interfaces:**
 - Consumes: `ImportTargetContext.ForCurrentWorkspace(...)`
-- Produces: a shared import engine that can preview and apply into the currently open Workspace
+- Produces: a shared import engine that can preview and atomically commit into the currently open Workspace
 
 - [ ] **Step 1: Write the failing tests**
 
-Add tests that prove current-Workspace import stays in the same open Workspace through preview and applies atomically:
+Add tests that prove the current-Workspace flow validates required resolutions and commits all-or-nothing:
 
 ```csharp
 [Fact]
-public async Task CurrentWorkspace_import_builds_preview_without_changing_the_workspace()
+public async Task CurrentWorkspace_import_requires_all_required_resolutions()
 {
-    var engine = new TestImportEngine();
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
     var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
 
-    var preview = await engine.BuildPreviewAsync(target, new[] { "candidate-1" });
+    var preview = await engine.BuildPreviewAsync(target, new object[] { ImportCandidate.Skipped("source-1") });
 
-    Assert.False(preview.Applied);
+    await Assert.ThrowsAsync<InvalidOperationException>(
+        () => engine.ApplyAsync(preview, confirm: true));
 }
 
 [Fact]
-public async Task CurrentWorkspace_import_applies_atomically_when_confirmed()
+public async Task CurrentWorkspace_import_commits_all_changes_atomically()
 {
-    var engine = new TestImportEngine();
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
     var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
-    var preview = await engine.BuildPreviewAsync(target, new[] { "candidate-1" });
+    var preview = await engine.BuildPreviewAsync(target, new object[] { ImportCandidate.Linked("source-1", "mod-1") });
 
     var outcome = await engine.ApplyAsync(preview, confirm: true);
 
@@ -155,26 +285,45 @@ public async Task CurrentWorkspace_import_applies_atomically_when_confirmed()
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_builds_preview_without_changing_the_workspace|CurrentWorkspace_import_applies_atomically_when_confirmed" -v normal`
+Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_requires_all_required_resolutions|CurrentWorkspace_import_commits_all_changes_atomically" -v normal`
 
-Expected: fail until the shared import engine exists.
+Expected: fail until the current-Workspace engine and transaction boundary exist.
 
 - [ ] **Step 3: Implement the current-Workspace path**
+Implement the current-Workspace path:
 
-Make the engine:
+```csharp
+public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
+{
+  public Task<ImportPreview> BuildPreviewAsync(ImportTargetContext targetContext, IReadOnlyList<object> candidates, CancellationToken cancellationToken = default);
+  public Task<ImportOutcome> ApplyAsync(ImportPreview preview, bool confirm, CancellationToken cancellationToken = default);
+}
+
+internal sealed class CurrentWorkspaceImportSession(
+    ImportTargetContext.CurrentWorkspace targetContext,
+    IReadOnlyList<ImportCandidate> candidates,
+    IWorkspaceImportStore store)
+{
+  public ImportPreview BuildPreview();
+  public Task<ImportOutcome> ApplyAsync(bool confirm, CancellationToken cancellationToken = default);
+}
+```
+
+The engine must:
 
 ```csharp
 - accept the current Workspace target context;
-- build preview from supplied candidates;
-- validate before apply;
+- build preview from supplied candidates through the store;
+- validate required resolutions before apply;
 - preserve additive-only semantics;
 - reject unresolved required entries before committing;
+- commit or roll back through one atomic workspace transaction;
 - keep the Workspace unchanged when confirmation is false or validation fails.
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_builds_preview_without_changing_the_workspace|CurrentWorkspace_import_applies_atomically_when_confirmed" -v normal`
+Run: `dotnet test tests/Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_requires_all_required_resolutions|CurrentWorkspace_import_commits_all_changes_atomically" -v normal`
 
 Expected: pass after the current-Workspace path is implemented.
 
@@ -185,40 +334,43 @@ git add src/Tww3Companion.Application/Importing tests/Tww3Companion.Application.
 git commit -m "feat: import into current workspace through shared engine"
 ```
 
-### Task 3: Implement import into new Workspace through the shared engine
+### Task 4: Implement import into a new Workspace through the shared engine
 
 **Files:**
 - Modify: `src/Tww3Companion.Application/Importing/IImportEngine.cs`
 - Modify: `src/Tww3Companion.Application/Importing/ImportEngine.cs`
 - Create: `src/Tww3Companion.Application/Importing/NewWorkspaceImportSession.cs`
+- Modify: `src/Tww3Companion.Application/Importing/IWorkspaceImportStore.cs`
 - Modify: `tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs`
 
 **Interfaces:**
 - Consumes: `ImportTargetContext.ForNewWorkspace(...)`
-- Produces: a shared import engine that can create a new Workspace and import into it before opening it
+- Produces: a shared import engine that can create a new Workspace, validate its destination, and apply the confirmed import into it before opening it
 
 - [ ] **Step 1: Write the failing tests**
 
-Add tests that prove the new-Workspace flow validates the destination data and keeps the source Workspace isolated:
+Add tests that prove the new-Workspace flow validates destination data and keeps the source Workspace isolated:
 
 ```csharp
 [Fact]
 public async Task NewWorkspace_import_requires_a_display_name_and_destination_path()
 {
-    var engine = new TestImportEngine();
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
     var target = ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c");
 
-    var preview = await engine.BuildPreviewAsync(target, new[] { "candidate-1" });
+    var preview = await engine.BuildPreviewAsync(target, new object[] { ImportCandidate.Linked("source-1", "mod-1") });
 
-    Assert.Equal("My New Workspace", preview.Target.DisplayName);
+    Assert.Equal("My New Workspace", preview.TargetContext is ImportTargetContext.NewWorkspace newTarget ? newTarget.DisplayName : "");
 }
 
 [Fact]
 public async Task NewWorkspace_import_applies_into_the_new_workspace()
 {
-    var engine = new TestImportEngine();
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
     var target = ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c");
-    var preview = await engine.BuildPreviewAsync(target, new[] { "candidate-1" });
+    var preview = await engine.BuildPreviewAsync(target, new object[] { ImportCandidate.Linked("source-1", "mod-1") });
 
     var outcome = await engine.ApplyAsync(preview, confirm: true);
 
@@ -234,9 +386,10 @@ Expected: fail until the new-Workspace path exists.
 
 - [ ] **Step 3: Implement the new-Workspace path**
 
-Make the engine:
+The engine must:
 
 ```csharp
+- accept the new Workspace target context;
 - validate the destination display name and path;
 - create a fresh Workspace target context;
 - keep the new Workspace isolated from any already-open Workspace;
@@ -257,7 +410,7 @@ git add src/Tww3Companion.Application/Importing tests/Tww3Companion.Application.
 git commit -m "feat: import into new workspace through shared engine"
 ```
 
-### Task 4: Wire the Home and Workspace shell actions to the shared engine
+### Task 5: Wire the Home and Workspace shell actions to the shared engine
 
 **Files:**
 - Modify: `src/Tww3Companion.Desktop/ViewModels/ShellViewModel.cs`
@@ -322,7 +475,7 @@ git add src/Tww3Companion.Desktop tests/Tww3Companion.Desktop.Tests
 git commit -m "feat: wire import entry points to shared engine"
 ```
 
-### Task 5: Verify the full slice with build, tests, and diff check
+### Task 6: Verify the full slice with build, tests, and diff check
 
 **Files:**
 - None expected unless the prior tasks expose a small fix
