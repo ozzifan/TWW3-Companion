@@ -11,8 +11,15 @@ public sealed class ImportEngineTests
     var newWorkspace = ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c");
     var currentWorkspace = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
 
-    Assert.Equal("My New Workspace", newWorkspace.DisplayName);
-    Assert.Equal("workspace-id-123", currentWorkspace.WorkspaceId);
+    Assert.IsType<ImportTargetContext.NewWorkspace>(newWorkspace);
+    Assert.IsType<ImportTargetContext.CurrentWorkspace>(currentWorkspace);
+
+    var typedNewWorkspace = Assert.IsType<ImportTargetContext.NewWorkspace>(newWorkspace);
+    var typedCurrentWorkspace = Assert.IsType<ImportTargetContext.CurrentWorkspace>(currentWorkspace);
+
+    Assert.Equal("My New Workspace", typedNewWorkspace.DisplayName);
+    Assert.Equal("C:\\Workspaces\\my-new.tww3c", typedNewWorkspace.DestinationPath);
+    Assert.Equal("workspace-id-123", typedCurrentWorkspace.WorkspaceId);
   }
 
   [Fact]
@@ -25,6 +32,29 @@ public sealed class ImportEngineTests
         TestContext.Current.CancellationToken);
 
     Assert.NotNull(preview);
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_import_builds_preview_without_changing_the_workspace()
+  {
+    var engine = new ImportEngine();
+    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+
+    var preview = await engine.BuildPreviewAsync(target, new object[] { "candidate-1" });
+
+    Assert.False(preview.Applied);
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_import_applies_atomically_when_confirmed()
+  {
+    var engine = new ImportEngine();
+    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var preview = await engine.BuildPreviewAsync(target, new object[] { "candidate-1" });
+
+    var outcome = await engine.ApplyAsync(preview, confirm: true);
+
+    Assert.True(outcome.Applied);
   }
 
   private sealed class FakeImportEngine : IImportEngine
