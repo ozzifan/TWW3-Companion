@@ -108,8 +108,9 @@ public sealed class ImportEngineTests
     var outcome = await engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken);
 
     Assert.True(outcome.Applied);
-    Assert.True(store.CreateNewWorkspaceCalled);
-    Assert.IsType<ImportTargetContext.CurrentWorkspace>(store.CommittedPreview!.TargetContext);
+    Assert.True(store.CommitNewWorkspaceAtomicallyCalled);
+    Assert.IsType<ImportTargetContext.NewWorkspace>(store.CommittedPreview!.TargetContext);
+    Assert.IsType<ImportTargetContext.CurrentWorkspace>(outcome.TargetContext);
   }
 
   [Fact]
@@ -142,7 +143,7 @@ public sealed class ImportEngineTests
     await Assert.ThrowsAsync<InvalidOperationException>(
         () => engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken));
 
-    Assert.True(store.RollbackNewWorkspaceCalled);
+    Assert.True(store.AtomicRollbackCalled);
   }
 
   [Fact]
@@ -275,9 +276,7 @@ public sealed class ImportEngineTests
 
     public ImportPreview? CommittedPreview { get; private set; }
 
-    public bool CreateNewWorkspaceCalled { get; private set; }
-
-    public bool RollbackNewWorkspaceCalled { get; private set; }
+    public bool AtomicRollbackCalled { get; private set; }
 
     public Exception? CommitFailure { get; init; }
 
@@ -295,22 +294,6 @@ public sealed class ImportEngineTests
         CancellationToken cancellationToken = default) =>
         Task.FromResult(ExistingModIds.Contains(modId));
 
-    public Task<ImportTargetContext.CurrentWorkspace> CreateNewWorkspaceAsync(
-        ImportTargetContext.NewWorkspace targetContext,
-        CancellationToken cancellationToken = default)
-    {
-      CreateNewWorkspaceCalled = true;
-      return Task.FromResult((ImportTargetContext.CurrentWorkspace)ImportTargetContext.ForCurrentWorkspace("new-workspace-id"));
-    }
-
-    public Task RollbackNewWorkspaceAsync(
-        ImportTargetContext.CurrentWorkspace targetContext,
-        CancellationToken cancellationToken = default)
-    {
-      RollbackNewWorkspaceCalled = true;
-      return Task.CompletedTask;
-    }
-
     public Task<ImportPreview> SavePreviewAsync(
         ImportTargetContext targetContext,
         IReadOnlyList<ImportCandidate> candidates,
@@ -319,6 +302,24 @@ public sealed class ImportEngineTests
         Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
 
     public bool CommitAtomicallyCalled { get; private set; }
+
+    public bool CommitNewWorkspaceAtomicallyCalled { get; private set; }
+
+    public Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
+        ImportPreview preview,
+        CancellationToken cancellationToken = default)
+    {
+      CommitNewWorkspaceAtomicallyCalled = true;
+      if (CommitFailure is not null)
+      {
+        AtomicRollbackCalled = true;
+        throw CommitFailure;
+      }
+
+      CommittedPreview = preview;
+      var newWorkspace = (ImportTargetContext.CurrentWorkspace)ImportTargetContext.ForCurrentWorkspace("new-workspace-id");
+      return Task.FromResult(new ImportOutcome(newWorkspace, preview.Candidates, Applied: true));
+    }
 
     public Task<ImportOutcome> CommitAtomicallyAsync(
         ImportPreview preview,

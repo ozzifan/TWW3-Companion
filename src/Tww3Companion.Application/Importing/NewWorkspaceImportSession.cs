@@ -27,17 +27,6 @@ internal sealed class NewWorkspaceImportSession(
     ValidateDestination(_targetContext);
     ImportPreviewValidation.Validate(preview);
 
-    var newWorkspace = await store.CreateNewWorkspaceAsync(_targetContext, cancellationToken);
-    var newWorkspacePreview = preview with { TargetContext = newWorkspace };
-
-    try
-    {
-      return await store.CommitAtomicallyAsync(newWorkspacePreview, confirm: true, cancellationToken);
-    }
-    catch
-    {
-      await store.RollbackNewWorkspaceAsync(newWorkspace, cancellationToken);
-      throw;
-    }
+    return await store.CommitNewWorkspaceAtomicallyAsync(preview, cancellationToken);
   }
 }

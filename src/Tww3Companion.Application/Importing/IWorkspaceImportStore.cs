@@ -11,12 +11,9 @@ public interface IWorkspaceImportStore
       string modId,
       CancellationToken cancellationToken = default);
 
-  Task<ImportTargetContext.CurrentWorkspace> CreateNewWorkspaceAsync(
-      ImportTargetContext.NewWorkspace targetContext,
-      CancellationToken cancellationToken = default);
-
-  Task RollbackNewWorkspaceAsync(
-      ImportTargetContext.CurrentWorkspace targetContext,
+  // The implementation owns rollback and must not let caller cancellation prevent cleanup.
+  Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
+      ImportPreview preview,
       CancellationToken cancellationToken = default);
 
   Task<ImportPreview> SavePreviewAsync(

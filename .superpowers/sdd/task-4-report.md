@@ -1,38 +1,41 @@
-# Task 4 Report: Steam preview/handoff verification
+# Task 4 Report: Import into a New Workspace
 
 ## Status
 
-Completed.
+DONE
 
-## Delivered scope
+## Delivered
 
-- Added `SteamImportService` as the application-layer preview/handoff entry point for Steam import results.
-- Preview always returns a non-applied copy of the Steam import result.
-- Confirmed apply validates the preview and marks it applied when confirmation is granted.
-- Added focused tests for the collection action, the multi-item single-item action, and the applied flag.
+- Validates non-empty new-Workspace display names and destination paths before building a preview.
+- Keeps a new-Workspace preview isolated from already-open Workspace candidates.
+- Creates a fresh `CurrentWorkspace` context only after confirmation, then atomically commits the confirmed import into that context.
+- Rolls back the newly created Workspace when the atomic import persistence operation fails.
 
-## Test-first evidence
+## Tests
 
-The required filtered test command initially failed to compile because `SteamImportService` and the applied-state handling did not exist.
+- Red: `dotnet test tests/Tww3Companion.Application.Tests --filter "NewWorkspace_import_requires_a_display_name_and_destination_path|NewWorkspace_import_applies_into_the_new_workspace" -v normal` failed as expected: missing destination validation and no fresh-Workspace creation.
+- Green: the same focused command passed 2/2.
+- Additional new-Workspace coverage: `dotnet test tests/Tww3Companion.Application.Tests --filter "NewWorkspace" -v quiet` passed 4/4, including isolation and rollback.
+- Full suite: `dotnet test tests/Tww3Companion.Application.Tests -v normal` passed 48/48.
+- `git diff --check` completed without whitespace errors before commit.
 
-After the minimal service contract was added, the same focused command passed 3/3 tests.
+## Commit
 
-## Verification
-
-- Focused Steam handoff behavior:
-  `dotnet test tests/Tww3Companion.Application.Tests --filter "SteamCollection_preview_uses_the_collection_action|SteamSingleItem_preview_accepts_multiple_items|SteamImport_apply_marks_the_preview_as_applied_when_confirmed" -v normal`
-  Result: 3 passed, 0 warnings, 0 errors.
-- Full application test project:
-  `dotnet test tests/Tww3Companion.Application.Tests -v minimal`
-  Result: 30 passed, 0 warnings, 0 errors.
-- `git diff --check` completed without whitespace errors.
-
-## Self-review
-
-- Verified the Steam collection and single-item adapters remain distinct.
-- Verified the new Steam preview/handoff service is application-layer only and does not touch persistence.
-- Verified the Steam result now carries the applied flag needed for the shared handoff contract.
+- `985a268 feat: import into new workspace through shared engine`
 
 ## Concerns
 
-The default metadata client remains intentionally unconfigured; production still needs a real injected/configured `ISteamMetadataClient`. That is outside this task’s scope and was already accepted in Tasks 2 and 3.
+- The independent-review slot was unavailable. I performed a direct requirement-to-diff review instead.
+- The new store methods are an application seam only; infrastructure wiring and opening the completed Workspace are deliberately deferred to the later UI/infrastructure tasks.
+
+## Review Fix
+
+- Replaced the split create/commit/rollback calls with `CommitNewWorkspaceAtomicallyAsync`, so the store owns new-Workspace creation, imported data persistence, and rollback as one operation.
+- Removed application-layer rollback that reused the caller cancellation token; the store contract now requires cleanup to continue independently of caller cancellation.
+- Regression test confirms the new-Workspace preview enters the dedicated atomic operation and that it returns the created current-Workspace context; the persistence-failure test confirms rollback is owned by that operation.
+
+## Review Fix Tests
+
+- Red: `NewWorkspace_import_applies_into_the_new_workspace` failed before the fix because the session still called `CreateNewWorkspaceAsync` separately.
+- Focused: `dotnet test tests/Tww3Companion.Application.Tests --filter "NewWorkspace_import_requires_a_display_name_and_destination_path|NewWorkspace_import_applies_into_the_new_workspace" -v normal` passed 2/2.
+- Full: `dotnet test tests/Tww3Companion.Application.Tests/Tww3Companion.Application.Tests.csproj -v minimal` passed 48/48.
