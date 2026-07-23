@@ -11,6 +11,14 @@ public interface IWorkspaceImportStore
       string modId,
       CancellationToken cancellationToken = default);
 
+  Task<ImportTargetContext.CurrentWorkspace> CreateNewWorkspaceAsync(
+      ImportTargetContext.NewWorkspace targetContext,
+      CancellationToken cancellationToken = default);
+
+  Task RollbackNewWorkspaceAsync(
+      ImportTargetContext.CurrentWorkspace targetContext,
+      CancellationToken cancellationToken = default);
+
   Task<ImportPreview> SavePreviewAsync(
       ImportTargetContext targetContext,
       IReadOnlyList<ImportCandidate> candidates,

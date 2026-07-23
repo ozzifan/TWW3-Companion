@@ -9,8 +9,15 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
       IReadOnlyList<object> candidates,
       CancellationToken cancellationToken = default)
   {
+    if (targetContext is ImportTargetContext.NewWorkspace newWorkspace)
+    {
+      NewWorkspaceImportSession.ValidateDestination(newWorkspace);
+    }
+
     var importCandidates = NormalizeCandidates(candidates);
-    var existingCandidates = await _store.ReadCandidatesAsync(targetContext, cancellationToken);
+    var existingCandidates = targetContext is ImportTargetContext.NewWorkspace
+        ? []
+        : await _store.ReadCandidatesAsync(targetContext, cancellationToken);
     var matchedCandidates = MatchExactSourceReferences(importCandidates, existingCandidates);
     var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
     var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
@@ -37,10 +44,12 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
       return new CurrentWorkspaceImportSession(preview, _store).ApplyAsync(confirm, cancellationToken);
     }
 
-    if (!confirm) return Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false));
+    if (preview.TargetContext is ImportTargetContext.NewWorkspace)
+    {
+      return new NewWorkspaceImportSession(preview, _store).ApplyAsync(confirm, cancellationToken);
+    }
 
-    ImportPreviewValidation.Validate(preview);
-    return _store.CommitAtomicallyAsync(preview, confirm: true, cancellationToken);
+    throw new ArgumentException("Unsupported import target context.", nameof(preview));
   }
 
   private static IReadOnlyList<ImportCandidate> NormalizeCandidates(IReadOnlyList<object> candidates) =>
