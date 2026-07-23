@@ -57,7 +57,7 @@ public sealed class ShellViewModel : ViewModelBase
   public const double MinimumHeight = 640;
   private const string EmptyWorkspaceMessage = "This Workspace contains no Mods or Collections yet. No data has been added.";
   private const string FinalizingMessage = "Finalizing — please wait";
-  private static readonly IReadOnlyList<string> DefaultWorkspaceDestinations = ["Mod Library", "Collections"];
+  private static readonly IReadOnlyList<string> DefaultWorkspaceDestinations = ["Mod Library", "Collections", "Import into current Workspace"];
 
   private ShellScreen _currentScreen = ShellScreen.Home;
   private ThemeChoice _storedTheme = ThemeChoice.System;
@@ -76,6 +76,8 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly DelegateCommand openWorkspaceCommand;
   private readonly DelegateCommand removeRecentCommand;
   private readonly DelegateCommand retrySettingsSaveCommand;
+  private readonly DelegateCommand importIntoNewWorkspaceCommand;
+  private readonly DelegateCommand importIntoCurrentWorkspaceCommand;
   private bool isDisposingWorkspace;
 
   public ShellViewModel() : this(CreateDefaultOptions())
@@ -107,11 +109,15 @@ public sealed class ShellViewModel : ViewModelBase
     retrySettingsSaveCommand = new DelegateCommand(
         _ => _ = SaveSettingsAsync(),
         _ => !string.IsNullOrWhiteSpace(Home.SettingsSaveError));
+    importIntoNewWorkspaceCommand = new DelegateCommand(_ => _ = RunImportIntoNewWorkspaceAsync());
+    importIntoCurrentWorkspaceCommand = new DelegateCommand(_ => _ = RunImportIntoCurrentWorkspaceAsync("current-workspace-id"));
 
     CreateWorkspaceCommand = createWorkspaceCommand;
     OpenWorkspaceCommand = openWorkspaceCommand;
     RemoveRecentCommand = removeRecentCommand;
     RetrySettingsSaveCommand = retrySettingsSaveCommand;
+    ImportIntoNewWorkspaceCommand = importIntoNewWorkspaceCommand;
+    ImportIntoCurrentWorkspaceCommand = importIntoCurrentWorkspaceCommand;
     OpenSettingsFolderCommand = new DelegateCommand(_ => OpenSettingsFolder());
     ReturnHomeCommand = new DelegateCommand(_ => ReturnHome());
     ContinueAnywayCommand = new DelegateCommand(_ => ContinueAnyway());
@@ -180,6 +186,8 @@ public sealed class ShellViewModel : ViewModelBase
   public ICommand OpenWorkspaceCommand { get; }
   public ICommand RemoveRecentCommand { get; }
   public ICommand RetrySettingsSaveCommand { get; }
+  public ICommand ImportIntoNewWorkspaceCommand { get; }
+  public ICommand ImportIntoCurrentWorkspaceCommand { get; }
   public ICommand OpenSettingsFolderCommand { get; }
   public ICommand ReturnHomeCommand { get; }
   public ICommand ContinueAnywayCommand { get; }
@@ -236,13 +244,18 @@ public sealed class ShellViewModel : ViewModelBase
 
   public void EnterFinalizingForTest() => SetOperationState(WorkspaceOperationState.Finalizing);
 
-  public void RequestImportIntoNewWorkspaceForTest() =>
-      _ = ImportService.BuildPreviewAsync(
+  public Task RunImportIntoNewWorkspaceForTestAsync() => RunImportIntoNewWorkspaceAsync();
+
+  public Task RunImportIntoCurrentWorkspaceForTestAsync(string workspaceId) =>
+      RunImportIntoCurrentWorkspaceAsync(workspaceId);
+
+  private Task RunImportIntoNewWorkspaceAsync() =>
+      ImportService.BuildPreviewAsync(
           ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
           []);
 
-  public void RequestImportIntoCurrentWorkspaceForTest() =>
-      _ = ImportService.BuildPreviewAsync(ImportTargetContext.ForCurrentWorkspace("current-workspace-id"), []);
+  private Task RunImportIntoCurrentWorkspaceAsync(string workspaceId) =>
+      ImportService.BuildPreviewAsync(ImportTargetContext.ForCurrentWorkspace(workspaceId), []);
 
   private async Task RunCreateWorkspaceAsync()
   {
@@ -466,7 +479,7 @@ public sealed class ShellViewModel : ViewModelBase
           state == WorkspaceOperationState.Finalizing,
           state,
           state == WorkspaceOperationState.Finalizing ? FinalizingMessage : string.Empty,
-          ["Home", "Mod Library", "Collections"]);
+          ["Home", "Mod Library", "Collections", "Import into new Workspace"]);
 
   private static WorkspaceShellState CreateWorkspaceState(string operationError) =>
       new(
