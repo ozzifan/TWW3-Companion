@@ -60,13 +60,15 @@ public sealed class ImportEngineTests
   [Fact]
   public async Task ImportEngine_builds_preview_through_a_store_port()
   {
-    var engine = new FakeImportEngine(new FakeWorkspaceImportStore());
+    var store = new FakeWorkspaceImportStore();
+    var engine = new FakeImportEngine(store);
     var preview = await engine.BuildPreviewAsync(
         ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken);
 
     Assert.NotNull(preview);
+    Assert.True(store.ReadCandidatesCalled);
   }
 
   private sealed class FakeImportEngine : IImportEngine
@@ -79,21 +81,35 @@ public sealed class ImportEngineTests
         ImportTargetContext targetContext,
         IReadOnlyList<object> candidates,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+        BuildPreviewCoreAsync(targetContext, candidates, cancellationToken);
 
     public Task<ImportOutcome> ApplyAsync(
         ImportPreview preview,
         bool confirm,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+
+    private async Task<ImportPreview> BuildPreviewCoreAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken)
+    {
+      await Store.ReadCandidatesAsync(targetContext, cancellationToken);
+      return new ImportPreview(targetContext, candidates, Applied: false);
+    }
   }
 
   private sealed class FakeWorkspaceImportStore : IWorkspaceImportStore
   {
+    public bool ReadCandidatesCalled { get; private set; }
+
     public Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
         ImportTargetContext targetContext,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<ImportCandidate>>([]);
+        CancellationToken cancellationToken = default)
+    {
+      ReadCandidatesCalled = true;
+      return Task.FromResult<IReadOnlyList<ImportCandidate>>([]);
+    }
 
     public Task<ImportPreview> SavePreviewAsync(
         ImportTargetContext targetContext,

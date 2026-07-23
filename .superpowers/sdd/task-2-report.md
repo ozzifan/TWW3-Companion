@@ -1,42 +1,46 @@
-# Task 2 Report: Steam collection import
+# Task 2 Report: Shared Import Pipeline Contracts and Persistence Port
 
 ## Status
 
-Completed and committed.
+DONE
 
 ## Delivered
 
-- Added `ISteamMetadataClient` with collection expansion and Workshop item metadata lookup operations.
-- Added metadata records that preserve a member's supplied source reference.
-- Added `SteamCollectionImportAdapter.ParseAsync` overload accepting the metadata client, expanding one numeric collection ID, enriching every member immediately, and retaining successful candidates when individual lookups fail.
-- Added source-aware lookup-failure diagnostics for a failed collection or member lookup.
-- Added `SteamMetadataClient` as the default seam implementation without fabricated collection fixtures or live-network assumptions.
-- Added deterministic unit tests for expansion, partial success, and injected-client use.
+- Added `ImportCandidate` with linked, create-with-display-name, and skipped factory methods.
+- Added `ImportResolution` with required-link and optional-skip factory methods.
+- Added `IWorkspaceImportStore` for reading candidates, atomically saving previews with resolutions, and committing confirmed previews.
+- Kept `IImportEngine` source-neutral while documenting that `ImportCandidate` is the shared pipeline model.
+- Added contract coverage for the typed models and an engine fake constructed through the persistence port.
 
-## Test-first evidence
+## TDD Evidence
 
-The prescribed filtered test command failed before implementation because the injected metadata-client contract and metadata types did not exist (`CS0246` errors for `ISteamMetadataClient`, `SteamCollectionMetadata`, and `SteamWorkshopItemMetadata`).
+- RED: the required focused test command failed before implementation because `IWorkspaceImportStore`, `ImportCandidate`, and `ImportResolution` did not exist (`CS0246`).
+- GREEN: the same focused command passed after implementation: 3 passed, 0 failed.
 
-After implementation, the prescribed three-test filter passed:
+## Verification
 
-```powershell
-dotnet test tests/Tww3Companion.Application.Tests --filter "ParseSteamCollection_expands_collection_into_member_candidates|ParseSteamCollection_reports_failed_member_lookups_without_blocking_successful_items|ParseSteamCollection_uses_injected_metadata_client" -v minimal
-```
-
-Result: 3 passed, 0 failed.
-
-The complete application test project also passed: 25 passed, 0 failed.
-
-## Self-review and verification
-
-- `git show --check HEAD` completed without whitespace errors.
-- Confirmed the commit contains only the requested application/importing implementation and import tests.
-- Existing uncommitted plan/spec/report edits were not included in the implementation commit.
+- `dotnet test tests/Tww3Companion.Application.Tests --filter "ImportCandidate_can_represent_link_create_and_skip|ImportResolution_can_represent_required_and_optional_resolutions|ImportEngine_builds_preview_through_a_store_port" -v normal`
+  - Passed: 3; Failed: 0.
+- `dotnet test tests/Tww3Companion.Application.Tests -v normal`
+  - Passed: 41; Failed: 0.
+- `git diff --check`
+  - Passed.
 
 ## Commit
 
-- `57d17a7 feat: import steam collections with metadata enrichment`
+- `ec9abc2 feat: add shared import pipeline contracts`
 
-## Concern
+## Concerns
 
-`SteamMetadataClient` is deliberately an unconfigured default that returns a lookup-failure diagnostic; the exact live Steam metadata API integration remains a later dependency. Production callers must supply/configure a real `ISteamMetadataClient`. This avoids fake production collection expansion while giving tests a deterministic injectable seam.
+- None. The existing `IImportEngine` candidate boundary already matched the brief's source-neutral signature; this task adds the typed shared model and persistence seam without changing UI or engine behavior.
+
+## Review Fix
+
+- Removed the premature `ImportEngine` and `CurrentWorkspaceImportSession` implementation, along with its current-workspace behavior tests.
+- Retained the Task 2 contract types, `IWorkspaceImportStore`, source-neutral `IImportEngine`, and the three specified contract tests.
+- Re-ran the specified filtered test command: 3 passed, 0 failed.
+- Re-ran `dotnet test tests/Tww3Companion.Application.Tests/Tww3Companion.Application.Tests.csproj -v minimal`: 37 passed, 0 failed.
+## Review Fix 2
+- Updated `ImportEngine_builds_preview_through_a_store_port` so the fake engine actually calls `IWorkspaceImportStore.ReadCandidatesAsync(...)` and the test asserts that the store was touched.
+- Re-ran the specified filtered test command: 3 passed, 0 failed.
+- Re-ran `dotnet test tests/Tww3Companion.Application.Tests/Tww3Companion.Application.Tests.csproj -v minimal`: 37 passed, 0 failed.
