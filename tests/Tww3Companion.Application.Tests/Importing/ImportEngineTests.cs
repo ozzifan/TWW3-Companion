@@ -72,6 +72,57 @@ public sealed class ImportEngineTests
   }
 
   [Fact]
+  public async Task ImportEngine_supports_new_workspace_preview_and_apply()
+  {
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
+    var target = ImportTargetContext.ForNewWorkspace("New Workspace", "C:\\Workspaces\\new.tww3c");
+
+    var preview = await engine.BuildPreviewAsync(
+        target,
+        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+        TestContext.Current.CancellationToken);
+
+    var outcome = await engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken);
+
+    Assert.Same(target, preview.TargetContext);
+    Assert.True(outcome.Applied);
+  }
+
+  [Fact]
+  public async Task ImportEngine_applies_the_confirmed_preview_without_rebuilding_it()
+  {
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
+    var preview = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+        TestContext.Current.CancellationToken);
+
+    await engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken);
+
+    Assert.Same(preview, store.CommittedPreview);
+  }
+
+  [Fact]
+  public async Task ImportEngine_normalizes_and_exactly_matches_source_candidates_before_preview()
+  {
+    var store = new FakeWorkspaceImportStore
+    {
+      ExistingCandidates = [ImportCandidate.Linked("source-1", "matched-mod-1")]
+    };
+    var engine = new ImportEngine(store);
+
+    var preview = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        new object[] { new SteamImportCandidate("source-1", "Imported mod") },
+        TestContext.Current.CancellationToken);
+
+    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
+    Assert.Equal("matched-mod-1", candidate.LinkedModId);
+  }
+
+  [Fact]
   public async Task CurrentWorkspace_import_requires_all_required_resolutions()
   {
     var store = new FakeWorkspaceImportStore();
@@ -108,12 +159,16 @@ public sealed class ImportEngineTests
   {
     public bool ReadCandidatesCalled { get; private set; }
 
+    public IReadOnlyList<ImportCandidate> ExistingCandidates { get; init; } = [];
+
+    public ImportPreview? CommittedPreview { get; private set; }
+
     public Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
         ImportTargetContext targetContext,
-        CancellationToken cancellationToken = default)
+      CancellationToken cancellationToken = default)
     {
       ReadCandidatesCalled = true;
-      return Task.FromResult<IReadOnlyList<ImportCandidate>>([]);
+      return Task.FromResult(ExistingCandidates);
     }
 
     public Task<ImportPreview> SavePreviewAsync(
@@ -131,6 +186,7 @@ public sealed class ImportEngineTests
         CancellationToken cancellationToken = default)
     {
       CommitAtomicallyCalled = true;
+      CommittedPreview = preview;
       return Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
     }
   }

@@ -9,17 +9,14 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
       IReadOnlyList<object> candidates,
       CancellationToken cancellationToken = default)
   {
-    var currentWorkspace = targetContext as ImportTargetContext.CurrentWorkspace
-        ?? throw new NotSupportedException("Only current-workspace imports are supported.");
-    var importCandidates = candidates.Cast<ImportCandidate>().ToArray();
-    var session = new CurrentWorkspaceImportSession(currentWorkspace, importCandidates, _store);
-    var preview = session.BuildPreview();
+    var importCandidates = NormalizeCandidates(candidates);
+    var existingCandidates = await _store.ReadCandidatesAsync(targetContext, cancellationToken);
+    var matchedCandidates = MatchExactSourceReferences(importCandidates, existingCandidates);
 
-    await _store.ReadCandidatesAsync(preview.TargetContext, cancellationToken);
     return await _store.SavePreviewAsync(
-        preview.TargetContext,
-        importCandidates,
-        importCandidates.Select(candidate => new ImportResolution(
+        targetContext,
+        matchedCandidates,
+        matchedCandidates.Select(candidate => new ImportResolution(
             candidate.SourceId,
             candidate.LinkedModId,
             candidate.DisplayName,
@@ -32,10 +29,41 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
       bool confirm,
       CancellationToken cancellationToken = default)
   {
-    var currentWorkspace = preview.TargetContext as ImportTargetContext.CurrentWorkspace
-        ?? throw new NotSupportedException("Only current-workspace imports are supported.");
-    var session = new CurrentWorkspaceImportSession(currentWorkspace, preview.Candidates.Cast<ImportCandidate>().ToArray(), _store);
+    if (preview.TargetContext is ImportTargetContext.CurrentWorkspace)
+    {
+      return new CurrentWorkspaceImportSession(preview, _store).ApplyAsync(confirm, cancellationToken);
+    }
 
-    return session.ApplyAsync(confirm, cancellationToken);
+    if (!confirm) return Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false));
+
+    ImportPreviewValidation.Validate(preview.Candidates);
+    return _store.CommitAtomicallyAsync(preview, confirm: true, cancellationToken);
   }
+
+  private static IReadOnlyList<ImportCandidate> NormalizeCandidates(IReadOnlyList<object> candidates) =>
+      candidates.Select(candidate => candidate switch
+      {
+        ImportCandidate importCandidate => importCandidate,
+        SteamImportCandidate steamCandidate => ImportCandidate.CreateWithDisplayName(
+            steamCandidate.SourceReference,
+            steamCandidate.DisplayName ?? steamCandidate.SourceReference),
+        MarkdownImportCandidate { Kind: ImportCandidateKind.Candidate } markdownCandidate =>
+            ImportCandidate.CreateWithDisplayName(
+                markdownCandidate.SourceReference?.WorkshopId ?? $"markdown:{markdownCandidate.SourceLine}",
+                markdownCandidate.Value),
+        MarkdownImportCandidate => throw new ArgumentException("Only Markdown candidate entries can enter the import pipeline.", nameof(candidates)),
+        _ => throw new ArgumentException("Unsupported import candidate type.", nameof(candidates))
+      }).ToArray();
+
+  private static IReadOnlyList<ImportCandidate> MatchExactSourceReferences(
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportCandidate> existingCandidates) =>
+      candidates.Select(candidate =>
+      {
+        var match = existingCandidates.FirstOrDefault(existing =>
+            existing.SourceId == candidate.SourceId && !string.IsNullOrWhiteSpace(existing.LinkedModId));
+        return match is null || !string.IsNullOrWhiteSpace(candidate.LinkedModId)
+            ? candidate
+            : candidate with { LinkedModId = match.LinkedModId };
+      }).ToArray();
 }

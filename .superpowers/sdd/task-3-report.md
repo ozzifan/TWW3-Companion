@@ -1,30 +1,45 @@
-# Task 3 Report: Multi-item Steam single import
+# Task 3 Report: Current-Workspace Atomic Import
 
 ## Status
 
-Completed and committed as `7673e3b` (`feat: import multiple steam items with metadata enrichment`).
+DONE
 
 ## Implementation
 
-- Added a metadata-client overload to `SteamSingleItemImportAdapter.ParseAsync` while retaining the default-client entry point.
-- Normalized whitespace-separated numeric Workshop IDs and Steam Workshop detail URLs.
-- Enriched each valid item immediately through `ISteamMetadataClient` and retained its original pasted ID or URL as the candidate source reference.
-- Continued processing after invalid input or an item metadata failure, producing an item-scoped lookup-failure diagnostic for each.
-- Updated the existing generic single-item test to use the established injectable metadata-client seam.
+- Added `ImportEngine` for the supported `ImportTargetContext.CurrentWorkspace` path.
+- Added `CurrentWorkspaceImportSession` to build current-workspace previews, reject skipped or unresolved candidates before apply, preserve no-op behaviour when confirmation is false, and delegate confirmed changes to one atomic store operation.
+- Renamed the store commit port to `CommitAtomicallyAsync` to make the transaction boundary explicit.
+- Replaced the temporary fake engine test seam with focused engine tests for required-resolution validation and atomic commit delegation.
 
-## Tests and verification
+## TDD Evidence
 
-- RED: the required focused command initially failed at compile time because the injected metadata-client overload did not exist.
-- GREEN: `dotnet test tests\Tww3Companion.Application.Tests --filter "ParseSteamSingleItems_accepts_multiple_ids_and_urls_in_one_paste|ParseSteamSingleItems_reports_failed_lookups_per_item_without_stopping_the_batch" -v normal` passed 2/2.
-- Full suite: `dotnet test tests\Tww3Companion.Application.Tests -v minimal` passed 27/27.
-- `git diff --check` passed with no whitespace errors.
+- The focused test command initially failed because the fake store did not implement the new atomic commit port and the concrete engine did not exist.
+- After implementation, the focused command passed: 2/2 tests.
 
-## Self-review
+## Verification
 
-- Confirmed parsing is limited to the single-item multi-ID/URL path; collection import behavior is unchanged.
-- Confirmed a real per-item metadata exception does not discard previously successful candidates.
-- No findings requiring changes.
+- `dotnet test tests\\Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_requires_all_required_resolutions|CurrentWorkspace_import_commits_all_changes_atomically" -v normal`
+  - Passed: 2/2 tests.
+- `dotnet test tests\\Tww3Companion.Application.Tests -v normal`
+  - Passed: 39/39 tests.
+- `git diff --check`
+  - Passed with no output.
 
-## Concerns
+## Scope and Concerns
 
-None.
+- The implementation intentionally supports only the current-workspace target; new-workspace and UI wiring remain out of scope.
+- The application layer exposes the atomic boundary through `IWorkspaceImportStore`; the concrete persistence transaction implementation is deferred to the store adapter work.
+
+## Review Fixes
+
+- The shared engine now previews and applies both `CurrentWorkspace` and `NewWorkspace` target contexts; Task 3 remains scoped to the current-workspace session and atomic store boundary.
+- Candidate inputs are normalized from `ImportCandidate`, Steam, and Markdown candidate entries before exact source-reference matching against the store's existing candidates.
+- Apply passes the exact confirmed `ImportPreview` into `CommitAtomicallyAsync`, preserving editable preview state rather than reconstructing it from candidates.
+
+## Review Fix Verification
+
+- Added regression coverage for new-workspace support, confirmed-preview identity, and Steam normalization/exact matching.
+- `dotnet test tests\\Tww3Companion.Application.Tests --filter "CurrentWorkspace_import_requires_all_required_resolutions|CurrentWorkspace_import_commits_all_changes_atomically" -v normal`
+  - Passed: 2/2 tests.
+- `dotnet test tests\\Tww3Companion.Application.Tests\\Tww3Companion.Application.Tests.csproj -v minimal`
+  - Passed: 42/42 tests.
