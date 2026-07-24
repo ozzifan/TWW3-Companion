@@ -187,12 +187,9 @@ public sealed class SqliteWorkspaceCatalogStore :
         throw;
       }
     }
-    catch (OperationCanceledException)
+    catch (Exception exception)
     {
-      throw ImportError(
-          "import.persistence.cancelled",
-          "The import was cancelled before it could finish.",
-          "Try the import again.");
+      throw MapPersistenceFailure(exception);
     }
   }
 
@@ -205,55 +202,62 @@ public sealed class SqliteWorkspaceCatalogStore :
       string workspacePath,
       CancellationToken cancellationToken = default)
   {
-    await EnsureReadableWorkspaceAsync(workspacePath, cancellationToken);
-    await using var connection = await connectionFactory.OpenAsync(workspacePath, cancellationToken);
-
-    var mods = new List<WorkspaceLibraryMod>();
-    await using (var command = connection.CreateCommand())
+    try
     {
-      command.CommandText = """
-          SELECT id, display_name
-          FROM mods
-          ORDER BY display_name COLLATE NOCASE, id;
-          """;
-      await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-      while (await reader.ReadAsync(cancellationToken))
-      {
-        mods.Add(new WorkspaceLibraryMod(reader.GetString(0), reader.GetString(1)));
-      }
-    }
+      await EnsureReadableWorkspaceAsync(workspacePath, cancellationToken);
+      await using var connection = await connectionFactory.OpenAsync(workspacePath, cancellationToken);
 
-    var collections = new List<WorkspaceCollection>();
-    await using (var command = connection.CreateCommand())
+      var mods = new List<WorkspaceLibraryMod>();
+      await using (var command = connection.CreateCommand())
+      {
+        command.CommandText = """
+            SELECT id, display_name
+            FROM mods
+            ORDER BY display_name COLLATE NOCASE, id;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+          mods.Add(new WorkspaceLibraryMod(reader.GetString(0), reader.GetString(1)));
+        }
+      }
+
+      var collections = new List<WorkspaceCollection>();
+      await using (var command = connection.CreateCommand())
+      {
+        command.CommandText = """
+            SELECT id, display_name
+            FROM collections
+            ORDER BY display_name COLLATE NOCASE, id;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+          collections.Add(new WorkspaceCollection(reader.GetString(0), reader.GetString(1)));
+        }
+      }
+
+      var memberships = new List<WorkspaceCollectionMembership>();
+      await using (var command = connection.CreateCommand())
+      {
+        command.CommandText = """
+            SELECT collection_id, mod_id
+            FROM collection_memberships
+            ORDER BY collection_id, position, mod_id;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+          memberships.Add(new WorkspaceCollectionMembership(reader.GetString(0), reader.GetString(1)));
+        }
+      }
+
+      return new WorkspaceLibrarySnapshot(mods, collections, memberships);
+    }
+    catch (Exception exception)
     {
-      command.CommandText = """
-          SELECT id, display_name
-          FROM collections
-          ORDER BY display_name COLLATE NOCASE, id;
-          """;
-      await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-      while (await reader.ReadAsync(cancellationToken))
-      {
-        collections.Add(new WorkspaceCollection(reader.GetString(0), reader.GetString(1)));
-      }
+      throw MapPersistenceFailure(exception);
     }
-
-    var memberships = new List<WorkspaceCollectionMembership>();
-    await using (var command = connection.CreateCommand())
-    {
-      command.CommandText = """
-          SELECT collection_id, mod_id
-          FROM collection_memberships
-          ORDER BY collection_id, position, mod_id;
-          """;
-      await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-      while (await reader.ReadAsync(cancellationToken))
-      {
-        memberships.Add(new WorkspaceCollectionMembership(reader.GetString(0), reader.GetString(1)));
-      }
-    }
-
-    return new WorkspaceLibrarySnapshot(mods, collections, memberships);
   }
 
   private async Task<SqliteConnection> OpenValidatedConnectionAsync(
@@ -283,51 +287,9 @@ public sealed class SqliteWorkspaceCatalogStore :
         throw;
       }
     }
-    catch (ImportPersistenceException)
+    catch (Exception exception)
     {
-      throw;
-    }
-    catch (OperationCanceledException)
-    {
-      throw ImportError(
-          "import.persistence.cancelled",
-          "The import was cancelled before it could finish.",
-          "Try the import again.");
-    }
-    catch (UnauthorizedAccessException)
-    {
-      throw ImportError(
-          "workspace.access.denied",
-          "Access to the Workspace was denied.",
-          "Return Home and choose another Workspace file.");
-    }
-    catch (IOException)
-    {
-      throw ImportError(
-          "workspace.file.locked",
-          "The Workspace file is locked.",
-          "Close other applications using the file and try again.");
-    }
-    catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
-    {
-      throw ImportError(
-          "workspace.file.locked",
-          "The Workspace database is locked.",
-          "Close other applications using the file and try again.");
-    }
-    catch (SqliteException exception) when (exception.SqliteErrorCode is 11 or 26)
-    {
-      throw ImportError(
-          "workspace.file.corrupt",
-          "The Workspace database is corrupt.",
-          "Return Home and choose another Workspace file.");
-    }
-    catch (SqliteException)
-    {
-      throw ImportError(
-          "import.persistence.failed",
-          "The import could not be completed.",
-          "Review the import preview and try again.");
+      throw MapPersistenceFailure(exception);
     }
   }
 
@@ -664,4 +626,35 @@ public sealed class SqliteWorkspaceCatalogStore :
       string message,
       string safeNextAction) =>
       new(new OperationError(code, message, PersistentChangeCommitted: false, safeNextAction));
+
+  private static Exception MapPersistenceFailure(Exception exception) =>
+      exception switch
+      {
+        ImportPersistenceException => exception,
+        OperationCanceledException => ImportError(
+            "import.persistence.cancelled",
+            "The import was cancelled before it could finish.",
+            "Try the import again."),
+        UnauthorizedAccessException => ImportError(
+            "workspace.access.denied",
+            "Access to the Workspace was denied.",
+            "Return Home and choose another Workspace file."),
+        IOException => ImportError(
+            "workspace.file.locked",
+            "The Workspace file is locked.",
+            "Close other applications using the file and try again."),
+        SqliteException { SqliteErrorCode: 5 or 6 } => ImportError(
+            "workspace.file.locked",
+            "The Workspace database is locked.",
+            "Close other applications using the file and try again."),
+        SqliteException { SqliteErrorCode: 11 or 26 } => ImportError(
+            "workspace.file.corrupt",
+            "The Workspace database is corrupt.",
+            "Return Home and choose another Workspace file."),
+        SqliteException => ImportError(
+            "import.persistence.failed",
+            "The import could not be completed.",
+            "Review the import preview and try again."),
+        _ => exception
+      };
 }
