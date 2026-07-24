@@ -1,0 +1,29 @@
+namespace Tww3Companion.Application.Importing;
+
+public interface IWorkspaceImportStore
+{
+  Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
+      ImportTargetContext targetContext,
+      CancellationToken cancellationToken = default);
+
+  Task<bool> ModExistsAsync(
+      ImportTargetContext.CurrentWorkspace targetContext,
+      string modId,
+      CancellationToken cancellationToken = default);
+
+  // The implementation owns rollback and must not let caller cancellation prevent cleanup.
+  Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
+      ImportPreview preview,
+      CancellationToken cancellationToken = default);
+
+  Task<ImportPreview> SavePreviewAsync(
+      ImportTargetContext targetContext,
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportResolution> resolutions,
+      CancellationToken cancellationToken = default);
+
+  Task<ImportOutcome> CommitAtomicallyAsync(
+      ImportPreview preview,
+      bool confirm,
+      CancellationToken cancellationToken = default);
+}
