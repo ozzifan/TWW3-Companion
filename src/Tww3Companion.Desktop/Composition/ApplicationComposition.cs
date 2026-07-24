@@ -118,6 +118,7 @@ public sealed class ApplicationComposition
     var settingsStore = new JsonApplicationSettingsStore(paths.SettingsFile);
     var settings = settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
     var lifecycle = CreateWorkspaceLifecycle(settingsStore);
+    var workspaceLibraryQuery = new WorkspaceLibraryQuery(lifecycle.WorkspaceStore);
     var workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator();
 
     TopLevel? topLevel = null;
@@ -130,7 +131,8 @@ public sealed class ApplicationComposition
         lifecycle.OpenWorkspace,
         paths.WorkspacesDirectory,
         Path.GetDirectoryName(paths.SettingsFile)!,
-        workspaceDisposalCoordinator);
+        workspaceDisposalCoordinator,
+        workspaceLibraryQuery);
     if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
     {
       shell.EvaluateWorkArea(width, height);
@@ -152,6 +154,7 @@ public sealed class ApplicationComposition
     var workspaceStore = new SqliteWorkspaceStore();
     var clock = new SystemClock();
     return new WorkspaceLifecycle(
+        workspaceStore,
         new CreateWorkspace(workspaceStore, settingsStore, clock, new GuidUuidGenerator()),
         new OpenWorkspace(workspaceStore, settingsStore, clock));
   }
@@ -191,6 +194,7 @@ public sealed class ApplicationComposition
   }
 
   internal sealed record WorkspaceLifecycle(
+      IWorkspaceStore WorkspaceStore,
       CreateWorkspace CreateWorkspace,
       OpenWorkspace OpenWorkspace);
 }

@@ -29,7 +29,14 @@
             <TextBlock FontSize="20" FontWeight="SemiBold" Text="Workspace" />
             <Button HorizontalContentAlignment="Left" Content="Mod Library" AutomationProperties.Name="Mod Library" />
             <TextBlock Margin="8,8,0,0" FontWeight="SemiBold" Text="Collections" />
-            <TextBlock Margin="8,0,0,0" Text="No Collections" />
+            <ItemsControl ItemsSource="{Binding CollectionDetail.Collections}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:CollectionSummary">
+                  <TextBlock Margin="8,0,0,0" Text="{Binding DisplayName}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Margin="8,0,0,0" Text="No Collections" IsVisible="{Binding !CollectionDetail.HasCollections}" />
             <Button Margin="0,24,0,0" HorizontalContentAlignment="Left" Content="Return Home" AutomationProperties.Name="Return Home" Command="{Binding ReturnHomeCommand}" />
             <Border Padding="8" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
                     IsVisible="{Binding Workspace.HasOperationError}"
@@ -44,7 +51,16 @@
         <ScrollViewer AutomationProperties.Name="Mod Library master list">
           <StackPanel Spacing="16">
             <TextBlock FontSize="24" FontWeight="SemiBold" Text="Mod Library" />
-            <TextBlock TextWrapping="Wrap" Text="This Workspace contains no Mods or Collections yet. No data has been added." />
+            <TextBlock TextWrapping="Wrap"
+                       Text="This Workspace contains no Mods or Collections yet. No data has been added."
+                       IsVisible="{Binding !ModLibrary.HasMods}" />
+            <ItemsControl ItemsSource="{Binding ModLibrary.Mods}" IsVisible="{Binding ModLibrary.HasMods}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ModListItemViewModel">
+                  <TextBlock Text="{Binding DisplayName}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </ScrollViewer>
       </Border>
@@ -53,7 +69,18 @@
         <ScrollViewer AutomationProperties.Name="Mod detail">
           <StackPanel Spacing="16">
             <TextBlock FontSize="24" FontWeight="SemiBold" Text="Details" />
-            <TextBlock TextWrapping="Wrap" Text="Select a Mod to view its shared details." />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Select a Mod to view its shared details."
+                       IsVisible="{Binding !ModLibrary.Inspector.HasSelection}" />
+            <StackPanel Spacing="8" IsVisible="{Binding ModLibrary.Inspector.HasSelection}">
+              <TextBlock FontWeight="SemiBold" Text="{Binding ModLibrary.Inspector.DisplayName}" />
+              <TextBlock Text="{Binding ModLibrary.Inspector.WorkshopId}" />
+              <TextBlock Text="{Binding ModLibrary.Inspector.Author}" />
+              <TextBlock Text="{Binding ModLibrary.Inspector.SourceReference}" />
+            </StackPanel>
+            <TextBlock TextWrapping="Wrap"
+                       Text="{Binding CollectionDetail.EmptyCollectionPrompt}"
+                       IsVisible="{Binding CollectionDetail.IsEmpty}" />
           </StackPanel>
         </ScrollViewer>
       </Border>

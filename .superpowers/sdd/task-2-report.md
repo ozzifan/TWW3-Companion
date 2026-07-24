@@ -1,42 +1,52 @@
-# Task 2 Report: Steam collection import
+# Task 2 Report: Collection library overlay
 
 ## Status
 
-Completed and committed.
+Completed and verified.
 
 ## Delivered
 
-- Added `ISteamMetadataClient` with collection expansion and Workshop item metadata lookup operations.
-- Added metadata records that preserve a member's supplied source reference.
-- Added `SteamCollectionImportAdapter.ParseAsync` overload accepting the metadata client, expanding one numeric collection ID, enriching every member immediately, and retaining successful candidates when individual lookups fail.
-- Added source-aware lookup-failure diagnostics for a failed collection or member lookup.
-- Added `SteamMetadataClient` as the default seam implementation without fabricated collection fixtures or live-network assumptions.
-- Added deterministic unit tests for expansion, partial success, and injected-client use.
+- Added `WorkspaceLibrarySnapshot`, `WorkspaceLibraryMod`, `WorkspaceCollection`, and `WorkspaceCollectionMembership` as the overlay contract.
+- Added `IWorkspaceQuery` returning `Task<WorkspaceLibrarySnapshot>` and `WorkspaceLibraryQuery` as the read-only adapter over the active workspace path.
+- Wired `WorkspaceLibraryQuery` through `ApplicationComposition` into `ShellViewModel`, which owns `ModLibrary` and `CollectionDetail`.
+- `ModLibraryViewModel.LoadAsync` maps one snapshot into existing view models (including membership markers via collection names).
+- Query failures fail closed: workspace error surface is shown and both panels are cleared.
+- `MainWindow` binds library/collection panels to the shell-owned view models.
 
 ## Test-first evidence
 
-The prescribed filtered test command failed before implementation because the injected metadata-client contract and metadata types did not exist (`CS0246` errors for `ISteamMetadataClient`, `SteamCollectionMetadata`, and `SteamWorkshopItemMetadata`).
+Prescribed filtered tests failed before implementation with `CS0246` for missing overlay types and query/view-model members.
 
-After implementation, the prescribed three-test filter passed:
+After implementation:
 
 ```powershell
-dotnet test tests/Tww3Companion.Application.Tests --filter "ParseSteamCollection_expands_collection_into_member_candidates|ParseSteamCollection_reports_failed_member_lookups_without_blocking_successful_items|ParseSteamCollection_uses_injected_metadata_client" -v minimal
+dotnet test tests/Tww3Companion.Application.Tests --filter "WorkspaceQueryTests|WorkspaceLibrarySnapshotTests"
+dotnet test tests/Tww3Companion.Desktop.Tests --filter "ModLibraryViewModelTests|HomeCompositionTests|MainWindowLayoutTests"
 ```
 
-Result: 3 passed, 0 failed.
+Result: all filtered tests passed.
 
-The complete application test project also passed: 25 passed, 0 failed.
+## Final verification
 
-## Self-review and verification
+```powershell
+dotnet test tests/Tww3Companion.Application.Tests
+dotnet test tests/Tww3Companion.Desktop.Tests
+git diff --check
+```
 
-- `git show --check HEAD` completed without whitespace errors.
-- Confirmed the commit contains only the requested application/importing implementation and import tests.
-- Existing uncommitted plan/spec/report edits were not included in the implementation commit.
+Result:
 
-## Commit
+- Application tests: 34 passed, 0 failed
+- Desktop tests: 42 passed, 0 failed
+- `git diff --check`: clean
 
-- `57d17a7 feat: import steam collections with metadata enrichment`
+## Deliberate limitations
 
-## Concern
+- The overlay query is read-only and does not mutate the workspace file.
+- Schema v1 has no mod/collection tables yet, so a successfully opened workspace currently returns an empty snapshot. Catalog rows will arrive in a later persistence slice without changing the desktop mapping contract.
+- The UI does not assemble membership data from separate queries; it consumes one `WorkspaceLibrarySnapshot` and maps it into view models.
 
-`SteamMetadataClient` is deliberately an unconfigured default that returns a lookup-failure diagnostic; the exact live Steam metadata API integration remains a later dependency. Production callers must supply/configure a real `ISteamMetadataClient`. This avoids fake production collection expansion while giving tests a deterministic injectable seam.
+## Commits
+
+- `2fd16d5 test: define collection library overlay`
+- `97109a6 feat: add collection library overlay`

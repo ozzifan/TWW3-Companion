@@ -26,6 +26,18 @@ public sealed class HomeCompositionTests
   }
 
   [Fact]
+  public void LibraryAndCollectionPanelsStartEmptyWhenNoQueryIsAvailable()
+  {
+    var subject = new ShellViewModel();
+
+    Assert.NotNull(subject.ModLibrary);
+    Assert.Empty(subject.ModLibrary.Mods);
+    Assert.Empty(subject.ModLibrary.Collections);
+    Assert.NotNull(subject.CollectionDetail);
+    Assert.Empty(subject.CollectionDetail.Collections);
+  }
+
+  [Fact]
   public async Task CreateOrOpenBusyFlagPreventsDuplicateCommands()
   {
     var dialogs = new BlockingWorkspaceDialogService();

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Tww3Companion.Application.Workspaces;
 
 namespace Tww3Companion.Desktop.ViewModels;
 
@@ -113,10 +114,12 @@ public sealed class ModLibraryViewModel : ViewModelBase
   private readonly ObservableCollection<ModListItemViewModel> mods = [];
   private readonly Dictionary<string, ModListItemViewModel> modsById = new(StringComparer.OrdinalIgnoreCase);
   private readonly Dictionary<string, CollectionSummary> collectionsById = new(StringComparer.OrdinalIgnoreCase);
+  private readonly IWorkspaceQuery? workspaceQuery;
   private string? selectedCollectionId;
 
-  public ModLibraryViewModel()
+  public ModLibraryViewModel(IWorkspaceQuery? workspaceQuery = null)
   {
+    this.workspaceQuery = workspaceQuery;
     Inspector = new ModDetailInspectorViewModel();
   }
 
@@ -132,6 +135,57 @@ public sealed class ModLibraryViewModel : ViewModelBase
           : collection;
 
   public bool HasMods => mods.Count > 0;
+
+  public async Task LoadAsync(CancellationToken cancellationToken)
+  {
+    if (workspaceQuery is null)
+    {
+      Load([], []);
+      return;
+    }
+
+    var snapshot = await workspaceQuery.GetLibrarySnapshotAsync(cancellationToken);
+    LoadFromSnapshot(snapshot);
+  }
+
+  public void LoadFromSnapshot(WorkspaceLibrarySnapshot snapshot)
+  {
+    ArgumentNullException.ThrowIfNull(snapshot);
+
+    var collectionNamesByModId = snapshot.Memberships
+        .GroupBy(membership => membership.ModId, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(
+            group => group.Key,
+            group => (IReadOnlyList<string>)group
+                .Select(membership => snapshot.Collections
+                    .FirstOrDefault(collection =>
+                        string.Equals(collection.CollectionId, membership.CollectionId, StringComparison.OrdinalIgnoreCase))
+                    ?.DisplayName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Cast<string>()
+                .ToArray(),
+            StringComparer.OrdinalIgnoreCase);
+
+    var memberCounts = snapshot.Memberships
+        .GroupBy(membership => membership.CollectionId, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+
+    var items = snapshot.Mods
+        .Select(mod => new ModLibraryItem(
+            mod.ModId,
+            mod.DisplayName,
+            CollectionNames: collectionNamesByModId.TryGetValue(mod.ModId, out var names) ? names : []))
+        .ToArray();
+
+    var collections = snapshot.Collections
+        .Select(collection => new CollectionSummary(
+            collection.CollectionId,
+            collection.DisplayName,
+            memberCounts.TryGetValue(collection.CollectionId, out var count) ? count : 0))
+        .ToArray();
+
+    Load(items, collections);
+  }
 
   public void Load(IReadOnlyList<ModLibraryItem> items, IReadOnlyList<CollectionSummary>? collections = null)
   {
@@ -224,6 +278,8 @@ public sealed class CollectionDetailViewModel : ViewModelBase
 
   public bool HasSelection => SelectedCollection is not null;
 
+  public bool HasCollections => collections.Count > 0;
+
   public bool IsEmpty => SelectedCollection is null || SelectedCollection.MemberCount == 0;
 
   public string EmptyCollectionPrompt => SelectedCollection is null
@@ -247,6 +303,7 @@ public sealed class CollectionDetailViewModel : ViewModelBase
     }
 
     OnPropertyChanged(nameof(Collections));
+    OnPropertyChanged(nameof(HasCollections));
   }
 
   public void SelectCollection(string collectionId)

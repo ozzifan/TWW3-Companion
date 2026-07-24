@@ -1,3 +1,4 @@
+using Tww3Companion.Application.Workspaces;
 using Tww3Companion.Desktop.ViewModels;
 using Xunit;
 
@@ -5,6 +6,34 @@ namespace Tww3Companion.Desktop.Tests.ViewModels;
 
 public sealed class ModLibraryViewModelTests
 {
+  [Fact]
+  public async Task LoadAsyncPopulatesModsCollectionsAndMembershipsFromWorkspaceSnapshot()
+  {
+    var query = new FakeWorkspaceQuery(
+        new WorkspaceLibrarySnapshot(
+            [
+                new WorkspaceLibraryMod("mod-1", "Alpha Mod"),
+                new WorkspaceLibraryMod("mod-2", "Beta Mod")
+            ],
+            [
+                new WorkspaceCollection("collection-1", "Core Collection"),
+                new WorkspaceCollection("collection-2", "Other Collection")
+            ],
+            [
+                new WorkspaceCollectionMembership("collection-1", "mod-1")
+            ]));
+
+    var subject = new ModLibraryViewModel(query);
+
+    await subject.LoadAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(2, subject.Mods.Count);
+    Assert.Equal("Alpha Mod", subject.Mods[0].DisplayName);
+    Assert.Equal(["Core Collection"], subject.Mods[0].CollectionNames);
+    Assert.Empty(subject.Mods[1].CollectionNames);
+    Assert.Equal(2, subject.Collections.Count);
+  }
+
   [Fact]
   public void LoadPopulatesModItemsAndInspectorStartsEmpty()
   {
@@ -77,5 +106,11 @@ public sealed class ModLibraryViewModelTests
 
     Assert.True(subject.IsEmpty);
     Assert.Equal("Import items into this Collection", subject.EmptyCollectionPrompt);
+  }
+
+  private sealed class FakeWorkspaceQuery(WorkspaceLibrarySnapshot snapshot) : IWorkspaceQuery
+  {
+    public Task<WorkspaceLibrarySnapshot> GetLibrarySnapshotAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(snapshot);
   }
 }
