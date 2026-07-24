@@ -3,6 +3,7 @@ using Tww3Companion.Application.Abstractions;
 using Tww3Companion.Application.Common;
 using Tww3Companion.Application.Importing;
 using Tww3Companion.Application.Workspaces;
+using Tww3Companion.Domain.Validation;
 using Tww3Companion.Domain.Workspaces;
 using Tww3Companion.Infrastructure.Settings;
 using Tww3Companion.Infrastructure.Storage.Schema;
@@ -193,10 +194,113 @@ public sealed class SqliteWorkspaceCatalogStore :
     }
   }
 
-  public Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
+  public async Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
       ImportPreview preview,
-      CancellationToken cancellationToken = default) =>
-      throw new NotImplementedException("New-Workspace atomic import is implemented in Task 4.");
+      CancellationToken cancellationToken = default)
+  {
+    if (preview.TargetContext is not ImportTargetContext.NewWorkspace target)
+    {
+      throw new ArgumentException("The preview must target a new Workspace.", nameof(preview));
+    }
+
+    ValidatePreview(preview);
+
+    var destination = target.DestinationPath;
+    var temporaryPath =
+        $"{destination}.{uuidGenerator.NewUuid().Replace("-", "", StringComparison.Ordinal)}.tmp";
+
+    try
+    {
+      cancellationToken.ThrowIfCancellationRequested();
+
+      if (File.Exists(destination))
+      {
+        throw ImportError(
+            "import.destination.exists",
+            "The destination already exists.",
+            "Choose a different Workspace destination.");
+      }
+
+      using (fileSystem.CreateWriteProbe(Path.GetDirectoryName(destination)!))
+      {
+      }
+
+      var workspace = CreateWorkspaceIdentity(
+          target.DisplayName,
+          uuidGenerator.NewUuid(),
+          clock.UtcNow);
+      var collectionId = uuidGenerator.NewUuid();
+
+      await using (var connection = await connectionFactory.OpenAsync(temporaryPath, cancellationToken))
+      {
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+          await SchemaV2.InitializeAsync(
+              connection,
+              transaction,
+              workspace,
+              CancellationToken.None);
+
+          await InsertCollectionAsync(
+              connection,
+              transaction,
+              collectionId,
+              target.CollectionDisplayName,
+              CancellationToken.None);
+
+          await PersistCandidatesAsync(
+              connection,
+              transaction,
+              collectionId,
+              preview.Candidates.OfType<ImportCandidate>(),
+              initialPosition: 0,
+              CancellationToken.None);
+
+          await WorkspaceSchemaInspector.ValidateAsync(
+              connection,
+              transaction,
+              SchemaVersion.Current,
+              CancellationToken.None);
+
+          await transaction.CommitAsync(CancellationToken.None);
+        }
+        catch
+        {
+          await transaction.RollbackAsync(CancellationToken.None);
+          throw;
+        }
+      }
+
+      fileSystem.MoveWithoutOverwrite(temporaryPath, destination);
+
+      return new ImportOutcome(
+          ImportTargetContext.ForCurrentWorkspace(
+              workspace.Id.ToString(),
+              destination,
+              collectionId),
+          preview.Candidates,
+          Applied: true);
+    }
+    catch (Exception exception)
+    {
+      throw MapPersistenceFailure(exception);
+    }
+    finally
+    {
+      try
+      {
+        deleteOwnedFile(temporaryPath);
+      }
+      catch (IOException)
+      {
+      }
+      catch (UnauthorizedAccessException)
+      {
+      }
+    }
+  }
 
   public async Task<WorkspaceLibrarySnapshot> ReadLibrarySnapshotAsync(
       string workspacePath,
@@ -596,6 +700,84 @@ public sealed class SqliteWorkspaceCatalogStore :
       };
 
   private static string CanonicalizeUuid(string value) => value.Trim().ToLowerInvariant();
+
+  private async Task PersistCandidatesAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string collectionId,
+      IEnumerable<ImportCandidate> candidates,
+      int initialPosition,
+      CancellationToken cancellationToken)
+  {
+    var nextPosition = initialPosition;
+    var persistedCandidateCount = 0;
+
+    foreach (var candidate in candidates)
+    {
+      if (candidate.IsSkipped)
+      {
+        continue;
+      }
+
+      var modId = await ResolveOrCreateModAsync(
+          connection,
+          transaction,
+          candidate,
+          cancellationToken);
+      nextPosition = await EnsureMembershipAsync(
+          connection,
+          transaction,
+          collectionId,
+          modId,
+          nextPosition,
+          cancellationToken);
+
+      persistedCandidateCount++;
+      afterCandidatePersisted?.Invoke(persistedCandidateCount);
+    }
+  }
+
+  private static async Task InsertCollectionAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string collectionId,
+      string displayName,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = """
+        INSERT INTO collections (id, display_name)
+        VALUES ($id, $displayName);
+        """;
+    command.Parameters.AddWithValue("$id", collectionId);
+    command.Parameters.AddWithValue("$displayName", displayName.Trim());
+    await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  private static Workspace CreateWorkspaceIdentity(
+      string displayName,
+      string workspaceIdText,
+      DateTimeOffset timestamp)
+  {
+    if (WorkspaceId.Parse(workspaceIdText) is not ValidationResult<WorkspaceId>.Success idResult)
+    {
+      throw new InvalidOperationException("The generated Workspace ID is invalid.");
+    }
+
+    if (WorkspaceName.Create(displayName) is not ValidationResult<WorkspaceName>.Success nameResult)
+    {
+      throw new InvalidOperationException("The Workspace display name is invalid.");
+    }
+
+    if (Workspace.Create(idResult.Value, nameResult.Value, timestamp, timestamp)
+        is not ValidationResult<Workspace>.Success workspaceResult)
+    {
+      throw new InvalidOperationException("The Workspace identity is invalid.");
+    }
+
+    return workspaceResult.Value;
+  }
 
   private static void ValidatePreview(ImportPreview preview)
   {

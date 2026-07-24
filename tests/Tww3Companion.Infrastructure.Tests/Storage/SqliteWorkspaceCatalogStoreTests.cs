@@ -4,6 +4,7 @@ using Tww3Companion.Application.Common;
 using Tww3Companion.Application.Importing;
 using Tww3Companion.Domain.Validation;
 using Tww3Companion.Domain.Workspaces;
+using Tww3Companion.Infrastructure.Settings;
 using Tww3Companion.Infrastructure.Storage;
 using Xunit;
 
@@ -355,6 +356,212 @@ public sealed class SqliteWorkspaceCatalogStoreTests
   }
 
   [Fact]
+  public async Task NewImport_CreatesWorkspaceInitialCollectionAndReloadableCatalog()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "new.tww3c");
+    var store = CreateDeterministicStore();
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            "Imported Collection"),
+        [
+          ImportCandidate.CreateWithDisplayName(
+              "candidate:111",
+              "First Mod",
+              ImportSourceReference.SteamWorkshop("111"))
+        ],
+        [],
+        TestContext.Current.CancellationToken);
+
+    var outcome = await store.CommitNewWorkspaceAtomicallyAsync(
+        preview,
+        TestContext.Current.CancellationToken);
+    var current = Assert.IsType<ImportTargetContext.CurrentWorkspace>(
+        outcome.TargetContext);
+    var snapshot = await store.ReadLibrarySnapshotAsync(
+        destination,
+        TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.Applied);
+    Assert.Equal("New Workspace", await ReadWorkspaceNameAsync(destination));
+    Assert.Equal("Imported Collection", Assert.Single(snapshot.Collections).DisplayName);
+    Assert.Equal("First Mod", Assert.Single(snapshot.Mods).DisplayName);
+    Assert.Single(snapshot.Memberships);
+    Assert.Equal(current.CollectionId, snapshot.Memberships[0].CollectionId);
+  }
+
+  [Fact]
+  public async Task NewImport_WhenDestinationExists_LeavesItUntouched()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "existing.tww3c");
+    await File.WriteAllTextAsync(destination, "original", TestContext.Current.CancellationToken);
+    var store = CreateDeterministicStore();
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+        [],
+        TestContext.Current.CancellationToken);
+
+    var exception = await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+        store.CommitNewWorkspaceAtomicallyAsync(
+            preview,
+            TestContext.Current.CancellationToken));
+
+    Assert.Equal("import.destination.exists", exception.Error.Code);
+    Assert.False(exception.Error.PersistentChangeCommitted);
+    Assert.Equal("original", await File.ReadAllTextAsync(destination, TestContext.Current.CancellationToken));
+    Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+  }
+
+  [Fact]
+  public async Task NewImport_WhenPreCancelled_CreatesNoDestinationOrTemporaryFile()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "cancelled.tww3c");
+    var store = CreateDeterministicStore();
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+        [],
+        TestContext.Current.CancellationToken);
+    using var cancellation = new CancellationTokenSource();
+    cancellation.Cancel();
+
+    await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+        store.CommitNewWorkspaceAtomicallyAsync(preview, cancellation.Token));
+
+    Assert.False(File.Exists(destination));
+    Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+  }
+
+  [Fact]
+  public async Task NewImport_WhenFailureAfterFirstCandidate_RemovesTemporaryFileAndLeavesNoDestination()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "failed.tww3c");
+    var expectedTemporaryPath =
+        $"{destination}.1234567812344abc8def1234567890ab.tmp";
+    string? deletedPath = null;
+    var store = CreateDeterministicStore(
+        deleteOwnedFile: path =>
+        {
+          deletedPath = path;
+          File.Delete(path);
+        },
+        afterCandidatePersisted: count =>
+        {
+          if (count == 1)
+          {
+            throw new InvalidOperationException("Injected failure after first candidate.");
+          }
+        });
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        [
+          ImportCandidate.CreateWithDisplayName("candidate:1", "First Mod"),
+          ImportCandidate.CreateWithDisplayName("candidate:2", "Second Mod")
+        ],
+        [],
+        TestContext.Current.CancellationToken);
+
+    await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        store.CommitNewWorkspaceAtomicallyAsync(
+            preview,
+            TestContext.Current.CancellationToken));
+
+    Assert.False(File.Exists(destination));
+    Assert.False(File.Exists(expectedTemporaryPath));
+    Assert.Equal(expectedTemporaryPath, deletedPath);
+  }
+
+  [Fact]
+  public async Task NewImport_WhenMoveFails_ReturnsTypedUncommittedFailureAndRemovesTemporaryFile()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "move-failed.tww3c");
+    var expectedTemporaryPath =
+        $"{destination}.1234567812344abc8def1234567890ab.tmp";
+    string? deletedPath = null;
+    var store = CreateDeterministicStore(
+        fileSystem: new MoveFailingAtomicFileSystem(),
+        deleteOwnedFile: path =>
+        {
+          deletedPath = path;
+          File.Delete(path);
+        });
+
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+        [],
+        TestContext.Current.CancellationToken);
+
+    var exception = await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+        store.CommitNewWorkspaceAtomicallyAsync(
+            preview,
+            TestContext.Current.CancellationToken));
+
+    Assert.False(exception.Error.PersistentChangeCommitted);
+    Assert.False(File.Exists(destination));
+    Assert.False(File.Exists(expectedTemporaryPath));
+    Assert.Equal(expectedTemporaryPath, deletedPath);
+  }
+
+  [Fact]
+  public async Task NewImport_GeneratesStableCanonicalUuids()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "uuids.tww3c");
+    var store = CreateDeterministicStore();
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+        [],
+        TestContext.Current.CancellationToken);
+
+    var outcome = await store.CommitNewWorkspaceAtomicallyAsync(
+        preview,
+        TestContext.Current.CancellationToken);
+    var current = Assert.IsType<ImportTargetContext.CurrentWorkspace>(outcome.TargetContext);
+    var snapshot = await store.ReadLibrarySnapshotAsync(
+        destination,
+        TestContext.Current.CancellationToken);
+
+    Assert.Equal("22345678-1234-4abc-8def-1234567890ab", current.WorkspaceId);
+    Assert.Equal("32345678-1234-4abc-8def-1234567890ab", current.CollectionId);
+    Assert.Equal("42345678-1234-4abc-8def-1234567890ab", Assert.Single(snapshot.Mods).ModId);
+    Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(current.WorkspaceId));
+    Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(current.CollectionId));
+    Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(snapshot.Mods[0].ModId));
+  }
+
+  [Fact]
+  public async Task NewImport_PlacedDatabasePassesWorkspaceFileValidator()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "validated.tww3c");
+    var store = CreateDeterministicStore();
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+        [],
+        TestContext.Current.CancellationToken);
+
+    await store.CommitNewWorkspaceAtomicallyAsync(
+        preview,
+        TestContext.Current.CancellationToken);
+
+    var result = await new WorkspaceFileValidator().OpenAsync(
+        destination,
+        TestContext.Current.CancellationToken);
+
+    Assert.IsType<OperationResult<Workspace>.Success>(result);
+  }
+
+  [Fact]
   public async Task CommitAtomicallyAsync_WithConfirmFalse_DoesNotOpenDatabase()
   {
     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
@@ -374,6 +581,32 @@ public sealed class SqliteWorkspaceCatalogStoreTests
 
     Assert.False(outcome.Applied);
     Assert.Equal(0L, await fixture.CountRowsAsync("mods"));
+  }
+
+  private static SqliteWorkspaceCatalogStore CreateDeterministicStore(
+      IAtomicFileSystem? fileSystem = null,
+      Action<string>? deleteOwnedFile = null,
+      Action<int>? afterCandidatePersisted = null) =>
+      new(
+          new SqliteConnectionFactory(),
+          new SequenceUuidGenerator(
+              "12345678-1234-4abc-8def-1234567890ab",
+              "22345678-1234-4abc-8def-1234567890ab",
+              "32345678-1234-4abc-8def-1234567890ab",
+              "42345678-1234-4abc-8def-1234567890ab"),
+          new FixedClock(),
+          fileSystem: fileSystem,
+          deleteOwnedFile: deleteOwnedFile,
+          afterCandidatePersisted: afterCandidatePersisted);
+
+  private static async Task<string> ReadWorkspaceNameAsync(string path)
+  {
+    await using var connection =
+        await new SqliteConnectionFactory().OpenAsync(path, CancellationToken.None);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        "SELECT display_name FROM workspace WHERE singleton = 1;";
+    return (string)(await command.ExecuteScalarAsync(CancellationToken.None))!;
   }
 
   private static SqliteWorkspaceCatalogStore CreateStore() =>
@@ -560,6 +793,22 @@ public sealed class SqliteWorkspaceCatalogStoreTests
   private sealed class FixedCatalogClock : IClock
   {
     public DateTimeOffset UtcNow => new(2026, 7, 18, 1, 2, 3, 456, TimeSpan.Zero);
+  }
+
+  private sealed class FixedClock : IClock
+  {
+    public DateTimeOffset UtcNow => new(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+  }
+
+  private sealed class MoveFailingAtomicFileSystem : IAtomicFileSystem
+  {
+    public Stream CreateWriteProbe(string directory) => Stream.Null;
+
+    public void MoveWithoutOverwrite(string source, string destination) =>
+        throw new IOException("move failed");
+
+    public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token) =>
+        throw new NotSupportedException();
   }
 
   private static async Task<long> ScalarAsync(string path, string sql)
