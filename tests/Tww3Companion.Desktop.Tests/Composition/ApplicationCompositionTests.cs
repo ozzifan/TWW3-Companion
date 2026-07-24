@@ -14,6 +14,23 @@ public sealed class ApplicationCompositionTests
       "TWW3 Companion is already running for this Windows user. Close the existing installed or portable copy and try again.";
 
   [Fact]
+  public void ProductionComposition_UsesSqliteCatalogStoreAndHasNoStub()
+  {
+    var desktopDirectory = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory,
+        "..", "..", "..", "..", "..",
+        "src", "Tww3Companion.Desktop"));
+    var source = File.ReadAllText(Path.Combine(
+        desktopDirectory,
+        "Composition",
+        "ApplicationComposition.cs"));
+
+    Assert.Contains("new SqliteWorkspaceCatalogStore(", source);
+    Assert.DoesNotContain("CompositionWorkspaceImportStore", source);
+    Assert.Contains("new MigrateV1ToV2()", source);
+  }
+
+  [Fact]
   public void CompositionUsesTheApprovedStartupOrder()
   {
     var composition = ApplicationComposition.CreateForTest();

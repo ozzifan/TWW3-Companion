@@ -54,7 +54,6 @@ Workspace foundation slice:
 
 - Markdown importer
 - Workshop ID importer
-- Local Workspace persistence
 
 Completed v0.1 slices:
 
@@ -63,6 +62,7 @@ Completed v0.1 slices:
 - Workshop ID importer
 - Shared import engine
 - Home and Workspace shell wiring to the shared engine
+- Local Workspace catalog persistence
 
 Success: a user can import a list into a Collection, persist its Workspace locally, and reload it reliably.
 

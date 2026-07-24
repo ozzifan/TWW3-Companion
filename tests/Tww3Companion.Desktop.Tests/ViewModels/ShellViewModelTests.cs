@@ -1,4 +1,6 @@
+using Tww3Companion.Application.Common;
 using Tww3Companion.Application.Importing;
+using Tww3Companion.Application.Workspaces;
 using Tww3Companion.Desktop.Services;
 using Tww3Companion.Desktop.ViewModels;
 using Xunit;
@@ -112,6 +114,127 @@ public sealed class ShellViewModelTests
   }
 
   [Fact]
+  public async Task ApplyImportPreviewAsync_ReloadsLibraryAfterSuccessfulApply()
+  {
+    const string workspaceId = "workspace-id-123";
+    const string workspacePath = @"C:\Workspaces\current.tww3c";
+    const string collectionId = "collection-id-123";
+    var reader = new RecordingCatalogReader();
+    var query = new WorkspaceLibraryQuery(reader);
+    var importService = new ConfigurableImportService();
+    var shell = ShellViewModel.CreateForTest(
+        importService: importService,
+        workspaceLibraryQuery: query);
+
+    shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+    query.SetActiveWorkspacePath(workspacePath);
+
+    var target = ImportTargetContext.ForCurrentWorkspace(
+        workspaceId,
+        workspacePath,
+        collectionId);
+    var preview = new ImportPreview(
+        target,
+        [ImportCandidate.Linked("candidate:1", "mod-1")],
+        Applied: false,
+        Resolutions: []);
+    importService.ConfigureApplyOutcome(new ImportOutcome(target, preview.Candidates, Applied: true));
+
+    await shell.ApplyImportPreviewAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+
+    Assert.Equal(workspacePath, reader.LastPath);
+    Assert.Contains(
+        shell.ModLibrary.Mods,
+        mod => mod.DisplayName == "Persisted Mod");
+  }
+
+  [Fact]
+  public async Task ApplyImportPreviewAsync_DoesNotReloadWhenNotApplied()
+  {
+    const string workspaceId = "workspace-id-123";
+    const string workspacePath = @"C:\Workspaces\current.tww3c";
+    const string collectionId = "collection-id-123";
+    var reader = new RecordingCatalogReader();
+    var query = new WorkspaceLibraryQuery(reader);
+    var importService = new ConfigurableImportService();
+    var shell = ShellViewModel.CreateForTest(
+        importService: importService,
+        workspaceLibraryQuery: query);
+
+    shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+
+    var target = ImportTargetContext.ForCurrentWorkspace(
+        workspaceId,
+        workspacePath,
+        collectionId);
+    var preview = new ImportPreview(
+        target,
+        [ImportCandidate.Linked("candidate:1", "mod-1")],
+        Applied: false,
+        Resolutions: []);
+    importService.ConfigureApplyOutcome(new ImportOutcome(target, preview.Candidates, Applied: false));
+
+    await shell.ApplyImportPreviewAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+
+    Assert.Null(reader.LastPath);
+  }
+
+  [Fact]
+  public async Task ApplyImportPreviewAsync_PersistenceFailureShowsErrorWithoutClearingOverlay()
+  {
+    const string workspaceId = "workspace-id-123";
+    const string workspacePath = @"C:\Workspaces\current.tww3c";
+    const string collectionId = "collection-id-123";
+    const string errorMessage = "Import persistence failed.";
+    var reader = new RecordingCatalogReader();
+    var query = new WorkspaceLibraryQuery(reader);
+    var importService = new ConfigurableImportService();
+    var shell = ShellViewModel.CreateForTest(
+        importService: importService,
+        workspaceLibraryQuery: query);
+
+    shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+    query.SetActiveWorkspacePath(workspacePath);
+    await shell.ModLibrary.LoadAsync(TestContext.Current.CancellationToken);
+    reader.LastPath = null;
+
+    var target = ImportTargetContext.ForCurrentWorkspace(
+        workspaceId,
+        workspacePath,
+        collectionId);
+    var preview = new ImportPreview(
+        target,
+        [ImportCandidate.Linked("candidate:1", "mod-1")],
+        Applied: false,
+        Resolutions: []);
+    importService.ConfigureApplyException(new ImportPersistenceException(
+        new OperationError(
+            "import.persistence.failed",
+            errorMessage,
+            false,
+            "Try again.")));
+
+    await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+        shell.ApplyImportPreviewAsync(
+            preview,
+            confirm: true,
+            TestContext.Current.CancellationToken));
+
+    Assert.Equal(errorMessage, shell.Workspace.OperationError);
+    Assert.True(shell.Workspace.HasOperationError);
+    Assert.Contains(
+        shell.ModLibrary.Mods,
+        mod => mod.DisplayName == "Persisted Mod");
+    Assert.Null(reader.LastPath);
+  }
+
+  [Fact]
   public async Task WorkspaceAndReturnHomeActionsChangeScreen()
   {
     var coordinator = new CompletingWorkspaceDisposalCoordinator();
@@ -170,5 +293,52 @@ public sealed class ShellViewModelTests
         bool confirm,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+  }
+
+  private sealed class ConfigurableImportService : IShellImportService
+  {
+    private ImportOutcome? applyOutcome;
+    private ImportPersistenceException? applyException;
+
+    public void ConfigureApplyOutcome(ImportOutcome outcome) => applyOutcome = outcome;
+
+    public void ConfigureApplyException(ImportPersistenceException exception) =>
+        applyException = exception;
+
+    public Task<ImportPreview> BuildPreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+
+    public Task<ImportOutcome> ApplyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default)
+    {
+      if (applyException is not null)
+      {
+        throw applyException;
+      }
+
+      return Task.FromResult(
+          applyOutcome ?? new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false));
+    }
+  }
+
+  private sealed class RecordingCatalogReader : IWorkspaceCatalogReader
+  {
+    public string? LastPath { get; set; }
+
+    public Task<WorkspaceLibrarySnapshot> ReadLibrarySnapshotAsync(
+        string workspacePath,
+        CancellationToken cancellationToken = default)
+    {
+      LastPath = workspacePath;
+      return Task.FromResult(new WorkspaceLibrarySnapshot(
+          [new WorkspaceLibraryMod("mod-1", "Persisted Mod")],
+          [],
+          []));
+    }
   }
 }

@@ -119,7 +119,9 @@ public sealed class ShellViewModel : ViewModelBase
     importIntoNewWorkspaceCommand = new DelegateCommand(_ => _ = RunImportIntoNewWorkspaceAsync());
     importIntoCurrentWorkspaceCommand = new DelegateCommand(
         _ => _ = RunImportIntoCurrentWorkspaceAsync(currentWorkspaceId),
-        _ => !string.IsNullOrWhiteSpace(currentWorkspaceId));
+        _ => !string.IsNullOrWhiteSpace(currentWorkspaceId) &&
+             !string.IsNullOrWhiteSpace(currentWorkspacePath) &&
+             !string.IsNullOrWhiteSpace(currentCollectionId));
 
     CreateWorkspaceCommand = createWorkspaceCommand;
     OpenWorkspaceCommand = openWorkspaceCommand;
@@ -225,10 +227,14 @@ public sealed class ShellViewModel : ViewModelBase
     ModLibrary.SelectCollection(collectionId);
     if (string.IsNullOrWhiteSpace(collectionId))
     {
+      currentCollectionId = null;
+      importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
       return;
     }
 
     CollectionDetail.SelectCollection(collectionId);
+    currentCollectionId = CollectionDetail.SelectedCollection?.CollectionId;
+    importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
   }
 
   public void ReturnHome() => _ = ReturnHomeAsync();
@@ -279,8 +285,41 @@ public sealed class ShellViewModel : ViewModelBase
 
   public Task RunImportIntoNewWorkspaceForTestAsync() => RunImportIntoNewWorkspaceAsync();
 
-  public Task RunImportIntoCurrentWorkspaceForTestAsync(string workspaceId) =>
-      RunImportIntoCurrentWorkspaceAsync(workspaceId);
+  public Task RunImportIntoCurrentWorkspaceForTestAsync(
+      string workspaceId,
+      string workspacePath,
+      string collectionId) =>
+      RunImportIntoCurrentWorkspaceAsync(
+          workspaceId,
+          workspacePath,
+          collectionId);
+
+  public async Task<ImportOutcome> ApplyImportPreviewAsync(
+      ImportPreview preview,
+      bool confirm,
+      CancellationToken cancellationToken = default)
+  {
+    try
+    {
+      var outcome = await importService.ApplyAsync(
+          preview,
+          confirm,
+          cancellationToken);
+      if (outcome.Applied &&
+          outcome.TargetContext is
+              ImportTargetContext.CurrentWorkspace current)
+      {
+        await LoadWorkspaceLibraryAsync(current.WorkspacePath);
+      }
+
+      return outcome;
+    }
+    catch (ImportPersistenceException exception)
+    {
+      UpdateWorkspaceError(exception.Error.Message);
+      throw;
+    }
+  }
 
   public void SetCurrentWorkspaceImportTargetForTest(
       string workspaceId,
@@ -307,11 +346,20 @@ public sealed class ShellViewModel : ViewModelBase
               "Imported Collection"),
           []);
 
-  private Task RunImportIntoCurrentWorkspaceAsync(string? workspaceId)
+  private Task RunImportIntoCurrentWorkspaceAsync(string? workspaceId) =>
+      RunImportIntoCurrentWorkspaceAsync(
+          workspaceId,
+          currentWorkspacePath,
+          currentCollectionId);
+
+  private Task RunImportIntoCurrentWorkspaceAsync(
+      string? workspaceId,
+      string? workspacePath,
+      string? collectionId)
   {
     if (string.IsNullOrWhiteSpace(workspaceId) ||
-        string.IsNullOrWhiteSpace(currentWorkspacePath) ||
-        string.IsNullOrWhiteSpace(currentCollectionId))
+        string.IsNullOrWhiteSpace(workspacePath) ||
+        string.IsNullOrWhiteSpace(collectionId))
     {
       return Task.CompletedTask;
     }
@@ -319,8 +367,8 @@ public sealed class ShellViewModel : ViewModelBase
     return importService.BuildPreviewAsync(
         ImportTargetContext.ForCurrentWorkspace(
             workspaceId,
-            currentWorkspacePath,
-            currentCollectionId),
+            workspacePath,
+            collectionId),
         []);
   }
 

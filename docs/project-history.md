@@ -33,6 +33,10 @@ Making the project open source followed naturally from the problem domain. Mod c
 
 The first import milestone arrived in the 2026-07-23 import-core slice set: Markdown import, Workshop ID import, the shared import engine, and shell wiring for both new-Workspace and current-Workspace import actions. That work established the first end-to-end import path the roadmap had been promising since the architecture RFCs were approved.
 
+### Local Workspace Catalog Persistence (2026-07-24)
+
+Schema v2 introduced persisted Mod, Collection, and membership tables with a transactional v1 migration backed by a pre-migration backup. The first Collection import into an open Workspace now commits atomically through the production SQLite catalog store, and successful current-Workspace imports reload the library overlay so the shell reflects the persisted snapshot immediately.
+
 ## Looking Ahead
 
 Future history will be recorded here at major milestones: first import, first persisted collection, first public release. Contributors are welcome to add dated entries when those events occur.
