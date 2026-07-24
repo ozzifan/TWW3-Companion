@@ -20,8 +20,9 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
         : await _store.ReadCandidatesAsync(targetContext, cancellationToken);
     var matchedCandidates = MatchExactSourceReferences(importCandidates, existingCandidates);
     var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
+    var validationIssues = DetectSourceOwnerConflicts(suggestedCandidates, existingCandidates);
     var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
-        candidate.SourceId,
+        candidate.CandidateId,
         candidate.LinkedModId,
         candidate.DisplayName,
         CanSkip: string.IsNullOrWhiteSpace(candidate.LinkedModId))).ToArray();
@@ -31,7 +32,7 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
         suggestedCandidates,
         resolutions,
         cancellationToken);
-    return preview with { Resolutions = resolutions };
+    return preview with { Resolutions = resolutions, ValidationIssues = validationIssues };
   }
 
   public Task<ImportOutcome> ApplyAsync(
@@ -52,20 +53,61 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
     throw new ArgumentException("Unsupported import target context.", nameof(preview));
   }
 
-  private static IReadOnlyList<ImportCandidate> NormalizeCandidates(IReadOnlyList<object> candidates) =>
-      candidates.Select(candidate => candidate switch
+  private static IReadOnlyList<ImportCandidate> NormalizeCandidates(
+      IReadOnlyList<object> candidates) =>
+      candidates.Select((candidate, index) => candidate switch
       {
-        ImportCandidate importCandidate => importCandidate,
-        SteamImportCandidate steamCandidate => ImportCandidate.CreateWithDisplayName(
-            steamCandidate.SourceReference,
-            steamCandidate.DisplayName ?? steamCandidate.SourceReference),
-        MarkdownImportCandidate { Kind: ImportCandidateKind.Candidate } markdownCandidate =>
+        SteamImportCandidate steamCandidate =>
+            CreateSteamCandidate(steamCandidate, index),
+
+        MarkdownImportCandidate
+        {
+          Kind: ImportCandidateKind.Candidate,
+          SourceReference: { } source
+        } markdownCandidate =>
             ImportCandidate.CreateWithDisplayName(
-                markdownCandidate.SourceReference?.WorkshopId ?? $"markdown:{markdownCandidate.SourceLine}",
+                $"markdown:{markdownCandidate.SourceLine}",
+                markdownCandidate.Value,
+                ImportSourceReference.SteamWorkshop(source.WorkshopId)),
+
+        MarkdownImportCandidate
+        {
+          Kind: ImportCandidateKind.Candidate
+        } markdownCandidate =>
+            ImportCandidate.CreateWithDisplayName(
+                $"markdown:{markdownCandidate.SourceLine}",
                 markdownCandidate.Value),
-        MarkdownImportCandidate => throw new ArgumentException("Only Markdown candidate entries can enter the import pipeline.", nameof(candidates)),
-        _ => throw new ArgumentException("Unsupported import candidate type.", nameof(candidates))
+
+        ImportCandidate importCandidate => importCandidate,
+
+        MarkdownImportCandidate =>
+            throw new ArgumentException(
+                "Only Markdown candidate entries can enter the import pipeline.",
+                nameof(candidates)),
+
+        _ => throw new ArgumentException(
+            $"Unsupported import candidate type: {candidate?.GetType().FullName ?? "<null>"}.",
+            nameof(candidates))
       }).ToArray();
+
+  private static ImportCandidate CreateSteamCandidate(
+      SteamImportCandidate candidate,
+      int index)
+  {
+    if (!SteamImportAdapter.TryGetWorkshopItemId(
+            candidate.SourceReference,
+            out var workshopItemId))
+    {
+      throw new ArgumentException(
+          "Steam candidates require a numeric Workshop ID or supported Workshop URL.",
+          nameof(candidate));
+    }
+
+    return ImportCandidate.CreateWithDisplayName(
+        $"steam:{workshopItemId}:{index}",
+        candidate.DisplayName ?? candidate.SourceReference,
+        ImportSourceReference.SteamWorkshop(workshopItemId));
+  }
 
   private static IReadOnlyList<ImportCandidate> MatchExactSourceReferences(
       IReadOnlyList<ImportCandidate> candidates,
@@ -73,7 +115,8 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
       candidates.Select(candidate =>
       {
         var match = existingCandidates.FirstOrDefault(existing =>
-            existing.SourceId == candidate.SourceId && !string.IsNullOrWhiteSpace(existing.LinkedModId));
+            SourceReferencesMatch(existing.SourceReference, candidate.SourceReference) &&
+            !string.IsNullOrWhiteSpace(existing.LinkedModId));
         return match is null || !string.IsNullOrWhiteSpace(candidate.LinkedModId)
             ? candidate
             : candidate with { LinkedModId = match.LinkedModId };
@@ -99,4 +142,37 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
             ? candidate with { SuggestedModId = matches[0].LinkedModId }
             : candidate;
       }).ToArray();
+
+  private static IReadOnlyList<ImportValidationIssue> DetectSourceOwnerConflicts(
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportCandidate> existingCandidates) =>
+      candidates
+          .Where(candidate =>
+              candidate.SourceReference is not null &&
+              !string.IsNullOrWhiteSpace(candidate.LinkedModId))
+          .Select(candidate =>
+          {
+            var existing = existingCandidates.FirstOrDefault(existingCandidate =>
+                SourceReferencesMatch(existingCandidate.SourceReference, candidate.SourceReference) &&
+                !string.IsNullOrWhiteSpace(existingCandidate.LinkedModId));
+
+            return existing is not null &&
+                   !string.Equals(existing.LinkedModId, candidate.LinkedModId, StringComparison.Ordinal)
+                ? new ImportValidationIssue(
+                    candidate.CandidateId,
+                    "import.source.owner.conflict",
+                    $"The source identity is already owned by Mod {existing.LinkedModId}.")
+                : null;
+          })
+          .Where(issue => issue is not null)
+          .Cast<ImportValidationIssue>()
+          .ToArray();
+
+  private static bool SourceReferencesMatch(
+      ImportSourceReference? left,
+      ImportSourceReference? right) =>
+      left is not null &&
+      right is not null &&
+      left.SourceType == right.SourceType &&
+      left.ExternalId == right.ExternalId;
 }

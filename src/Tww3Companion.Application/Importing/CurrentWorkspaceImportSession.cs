@@ -32,14 +32,18 @@ internal static class ImportPreviewValidation
 {
   public static void Validate(ImportPreview preview)
   {
+    if (preview.ValidationIssues?.Count > 0)
+    {
+      throw new InvalidOperationException("The import preview contains validation issues.");
+    }
+
     if (preview.Candidates.Any(candidate => candidate is not ImportCandidate importCandidate ||
         (importCandidate.IsSkipped && preview.Resolutions?.Any(resolution =>
-            resolution.CandidateId == importCandidate.SourceId && resolution.CanSkip) != true) ||
+            resolution.CandidateId == importCandidate.CandidateId && resolution.CanSkip) != true) ||
         (!importCandidate.IsSkipped && string.IsNullOrWhiteSpace(importCandidate.LinkedModId) &&
             string.IsNullOrWhiteSpace(importCandidate.DisplayName))))
     {
       throw new InvalidOperationException("All required import candidates must be resolved before applying.");
     }
-
   }
 }

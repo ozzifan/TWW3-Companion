@@ -40,7 +40,10 @@ public sealed class ShellViewModelTests
     await shell.RunImportIntoNewWorkspaceForTestAsync();
 
     Assert.Equal(
-        ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
+        ImportTargetContext.ForNewWorkspace(
+            "My New Workspace",
+            "C:\\Workspaces\\my-new.tww3c",
+            "Imported Collection"),
         importService.LastTargetContext);
   }
 
@@ -54,7 +57,10 @@ public sealed class ShellViewModelTests
     shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
 
     Assert.Equal(
-        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        ImportTargetContext.ForCurrentWorkspace(
+            "workspace-id-123",
+            "C:\\Workspaces\\current.tww3c",
+            "collection-id-123"),
         importService.LastTargetContext);
   }
 

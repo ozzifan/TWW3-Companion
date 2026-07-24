@@ -81,6 +81,8 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly DelegateCommand importIntoNewWorkspaceCommand;
   private readonly DelegateCommand importIntoCurrentWorkspaceCommand;
   private string? currentWorkspaceId;
+  private string? currentWorkspacePath;
+  private string? currentCollectionId;
   private bool isDisposingWorkspace;
 
   public ShellViewModel() : this(CreateDefaultOptions())
@@ -280,25 +282,46 @@ public sealed class ShellViewModel : ViewModelBase
   public Task RunImportIntoCurrentWorkspaceForTestAsync(string workspaceId) =>
       RunImportIntoCurrentWorkspaceAsync(workspaceId);
 
-  public void SetCurrentWorkspaceIdForTest(string workspaceId)
+  public void SetCurrentWorkspaceImportTargetForTest(
+      string workspaceId,
+      string workspacePath,
+      string collectionId)
   {
     currentWorkspaceId = workspaceId;
+    currentWorkspacePath = workspacePath;
+    currentCollectionId = collectionId;
     importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
   }
 
+  public void SetCurrentWorkspaceIdForTest(string workspaceId) =>
+      SetCurrentWorkspaceImportTargetForTest(
+          workspaceId,
+          "C:\\Workspaces\\current.tww3c",
+          "collection-id-123");
+
   private Task RunImportIntoNewWorkspaceAsync() =>
       importService.BuildPreviewAsync(
-          ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
+          ImportTargetContext.ForNewWorkspace(
+              "My New Workspace",
+              "C:\\Workspaces\\my-new.tww3c",
+              "Imported Collection"),
           []);
 
   private Task RunImportIntoCurrentWorkspaceAsync(string? workspaceId)
   {
-    if (string.IsNullOrWhiteSpace(workspaceId))
+    if (string.IsNullOrWhiteSpace(workspaceId) ||
+        string.IsNullOrWhiteSpace(currentWorkspacePath) ||
+        string.IsNullOrWhiteSpace(currentCollectionId))
     {
       return Task.CompletedTask;
     }
 
-    return importService.BuildPreviewAsync(ImportTargetContext.ForCurrentWorkspace(workspaceId), []);
+    return importService.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            workspaceId,
+            currentWorkspacePath,
+            currentCollectionId),
+        []);
   }
 
   private async Task RunCreateWorkspaceAsync()
@@ -337,6 +360,7 @@ public sealed class ShellViewModel : ViewModelBase
         else if (result is OperationResult<Workspace>.Success success)
         {
           currentWorkspaceId = success.Value.Id.ToString();
+          currentWorkspacePath = path;
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
@@ -395,6 +419,7 @@ public sealed class ShellViewModel : ViewModelBase
         else if (result is OperationResult<Workspace>.Success success)
         {
           currentWorkspaceId = success.Value.Id.ToString();
+          currentWorkspacePath = path;
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
@@ -466,6 +491,8 @@ public sealed class ShellViewModel : ViewModelBase
     {
       await workspaceDisposalCoordinator.DisposeWorkspaceScopeAsync(CancellationToken.None);
       currentWorkspaceId = null;
+      currentWorkspacePath = null;
+      currentCollectionId = null;
       importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
       ClearWorkspaceLibrary();
       SetScreen(ShellScreen.Home);

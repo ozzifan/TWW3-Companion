@@ -5,11 +5,30 @@ namespace Tww3Companion.Application.Tests.Importing;
 
 public sealed class ImportEngineTests
 {
+  private const string NewWorkspaceDisplayName = "My New Workspace";
+  private const string NewWorkspacePath = "C:\\Workspaces\\my-new.tww3c";
+  private const string NewWorkspaceCollection = "Imported Collection";
+  private const string CurrentWorkspaceId = "workspace-id-123";
+  private const string CurrentWorkspacePath = "C:\\Workspaces\\current.tww3c";
+  private const string CurrentCollectionId = "collection-id-123";
+
+  private static ImportTargetContext NewWorkspaceTarget =>
+      ImportTargetContext.ForNewWorkspace(
+          NewWorkspaceDisplayName,
+          NewWorkspacePath,
+          NewWorkspaceCollection);
+
+  private static ImportTargetContext CurrentWorkspaceTarget =>
+      ImportTargetContext.ForCurrentWorkspace(
+          CurrentWorkspaceId,
+          CurrentWorkspacePath,
+          CurrentCollectionId);
+
   [Fact]
   public void ImportTargetContext_can_represent_new_workspace_and_current_workspace()
   {
-    var newWorkspace = ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c");
-    var currentWorkspace = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var newWorkspace = NewWorkspaceTarget;
+    var currentWorkspace = CurrentWorkspaceTarget;
 
     Assert.IsType<ImportTargetContext.NewWorkspace>(newWorkspace);
     Assert.IsType<ImportTargetContext.CurrentWorkspace>(currentWorkspace);
@@ -17,9 +36,12 @@ public sealed class ImportEngineTests
     var typedNewWorkspace = Assert.IsType<ImportTargetContext.NewWorkspace>(newWorkspace);
     var typedCurrentWorkspace = Assert.IsType<ImportTargetContext.CurrentWorkspace>(currentWorkspace);
 
-    Assert.Equal("My New Workspace", typedNewWorkspace.DisplayName);
-    Assert.Equal("C:\\Workspaces\\my-new.tww3c", typedNewWorkspace.DestinationPath);
-    Assert.Equal("workspace-id-123", typedCurrentWorkspace.WorkspaceId);
+    Assert.Equal(NewWorkspaceDisplayName, typedNewWorkspace.DisplayName);
+    Assert.Equal(NewWorkspacePath, typedNewWorkspace.DestinationPath);
+    Assert.Equal(NewWorkspaceCollection, typedNewWorkspace.CollectionDisplayName);
+    Assert.Equal(CurrentWorkspaceId, typedCurrentWorkspace.WorkspaceId);
+    Assert.Equal(CurrentWorkspacePath, typedCurrentWorkspace.WorkspacePath);
+    Assert.Equal(CurrentCollectionId, typedCurrentWorkspace.CollectionId);
   }
 
   [Fact]
@@ -27,7 +49,7 @@ public sealed class ImportEngineTests
   {
     var engine = new ImportEngine(new FakeWorkspaceImportStore());
     var preview = await engine.BuildPreviewAsync(
-        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        CurrentWorkspaceTarget,
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken);
 
@@ -41,7 +63,7 @@ public sealed class ImportEngineTests
     var created = ImportCandidate.CreateWithDisplayName("source-2", "New Mod");
     var skipped = ImportCandidate.Skipped("source-3");
 
-    Assert.Equal("source-1", linked.SourceId);
+    Assert.Equal("source-1", linked.CandidateId);
     Assert.Equal("mod-1", linked.LinkedModId);
     Assert.Equal("New Mod", created.DisplayName);
     Assert.True(skipped.IsSkipped);
@@ -58,12 +80,88 @@ public sealed class ImportEngineTests
   }
 
   [Fact]
+  public async Task Steam_url_normalizes_to_canonical_workshop_identity()
+  {
+    var preview = await new ImportEngine(new FakeWorkspaceImportStore())
+        .BuildPreviewAsync(
+            ImportTargetContext.ForNewWorkspace(
+                "Workspace",
+                "C:\\Workspaces\\workspace.tww3c",
+                "Imported Collection"),
+            [new SteamImportCandidate(
+                "https://steamcommunity.com/sharedfiles/filedetails/?id=123456789",
+                "Example Mod")],
+            TestContext.Current.CancellationToken);
+
+    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
+    Assert.Equal("123456789", candidate.SourceReference!.ExternalId);
+    Assert.Equal(ImportSourceType.SteamWorkshop, candidate.SourceReference.SourceType);
+  }
+
+  [Fact]
+  public async Task Source_neutral_markdown_has_preview_identity_but_no_source_reference()
+  {
+    var preview = await new ImportEngine(new FakeWorkspaceImportStore())
+        .BuildPreviewAsync(
+            ImportTargetContext.ForNewWorkspace(
+                "Workspace",
+                "C:\\Workspaces\\workspace.tww3c",
+                "Imported Collection"),
+            [new MarkdownImportCandidate(
+                ImportCandidateKind.Candidate,
+                "Local Mod",
+                "Local Mod",
+                SourceLine: 7)],
+            TestContext.Current.CancellationToken);
+
+    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
+    Assert.Equal("markdown:7", candidate.CandidateId);
+    Assert.Null(candidate.SourceReference);
+  }
+
+  [Fact]
+  public async Task Conflicting_source_owner_blocks_apply_in_preview()
+  {
+    var store = new FakeWorkspaceImportStore
+    {
+      ExistingCandidates =
+      [
+        ImportCandidate.Linked(
+            "existing:123",
+            "existing-mod",
+            ImportSourceReference.SteamWorkshop("123"))
+      ]
+    };
+    var engine = new ImportEngine(store);
+
+    var preview = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            "12345678-1234-4abc-8def-1234567890ab",
+            "C:\\Workspaces\\workspace.tww3c",
+            "22345678-1234-4abc-8def-1234567890ab"),
+        [ImportCandidate.Linked(
+            "incoming:123",
+            "different-mod",
+            ImportSourceReference.SteamWorkshop("123"))],
+        TestContext.Current.CancellationToken);
+
+    Assert.Contains(
+        preview.ValidationIssues!,
+        issue => issue.Code == "import.source.owner.conflict");
+    await Assert.ThrowsAsync<InvalidOperationException>(
+        () => engine.ApplyAsync(
+            preview,
+            confirm: true,
+            TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
   public async Task ImportEngine_builds_preview_through_a_store_port()
   {
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
     var preview = await engine.BuildPreviewAsync(
-        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        CurrentWorkspaceTarget,
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken);
 
@@ -76,20 +174,24 @@ public sealed class ImportEngineTests
   {
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
-    var target = ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c");
+    var target = NewWorkspaceTarget;
 
     var preview = await engine.BuildPreviewAsync(
         target,
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken);
 
-    Assert.Equal("My New Workspace", preview.TargetContext is ImportTargetContext.NewWorkspace newTarget ? newTarget.DisplayName : "");
+    Assert.Equal(NewWorkspaceDisplayName, preview.TargetContext is ImportTargetContext.NewWorkspace newTarget ? newTarget.DisplayName : "");
     await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
-        ImportTargetContext.ForNewWorkspace("", "C:\\Workspaces\\my-new.tww3c"),
+        ImportTargetContext.ForNewWorkspace("", NewWorkspacePath, NewWorkspaceCollection),
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken));
     await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
-        ImportTargetContext.ForNewWorkspace("My New Workspace", ""),
+        ImportTargetContext.ForNewWorkspace(NewWorkspaceDisplayName, "", NewWorkspaceCollection),
+        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+        TestContext.Current.CancellationToken));
+    await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
+        ImportTargetContext.ForNewWorkspace(NewWorkspaceDisplayName, NewWorkspacePath, ""),
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken));
   }
@@ -99,7 +201,7 @@ public sealed class ImportEngineTests
   {
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
-    var target = ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c");
+    var target = NewWorkspaceTarget;
     var preview = await engine.BuildPreviewAsync(
         target,
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
@@ -123,7 +225,7 @@ public sealed class ImportEngineTests
     var engine = new ImportEngine(store);
 
     var preview = await engine.BuildPreviewAsync(
-        ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
+        NewWorkspaceTarget,
         new object[] { ImportCandidate.CreateWithDisplayName("source-1", "Imported mod") },
         TestContext.Current.CancellationToken);
 
@@ -136,7 +238,7 @@ public sealed class ImportEngineTests
     var store = new FakeWorkspaceImportStore { CommitFailure = new InvalidOperationException("Persistence failed.") };
     var engine = new ImportEngine(store);
     var preview = await engine.BuildPreviewAsync(
-        ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
+        NewWorkspaceTarget,
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken);
 
@@ -152,7 +254,7 @@ public sealed class ImportEngineTests
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
     var preview = await engine.BuildPreviewAsync(
-        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        CurrentWorkspaceTarget,
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
         TestContext.Current.CancellationToken);
 
@@ -166,13 +268,19 @@ public sealed class ImportEngineTests
   {
     var store = new FakeWorkspaceImportStore
     {
-      ExistingCandidates = [ImportCandidate.Linked("source-1", "matched-mod-1")]
+      ExistingCandidates =
+      [
+        ImportCandidate.Linked(
+            "existing:123",
+            "matched-mod-1",
+            ImportSourceReference.SteamWorkshop("123"))
+      ]
     };
     var engine = new ImportEngine(store);
 
     var preview = await engine.BuildPreviewAsync(
-        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
-        new object[] { new SteamImportCandidate("source-1", "Imported mod") },
+        CurrentWorkspaceTarget,
+        new object[] { new SteamImportCandidate("123", "Imported mod") },
         TestContext.Current.CancellationToken);
 
     var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
@@ -189,7 +297,7 @@ public sealed class ImportEngineTests
     var engine = new ImportEngine(store);
 
     var preview = await engine.BuildPreviewAsync(
-        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        CurrentWorkspaceTarget,
         new object[] { ImportCandidate.CreateWithDisplayName("source-1", "existing mod") },
         TestContext.Current.CancellationToken);
 
@@ -203,11 +311,11 @@ public sealed class ImportEngineTests
   {
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
-    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var target = CurrentWorkspaceTarget;
 
     var preview = await engine.BuildPreviewAsync(
         target,
-        new object[] { new ImportCandidate("source-1", LinkedModId: null, DisplayName: null, IsSkipped: false) },
+        new object[] { new ImportCandidate("source-1", SourceReference: null, LinkedModId: null, DisplayName: null, IsSkipped: false) },
         TestContext.Current.CancellationToken);
 
     await Assert.ThrowsAsync<InvalidOperationException>(
@@ -219,7 +327,7 @@ public sealed class ImportEngineTests
   {
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
-    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var target = CurrentWorkspaceTarget;
     var preview = await engine.BuildPreviewAsync(
         target,
         new object[] { ImportCandidate.Linked("source-1", "nonexistent-mod") },
@@ -236,7 +344,7 @@ public sealed class ImportEngineTests
   {
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
-    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var target = CurrentWorkspaceTarget;
     var preview = await engine.BuildPreviewAsync(
         target,
         new object[] { ImportCandidate.Skipped("source-1") },
@@ -254,7 +362,7 @@ public sealed class ImportEngineTests
   {
     var store = new FakeWorkspaceImportStore();
     var engine = new ImportEngine(store);
-    var target = ImportTargetContext.ForCurrentWorkspace("workspace-id-123");
+    var target = CurrentWorkspaceTarget;
     var preview = await engine.BuildPreviewAsync(
         target,
         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
@@ -282,7 +390,7 @@ public sealed class ImportEngineTests
 
     public Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
         ImportTargetContext targetContext,
-      CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default)
     {
       ReadCandidatesCalled = true;
       return Task.FromResult(ExistingCandidates);
@@ -317,7 +425,10 @@ public sealed class ImportEngineTests
       }
 
       CommittedPreview = preview;
-      var newWorkspace = (ImportTargetContext.CurrentWorkspace)ImportTargetContext.ForCurrentWorkspace("new-workspace-id");
+      var newWorkspace = (ImportTargetContext.CurrentWorkspace)ImportTargetContext.ForCurrentWorkspace(
+          "new-workspace-id",
+          "C:\\Workspaces\\new.tww3c",
+          "new-collection-id");
       return Task.FromResult(new ImportOutcome(newWorkspace, preview.Candidates, Applied: true));
     }
 
