@@ -16,12 +16,14 @@ public interface IWorkspaceImportStore
       ImportPreview preview,
       CancellationToken cancellationToken = default);
 
+  // Non-mutating: must not create, open, or write a Workspace database.
   Task<ImportPreview> SavePreviewAsync(
       ImportTargetContext targetContext,
       IReadOnlyList<ImportCandidate> candidates,
       IReadOnlyList<ImportResolution> resolutions,
       CancellationToken cancellationToken = default);
 
+  // The implementation owns rollback and must not let caller cancellation prevent cleanup.
   Task<ImportOutcome> CommitAtomicallyAsync(
       ImportPreview preview,
       bool confirm,

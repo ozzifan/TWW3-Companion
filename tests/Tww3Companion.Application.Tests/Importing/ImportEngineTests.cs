@@ -407,7 +407,12 @@ public sealed class ImportEngineTests
         IReadOnlyList<ImportCandidate> candidates,
         IReadOnlyList<ImportResolution> resolutions,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+        Task.FromResult(new ImportPreview(
+            targetContext,
+            candidates,
+            Applied: false,
+            Resolutions: resolutions,
+            ValidationIssues: []));
 
     public bool CommitAtomicallyCalled { get; private set; }
 
