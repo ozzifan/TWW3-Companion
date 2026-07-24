@@ -36,7 +36,7 @@ internal static class SchemaV2
         );
         """;
 
-  public static async Task InitializeAsync(
+  internal static async Task InitializeAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
       Workspace workspace,

@@ -93,6 +93,9 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
 
     if (version == 1)
     {
+      var preMigration = await validator.OpenAsync(path, token);
+      if (preMigration is OperationResult<Workspace>.Failure preMigrationFailure)
+        return preMigrationFailure;
       if (migrationRunner is null)
         return WorkspaceFileValidator.Failure("workspace.migration.unsupported", "No complete migration path is available.");
       var migration = await migrationRunner.MigrateAsync(path, SchemaVersion.Current, token);
