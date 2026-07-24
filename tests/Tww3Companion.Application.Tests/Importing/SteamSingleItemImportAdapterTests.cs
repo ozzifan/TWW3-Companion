@@ -65,9 +65,9 @@ public sealed class SteamSingleItemImportAdapterTests
 
     public Task<SteamWorkshopItemMetadata> GetWorkshopItemAsync(string workshopItemId, CancellationToken cancellationToken = default)
     {
-    if (workshopItemId == failingWorkshopItemId) throw new InvalidOperationException("Fixture lookup failure.");
+      if (workshopItemId == failingWorkshopItemId) throw new InvalidOperationException("Fixture lookup failure.");
 
-    return Task.FromResult(new SteamWorkshopItemMetadata(workshopItemId, $"Mod {workshopItemId}"));
+      return Task.FromResult(new SteamWorkshopItemMetadata(workshopItemId, $"Mod {workshopItemId}"));
+    }
   }
-}
 }
