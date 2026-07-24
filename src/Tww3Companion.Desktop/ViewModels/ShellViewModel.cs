@@ -54,6 +54,7 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly Func<CancellationToken, Task<string?>> promptOpenPath;
   private readonly CreateWorkspace? createWorkspace;
   private readonly OpenWorkspace? openWorkspace;
+  private readonly WorkspaceLibraryQuery? workspaceLibraryQuery;
   private readonly string defaultWorkspaceDirectory;
   private readonly string settingsDirectory;
   private readonly IWorkspaceDisposalCoordinator workspaceDisposalCoordinator;
@@ -76,9 +77,12 @@ public sealed class ShellViewModel : ViewModelBase
     promptOpenPath = options.PromptOpenPath;
     createWorkspace = options.CreateWorkspace;
     openWorkspace = options.OpenWorkspace;
+    workspaceLibraryQuery = options.WorkspaceLibraryQuery;
     defaultWorkspaceDirectory = options.DefaultWorkspaceDirectory;
     settingsDirectory = options.SettingsDirectory;
     workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator;
+    ModLibrary = new ModLibraryViewModel(workspaceLibraryQuery);
+    CollectionDetail = new CollectionDetailViewModel();
 
     // RFC-0005 keeps Home navigation in the shared shell; the next slice adds Import here.
     Home = CreateHomeState(WorkspaceOperationState.Idle, string.Empty);
@@ -125,7 +129,8 @@ public sealed class ShellViewModel : ViewModelBase
       OpenWorkspace openWorkspace,
       string defaultWorkspaceDirectory,
       string settingsDirectory,
-      IWorkspaceDisposalCoordinator workspaceDisposalCoordinator) =>
+      IWorkspaceDisposalCoordinator workspaceDisposalCoordinator,
+      WorkspaceLibraryQuery? workspaceLibraryQuery = null) =>
       new(new ShellViewModelOptions
       {
         InitialSettings = initialSettings,
@@ -134,6 +139,7 @@ public sealed class ShellViewModel : ViewModelBase
         PromptOpenPath = workspaceDialogService.PromptForOpenPathAsync,
         CreateWorkspace = createWorkspace,
         OpenWorkspace = openWorkspace,
+        WorkspaceLibraryQuery = workspaceLibraryQuery,
         DefaultWorkspaceDirectory = defaultWorkspaceDirectory,
         SettingsDirectory = settingsDirectory,
         WorkspaceDisposalCoordinator = workspaceDisposalCoordinator
@@ -149,6 +155,8 @@ public sealed class ShellViewModel : ViewModelBase
   public string EmptyStateMessage { get; } = EmptyWorkspaceMessage;
   public HomeShellState Home { get; private set; }
   public WorkspaceShellState Workspace { get; private set; }
+  public ModLibraryViewModel ModLibrary { get; }
+  public CollectionDetailViewModel CollectionDetail { get; }
   public bool HasCompatibilityWarning { get; private set; }
   public ThemeChoice StoredTheme
   {
@@ -169,6 +177,22 @@ public sealed class ShellViewModel : ViewModelBase
   {
     UpdateWorkspaceError(string.Empty);
     SetScreen(ShellScreen.Workspace);
+  }
+
+  public void SelectMod(string modId)
+  {
+    ModLibrary.SelectMod(modId);
+  }
+
+  public void SelectCollection(string? collectionId)
+  {
+    ModLibrary.SelectCollection(collectionId);
+    if (string.IsNullOrWhiteSpace(collectionId))
+    {
+      return;
+    }
+
+    CollectionDetail.SelectCollection(collectionId);
   }
 
   public void ReturnHome() => _ = ReturnHomeAsync();
@@ -254,6 +278,7 @@ public sealed class ShellViewModel : ViewModelBase
         {
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
+          await LoadWorkspaceLibraryAsync(path);
         }
       }
 
@@ -309,6 +334,7 @@ public sealed class ShellViewModel : ViewModelBase
         {
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
+          await LoadWorkspaceLibraryAsync(path);
         }
       }
 
@@ -375,6 +401,7 @@ public sealed class ShellViewModel : ViewModelBase
     try
     {
       await workspaceDisposalCoordinator.DisposeWorkspaceScopeAsync(CancellationToken.None);
+      ClearWorkspaceLibrary();
       SetScreen(ShellScreen.Home);
     }
     catch (OperationCanceledException exception)
@@ -447,6 +474,34 @@ public sealed class ShellViewModel : ViewModelBase
           DefaultWorkspaceDestinations,
           operationError,
           !string.IsNullOrWhiteSpace(operationError));
+
+  private async Task LoadWorkspaceLibraryAsync(string path)
+  {
+    workspaceLibraryQuery?.SetActiveWorkspacePath(path);
+    try
+    {
+      await ModLibrary.LoadAsync(CancellationToken.None);
+      CollectionDetail.Load(ModLibrary.Collections);
+      UpdateWorkspaceError(string.Empty);
+    }
+    catch (Exception exception) when (exception is not OperationCanceledException)
+    {
+      ClearWorkspaceLibraryPanels();
+      UpdateWorkspaceError(exception.Message);
+    }
+  }
+
+  private void ClearWorkspaceLibrary()
+  {
+    workspaceLibraryQuery?.SetActiveWorkspacePath(null);
+    ClearWorkspaceLibraryPanels();
+  }
+
+  private void ClearWorkspaceLibraryPanels()
+  {
+    ModLibrary.Load([], []);
+    CollectionDetail.Load([]);
+  }
 
   private void UpdateWorkspaceError(string operationError)
   {
@@ -533,6 +588,7 @@ public sealed class ShellViewModel : ViewModelBase
     public Func<CancellationToken, Task<string?>> PromptOpenPath { get; init; } = _ => Task.FromResult<string?>(null);
     public CreateWorkspace? CreateWorkspace { get; init; }
     public OpenWorkspace? OpenWorkspace { get; init; }
+    public WorkspaceLibraryQuery? WorkspaceLibraryQuery { get; init; }
     public string DefaultWorkspaceDirectory { get; init; } = Path.GetTempPath();
     public string SettingsDirectory { get; init; } = Path.GetTempPath();
     public IWorkspaceDisposalCoordinator WorkspaceDisposalCoordinator { get; init; } = new WorkspaceDisposalCoordinator();

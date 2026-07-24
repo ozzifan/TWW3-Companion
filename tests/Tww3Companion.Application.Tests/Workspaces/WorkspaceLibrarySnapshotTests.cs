@@ -21,7 +21,7 @@ public sealed class WorkspaceLibrarySnapshotTests
         ]);
 
     Assert.Equal(2, snapshot.Mods.Count);
-    Assert.Equal(1, snapshot.Collections.Count);
+    Assert.Single(snapshot.Collections);
     Assert.Single(snapshot.Memberships);
     Assert.Equal("mod-1", snapshot.Memberships[0].ModId);
   }
