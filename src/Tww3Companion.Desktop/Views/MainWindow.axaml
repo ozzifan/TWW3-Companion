@@ -28,6 +28,10 @@
           <StackPanel Spacing="12">
             <TextBlock FontSize="20" FontWeight="SemiBold" Text="Workspace" />
             <Button HorizontalContentAlignment="Left" Content="Mod Library" AutomationProperties.Name="Mod Library" />
+            <Button HorizontalContentAlignment="Left"
+                    Content="Import into current Workspace"
+                    AutomationProperties.Name="Import into current Workspace"
+                    Command="{Binding ImportIntoCurrentWorkspaceCommand}" />
             <TextBlock Margin="8,8,0,0" FontWeight="SemiBold" Text="Collections" />
             <ItemsControl ItemsSource="{Binding CollectionDetail.Collections}">
               <ItemsControl.ItemTemplate>

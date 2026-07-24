@@ -1,3 +1,4 @@
+using Tww3Companion.Application.Importing;
 using Tww3Companion.Desktop.Services;
 using Tww3Companion.Desktop.ViewModels;
 using Xunit;
@@ -7,15 +8,65 @@ namespace Tww3Companion.Desktop.Tests.ViewModels;
 public sealed class ShellViewModelTests
 {
   [Fact]
-  public void StartsOnHomeWithOnlyFoundationWorkspaceDestinations()
+  public void ShellViewModel_exposes_a_test_import_service_seam()
+  {
+    var shell = ShellViewModel.CreateForTest();
+
+    Assert.NotNull(shell.ImportService);
+  }
+
+  [Fact]
+  public void Home_exposes_import_into_new_workspace()
+  {
+    var shell = ShellViewModel.CreateForTest(importService: new RecordingImportService());
+
+    Assert.Contains("Import into new Workspace", shell.Home.NavigationItems);
+  }
+
+  [Fact]
+  public void Workspace_shell_exposes_import_into_current_workspace()
+  {
+    var shell = ShellViewModel.CreateForTest(importService: new RecordingImportService());
+
+    Assert.Contains("Import into current Workspace", shell.WorkspaceDestinations);
+  }
+
+  [Fact]
+  public async Task Home_import_action_uses_new_workspace_target_context()
+  {
+    var importService = new RecordingImportService();
+    var shell = ShellViewModel.CreateForTest(importService: importService);
+
+    await shell.RunImportIntoNewWorkspaceForTestAsync();
+
+    Assert.Equal(
+        ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
+        importService.LastTargetContext);
+  }
+
+  [Fact]
+  public async Task Workspace_import_action_uses_current_workspace_target_context()
+  {
+    var importService = new RecordingImportService();
+    var shell = ShellViewModel.CreateForTest(importService: importService);
+    shell.SetCurrentWorkspaceIdForTest("workspace-id-123");
+
+    shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
+
+    Assert.Equal(
+        ImportTargetContext.ForCurrentWorkspace("workspace-id-123"),
+        importService.LastTargetContext);
+  }
+
+  [Fact]
+  public void StartsOnHomeWithImportWorkspaceDestination()
   {
     var subject = new ShellViewModel();
 
     Assert.Equal(ShellScreen.Home, subject.CurrentScreen);
-    Assert.Equal(["Mod Library", "Collections"], subject.Workspace.WorkspaceDestinations);
+    Assert.Equal(["Mod Library", "Collections", "Import into current Workspace"], subject.Workspace.WorkspaceDestinations);
     Assert.DoesNotContain(subject.Workspace.WorkspaceDestinations, destination =>
-        destination.Contains("Import", StringComparison.OrdinalIgnoreCase)
-        || destination.Contains("Search", StringComparison.OrdinalIgnoreCase)
+        destination.Contains("Search", StringComparison.OrdinalIgnoreCase)
         || destination.Contains("Profile", StringComparison.OrdinalIgnoreCase)
         || destination.Contains("Health", StringComparison.OrdinalIgnoreCase));
     Assert.Equal("This Workspace contains no Mods or Collections yet. No data has been added.", subject.Workspace.EmptyStateMessage);
@@ -93,5 +144,25 @@ public sealed class ShellViewModelTests
       WasDisposed = true;
       return Task.CompletedTask;
     }
+  }
+
+  private sealed class RecordingImportService : IShellImportService
+  {
+    public ImportTargetContext? LastTargetContext { get; private set; }
+
+    public Task<ImportPreview> BuildPreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken = default)
+    {
+      LastTargetContext = targetContext;
+      return Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+    }
+
+    public Task<ImportOutcome> ApplyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
   }
 }

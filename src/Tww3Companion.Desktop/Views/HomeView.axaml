@@ -17,6 +17,9 @@
         <Button Content="{Binding Home.SecondaryActionLabel}"
                 AutomationProperties.Name="Open Workspace"
                 Command="{Binding OpenWorkspaceCommand}" />
+        <Button Content="Import into new Workspace"
+                AutomationProperties.Name="Import into new Workspace"
+                Command="{Binding ImportIntoNewWorkspaceCommand}" />
       </StackPanel>
 
       <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">

@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Microsoft.Extensions.Logging;
 using Tww3Companion.Application.Abstractions;
 using Tww3Companion.Application.Common;
+using Tww3Companion.Application.Importing;
 using Tww3Companion.Application.Settings;
 using Tww3Companion.Application.Startup;
 using Tww3Companion.Application.Workspaces;
@@ -132,7 +133,9 @@ public sealed class ApplicationComposition
         paths.WorkspacesDirectory,
         Path.GetDirectoryName(paths.SettingsFile)!,
         workspaceDisposalCoordinator,
-        workspaceLibraryQuery);
+        workspaceLibraryQuery: workspaceLibraryQuery,
+        importService: new EngineShellImportService(
+            new ImportEngine(new CompositionWorkspaceImportStore())));
     if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
     {
       shell.EvaluateWorkArea(width, height);
@@ -197,6 +200,53 @@ public sealed class ApplicationComposition
       IWorkspaceStore WorkspaceStore,
       CreateWorkspace CreateWorkspace,
       OpenWorkspace OpenWorkspace);
+
+  private sealed class EngineShellImportService(IImportEngine engine) : IShellImportService
+  {
+    public Task<ImportPreview> BuildPreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken = default) =>
+        engine.BuildPreviewAsync(targetContext, candidates, cancellationToken);
+
+    public Task<ImportOutcome> ApplyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default) =>
+        engine.ApplyAsync(preview, confirm, cancellationToken);
+  }
+
+  private sealed class CompositionWorkspaceImportStore : IWorkspaceImportStore
+  {
+    public Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
+        ImportTargetContext targetContext,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<ImportCandidate>>([]);
+
+    public Task<bool> ModExistsAsync(
+        ImportTargetContext.CurrentWorkspace targetContext,
+        string modId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+
+    public Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
+        ImportPreview preview,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: preview.Applied));
+
+    public Task<ImportPreview> SavePreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<ImportCandidate> candidates,
+        IReadOnlyList<ImportResolution> resolutions,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+
+    public Task<ImportOutcome> CommitAtomicallyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+  }
 }
 
 public sealed class CompositionTestOptions
