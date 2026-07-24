@@ -39,6 +39,7 @@ Final say on what ships and what is out of scope.
 - Help articulate goals, non-goals, and philosophy before implementation
 - Review documentation for clarity and consistency
 - Suggest RFC outlines when new features are proposed
+- When authoring a new task for implementation, route it through the orchestrator every time; do not create or delegate task work ad hoc outside the orchestrator flow.
 
 ### Boundaries
 
@@ -115,6 +116,8 @@ Agents and contributors should:
 | Implementation | Implementation Partner (or human developers) |
 | Deep review | Documentation Reviewer, human reviewers |
 | Merge | Human with repository access |
+
+Implementation tasks must be handed to the orchestrator each time so the approved role bindings and review gates remain rigid.
 
 ---
 

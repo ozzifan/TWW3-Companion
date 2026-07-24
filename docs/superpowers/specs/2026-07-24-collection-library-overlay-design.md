@@ -10,6 +10,8 @@ The desktop shell already exposes a workspace area with a mod library panel and 
 
 The product rule is that the user works in one workspace at a time, but the workspace still needs access to the global mod catalog so every available mod can be shown and membership can be indicated.
 
+Implementation tasks for this feature must be routed through the orchestrator every time; no ad hoc task execution outside the orchestrator flow.
+
 ## Design
 
 The read path will be a workspace-scoped overlay on top of the global mod catalog:
@@ -53,4 +55,3 @@ Cover the following:
 - No multi-workspace switching
 - No duplication of the global catalog into workspace-local storage
 - No persistence schema expansion beyond what is needed for the read overlay
-

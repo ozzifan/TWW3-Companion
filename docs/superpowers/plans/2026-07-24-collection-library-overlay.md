@@ -15,6 +15,7 @@
 - The desktop must render a full library view and mark membership for the selected workspace.
 - Do not duplicate the global catalog into workspace-local storage just for the UI.
 - Keep error handling boring: if the query fails, show the existing workspace error surface and leave the panels empty.
+- Implementation tasks for this feature must be routed through the orchestrator every time; do not author or delegate task work ad hoc outside that flow.
 
 ---
 
