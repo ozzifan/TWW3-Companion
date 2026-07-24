@@ -37,7 +37,8 @@ public sealed class MainWindowLayoutTests
     Assert.Contains("AutomationProperties.Name=\"Return Home\"", text);
     Assert.Contains(":focus-visible", text);
     Assert.Contains("This Workspace contains no Mods or Collections yet. No data has been added.", text);
-    Assert.DoesNotContain(">Import<", text, StringComparison.OrdinalIgnoreCase);
+    Assert.Contains("Import into current Workspace", text);
+    Assert.Contains("Command=\"{Binding ImportIntoCurrentWorkspaceCommand}\"", text);
     Assert.DoesNotContain(">Search<", text, StringComparison.OrdinalIgnoreCase);
     Assert.DoesNotContain(">Profiles<", text, StringComparison.OrdinalIgnoreCase);
     Assert.DoesNotContain(">Health<", text, StringComparison.OrdinalIgnoreCase);
