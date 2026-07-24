@@ -1,38 +1,49 @@
-# Task 4 Report: Steam preview/handoff verification
+# Task 4 Report: Create a new Workspace and initial Collection atomically
 
 ## Status
 
-Completed.
+DONE
 
-## Delivered scope
+## TDD Evidence
 
-- Added `SteamImportService` as the application-layer preview/handoff entry point for Steam import results.
-- Preview always returns a non-applied copy of the Steam import result.
-- Confirmed apply validates the preview and marks it applied when confirmation is granted.
-- Added focused tests for the collection action, the multi-item single-item action, and the applied flag.
+### RED (Step 2)
 
-## Test-first evidence
+`NewImport` filter: 7 failed with `NotImplementedException` before implementation.
 
-The required filtered test command initially failed to compile because `SteamImportService` and the applied-state handling did not exist.
+### GREEN (Steps 6–7)
 
-After the minimal service contract was added, the same focused command passed 3/3 tests.
+```text
+SqliteWorkspaceCatalogStoreTests + SqliteWorkspaceStoreTests + WorkspaceBackupServiceTests: 26 passed
+git diff --check: clean (committed files)
+```
 
-## Verification
+## Files Changed
 
-- Focused Steam handoff behavior:
-  `dotnet test tests/Tww3Companion.Application.Tests --filter "SteamCollection_preview_uses_the_collection_action|SteamSingleItem_preview_accepts_multiple_items|SteamImport_apply_marks_the_preview_as_applied_when_confirmed" -v normal`
-  Result: 3 passed, 0 warnings, 0 errors.
-- Full application test project:
-  `dotnet test tests/Tww3Companion.Application.Tests -v minimal`
-  Result: 30 passed, 0 warnings, 0 errors.
-- `git diff --check` completed without whitespace errors.
+| File | Change |
+|------|--------|
+| `src/Tww3Companion.Infrastructure/Storage/SqliteWorkspaceCatalogStore.cs` | Implemented `CommitNewWorkspaceAtomicallyAsync`; added `InsertCollectionAsync`, `PersistCandidatesAsync`, `CreateWorkspaceIdentity` |
+| `tests/Tww3Companion.Infrastructure.Tests/Storage/SqliteWorkspaceCatalogStoreTests.cs` | Added 7 `NewImport_*` tests, `CreateDeterministicStore`, `ReadWorkspaceNameAsync`, `FixedClock`, `MoveFailingAtomicFileSystem` |
 
-## Self-review
+## Implementation Notes
 
-- Verified the Steam collection and single-item adapters remain distinct.
-- Verified the new Steam preview/handoff service is application-layer only and does not touch persistence.
-- Verified the Steam result now carries the applied flag needed for the shared handoff contract.
+- Sibling temp file: `{destination}.{uuid without dashes}.tmp`; destination-exists guard; write probe before create.
+- Single transaction: `SchemaV2.InitializeAsync`, collection insert, candidate persist, schema validate, commit; connection closed before `MoveWithoutOverwrite`.
+- Success returns `ImportTargetContext.ForCurrentWorkspace` only after move completes.
+- Failure cleanup via injected `deleteOwnedFile`; IOException/UnauthorizedAccessException on cleanup ignored after preserving primary error.
+- Reuses `ResolveOrCreateModAsync` / `EnsureMembershipAsync` and `afterCandidatePersisted` seam from Task 3.
+
+## Self-Review
+
+- Brief semantics followed verbatim (temp ownership, non-overwriting move, atomic transaction, typed failures).
+- All failure cases leave no destination or orphan `.tmp` sibling.
+- Scope limited to Task 4 files; `.superpowers/` and `.orchestrator-work-packet.json` excluded from commit.
 
 ## Concerns
 
-The default metadata client remains intentionally unconfigured; production still needs a real injected/configured `ISteamMetadataClient`. That is outside this task’s scope and was already accepted in Tasks 2 and 3.
+None blocking. Task 5 still needed to wire production composition.
+
+## Commit
+
+- **Subject:** `feat: persist new workspace imports atomically`
+- **Hash:** `310bd21`
+- **Files:** catalog store + tests (per brief)
