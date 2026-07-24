@@ -22,6 +22,10 @@ public sealed class HomeCompositionTests
     Assert.Equal("Open Workspace", subject.Home.SecondaryActionLabel);
     Assert.Contains(subject.Home.Recents, recent => recent.DisplayName == "Missing Workspace");
     Assert.Equal("This Workspace contains no Mods or Collections yet. No data has been added.", subject.Workspace.EmptyStateMessage);
+    Assert.NotNull(subject.Library);
+    Assert.NotNull(subject.Collections);
+    Assert.Empty(subject.Library.Mods);
+    Assert.Empty(subject.Collections.Collections);
     Assert.DoesNotContain(subject.Home.NavigationItems, item => item.Contains("Import", StringComparison.OrdinalIgnoreCase));
   }
 

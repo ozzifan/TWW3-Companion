@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Windows.Input;
+using Tww3Companion.Application.Workspaces;
 
 namespace Tww3Companion.Desktop.ViewModels;
 
@@ -110,14 +112,32 @@ public sealed class ModDetailInspectorViewModel : ViewModelBase
 
 public sealed class ModLibraryViewModel : ViewModelBase
 {
+  private readonly IWorkspaceQuery? workspaceQuery;
   private readonly ObservableCollection<ModListItemViewModel> mods = [];
   private readonly Dictionary<string, ModListItemViewModel> modsById = new(StringComparer.OrdinalIgnoreCase);
   private readonly Dictionary<string, CollectionSummary> collectionsById = new(StringComparer.OrdinalIgnoreCase);
   private string? selectedCollectionId;
+  private readonly DelegateCommand selectModCommand;
+  private readonly DelegateCommand selectCollectionCommand;
 
-  public ModLibraryViewModel()
+  public ModLibraryViewModel(IWorkspaceQuery? workspaceQuery = null)
   {
+    this.workspaceQuery = workspaceQuery;
     Inspector = new ModDetailInspectorViewModel();
+    selectModCommand = new DelegateCommand(parameter =>
+    {
+      if (parameter is string modId)
+      {
+        SelectMod(modId);
+      }
+    });
+    selectCollectionCommand = new DelegateCommand(parameter =>
+    {
+      if (parameter is string collectionId)
+      {
+        SelectCollection(collectionId);
+      }
+    });
   }
 
   public IReadOnlyList<ModListItemViewModel> Mods => mods;
@@ -125,6 +145,10 @@ public sealed class ModLibraryViewModel : ViewModelBase
   public IReadOnlyList<CollectionSummary> Collections => collectionsById.Values.ToList();
 
   public ModDetailInspectorViewModel Inspector { get; }
+
+  public ICommand SelectModCommand => selectModCommand;
+
+  public ICommand SelectCollectionCommand => selectCollectionCommand;
 
   public CollectionSummary? SelectedCollection =>
       selectedCollectionId is null || !collectionsById.TryGetValue(selectedCollectionId, out var collection)
@@ -168,6 +192,41 @@ public sealed class ModLibraryViewModel : ViewModelBase
     OnPropertyChanged(nameof(HasMods));
   }
 
+  public async Task LoadAsync(CancellationToken cancellationToken = default)
+  {
+    if (workspaceQuery is null)
+    {
+      Load([]);
+      return;
+    }
+
+    var snapshot = await workspaceQuery.GetSnapshotAsync(cancellationToken);
+    var collectionSummaries = snapshot.Collections
+        .Select(collection => new CollectionSummary(
+            collection.CollectionId,
+            collection.DisplayName,
+            snapshot.Memberships.Count(membership => membership.CollectionId == collection.CollectionId)))
+        .ToArray();
+
+    var membershipsByModId = snapshot.Memberships
+        .GroupBy(membership => membership.ModId, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(
+            group => group.Key,
+            group => group
+                .Select(membership => snapshot.Collections.FirstOrDefault(collection => collection.CollectionId == membership.CollectionId)?.DisplayName)
+                .Where(displayName => !string.IsNullOrWhiteSpace(displayName))
+                .Select(displayName => displayName!)
+                .ToArray(),
+            StringComparer.OrdinalIgnoreCase);
+
+    Load(
+        snapshot.Mods.Select(mod => new ModLibraryItem(
+            mod.ModId,
+            mod.DisplayName,
+            CollectionNames: membershipsByModId.TryGetValue(mod.ModId, out var collectionNames) ? collectionNames : [])).ToArray(),
+        collectionSummaries);
+  }
+
   public void SelectCollection(string? collectionId)
   {
     selectedCollectionId = string.IsNullOrWhiteSpace(collectionId) ? null : collectionId;
@@ -195,12 +254,35 @@ public sealed class ModLibraryViewModel : ViewModelBase
       mod.SetSelectedCollectionMembership(isMember);
     }
   }
+
+  private sealed class DelegateCommand(Action<object?> execute) : ICommand
+  {
+#pragma warning disable CS0067
+    public event EventHandler? CanExecuteChanged;
+#pragma warning restore CS0067
+    public bool CanExecute(object? parameter) => true;
+    public void Execute(object? parameter) => execute(parameter);
+  }
 }
 
 public sealed class CollectionDetailViewModel : ViewModelBase
 {
+  private readonly IWorkspaceQuery? workspaceQuery;
   private readonly ObservableCollection<CollectionSummary> collections = [];
   private CollectionSummary? selectedCollection;
+  private readonly DelegateCommand selectCollectionCommand;
+
+  public CollectionDetailViewModel(IWorkspaceQuery? workspaceQuery = null)
+  {
+    this.workspaceQuery = workspaceQuery;
+    selectCollectionCommand = new DelegateCommand(parameter =>
+    {
+      if (parameter is string collectionId)
+      {
+        SelectCollection(collectionId);
+      }
+    });
+  }
 
   public IReadOnlyList<CollectionSummary> Collections => collections;
 
@@ -223,6 +305,8 @@ public sealed class CollectionDetailViewModel : ViewModelBase
   }
 
   public bool HasSelection => SelectedCollection is not null;
+
+  public ICommand SelectCollectionCommand => selectCollectionCommand;
 
   public bool IsEmpty => SelectedCollection is null || SelectedCollection.MemberCount == 0;
 
@@ -249,8 +333,32 @@ public sealed class CollectionDetailViewModel : ViewModelBase
     OnPropertyChanged(nameof(Collections));
   }
 
+  public async Task LoadAsync(CancellationToken cancellationToken = default)
+  {
+    if (workspaceQuery is null)
+    {
+      Load([]);
+      return;
+    }
+
+    var snapshot = await workspaceQuery.GetSnapshotAsync(cancellationToken);
+    Load(snapshot.Collections.Select(collection => new CollectionSummary(
+        collection.CollectionId,
+        collection.DisplayName,
+        snapshot.Memberships.Count(membership => membership.CollectionId == collection.CollectionId))).ToArray());
+  }
+
   public void SelectCollection(string collectionId)
   {
     SelectedCollection = collections.FirstOrDefault(collection => collection.CollectionId == collectionId);
+  }
+
+  private sealed class DelegateCommand(Action<object?> execute) : ICommand
+  {
+#pragma warning disable CS0067
+    public event EventHandler? CanExecuteChanged;
+#pragma warning restore CS0067
+    public bool CanExecute(object? parameter) => true;
+    public void Execute(object? parameter) => execute(parameter);
   }
 }

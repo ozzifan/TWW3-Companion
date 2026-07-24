@@ -50,6 +50,7 @@ public sealed class ShellViewModel : ViewModelBase
   private bool _isHighContrast;
   private ApplicationSettings settings;
   private readonly IApplicationSettingsStore settingsStore;
+  private readonly IWorkspaceQuery? workspaceQuery;
   private readonly Func<CancellationToken, Task<string?>> promptCreateDisplayName;
   private readonly Func<CancellationToken, Task<string?>> promptOpenPath;
   private readonly CreateWorkspace? createWorkspace;
@@ -72,6 +73,7 @@ public sealed class ShellViewModel : ViewModelBase
     settingsStore = options.SettingsStore;
     settings = options.InitialSettings ?? settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
     _storedTheme = ParseTheme(settings.Theme);
+    workspaceQuery = options.WorkspaceQuery;
     promptCreateDisplayName = options.PromptCreateDisplayName;
     promptOpenPath = options.PromptOpenPath;
     createWorkspace = options.CreateWorkspace;
@@ -83,6 +85,9 @@ public sealed class ShellViewModel : ViewModelBase
     // RFC-0005 keeps Home navigation in the shared shell; the next slice adds Import here.
     Home = CreateHomeState(WorkspaceOperationState.Idle, string.Empty);
     Workspace = CreateWorkspaceState(string.Empty);
+    Library = new ModLibraryViewModel(workspaceQuery);
+    Collections = new CollectionDetailViewModel(workspaceQuery);
+    _ = LoadWorkspacePanelsAsync();
     createWorkspaceCommand = new DelegateCommand(_ => _ = RunCreateWorkspaceAsync(), _ => !Home.IsBusy);
     openWorkspaceCommand = new DelegateCommand(_ => _ = RunOpenWorkspaceAsync(), _ => !Home.IsBusy);
     removeRecentCommand = new DelegateCommand(
@@ -149,6 +154,8 @@ public sealed class ShellViewModel : ViewModelBase
   public string EmptyStateMessage { get; } = EmptyWorkspaceMessage;
   public HomeShellState Home { get; private set; }
   public WorkspaceShellState Workspace { get; private set; }
+  public ModLibraryViewModel Library { get; }
+  public CollectionDetailViewModel Collections { get; }
   public bool HasCompatibilityWarning { get; private set; }
   public ThemeChoice StoredTheme
   {
@@ -448,6 +455,12 @@ public sealed class ShellViewModel : ViewModelBase
           operationError,
           !string.IsNullOrWhiteSpace(operationError));
 
+  private async Task LoadWorkspacePanelsAsync()
+  {
+    await Library.LoadAsync(CancellationToken.None);
+    await Collections.LoadAsync(CancellationToken.None);
+  }
+
   private void UpdateWorkspaceError(string operationError)
   {
     if (Workspace.OperationError == operationError)
@@ -536,6 +549,7 @@ public sealed class ShellViewModel : ViewModelBase
     public string DefaultWorkspaceDirectory { get; init; } = Path.GetTempPath();
     public string SettingsDirectory { get; init; } = Path.GetTempPath();
     public IWorkspaceDisposalCoordinator WorkspaceDisposalCoordinator { get; init; } = new WorkspaceDisposalCoordinator();
+    public IWorkspaceQuery? WorkspaceQuery { get; init; }
   }
 
   private sealed class InMemoryApplicationSettingsStore(ApplicationSettings initialSettings) : IApplicationSettingsStore

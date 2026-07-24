@@ -3,6 +3,7 @@
         xmlns:views="using:Tww3Companion.Desktop.Views"
         xmlns:vm="using:Tww3Companion.Desktop.ViewModels"
         x:Class="Tww3Companion.Desktop.Views.MainWindow"
+        x:Name="RootWindow"
         x:DataType="vm:ShellViewModel"
         Title="TWW3 Companion"
         Width="1280" Height="800" MinWidth="1024" MinHeight="640">
@@ -27,9 +28,8 @@
         <ScrollViewer AutomationProperties.Name="Workspace navigation">
           <StackPanel Spacing="12">
             <TextBlock FontSize="20" FontWeight="SemiBold" Text="Workspace" />
-            <Button HorizontalContentAlignment="Left" Content="Mod Library" AutomationProperties.Name="Mod Library" />
-            <TextBlock Margin="8,8,0,0" FontWeight="SemiBold" Text="Collections" />
-            <TextBlock Margin="8,0,0,0" Text="No Collections" />
+            <TextBlock AutomationProperties.Name="Mod Library" Text="Mod Library" />
+            <TextBlock AutomationProperties.Name="Collections" Text="Collections" />
             <Button Margin="0,24,0,0" HorizontalContentAlignment="Left" Content="Return Home" AutomationProperties.Name="Return Home" Command="{Binding ReturnHomeCommand}" />
             <Border Padding="8" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
                     IsVisible="{Binding Workspace.HasOperationError}"
@@ -45,6 +45,23 @@
           <StackPanel Spacing="16">
             <TextBlock FontSize="24" FontWeight="SemiBold" Text="Mod Library" />
             <TextBlock TextWrapping="Wrap" Text="This Workspace contains no Mods or Collections yet. No data has been added." />
+            <ItemsControl ItemsSource="{Binding Library.Mods}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ModListItemViewModel">
+                  <Button HorizontalContentAlignment="Left"
+                          Margin="0,0,0,12"
+                          Command="{Binding DataContext.Library.SelectModCommand, ElementName=RootWindow}"
+                          CommandParameter="{Binding Mod.ModId}">
+                    <StackPanel Spacing="4">
+                      <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
+                    <TextBlock Text="{Binding WorkshopId}" />
+                    <TextBlock Text="{Binding SourceReference}" />
+                    <TextBlock IsVisible="{Binding HasSelectedCollectionMarker}" Text="In selected collection" />
+                    </StackPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </ScrollViewer>
       </Border>
@@ -53,7 +70,26 @@
         <ScrollViewer AutomationProperties.Name="Mod detail">
           <StackPanel Spacing="16">
             <TextBlock FontSize="24" FontWeight="SemiBold" Text="Details" />
-            <TextBlock TextWrapping="Wrap" Text="Select a Mod to view its shared details." />
+            <TextBlock TextWrapping="Wrap" Text="{Binding Library.Inspector.DisplayName}" />
+            <TextBlock TextWrapping="Wrap" Text="{Binding Library.Inspector.WorkshopId}" />
+            <TextBlock TextWrapping="Wrap" Text="{Binding Library.Inspector.Author}" />
+            <TextBlock TextWrapping="Wrap" Text="{Binding Library.Inspector.SourceReference}" />
+            <TextBlock TextWrapping="Wrap" Text="{Binding Library.Inspector.DateAdded}" />
+            <ItemsControl ItemsSource="{Binding Collections.Collections}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:CollectionSummary">
+                  <Button HorizontalContentAlignment="Left"
+                          Command="{Binding DataContext.Collections.SelectCollectionCommand, ElementName=RootWindow}"
+                          CommandParameter="{Binding CollectionId}">
+                    <StackPanel Spacing="2">
+                      <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
+                      <TextBlock Text="{Binding MemberCount}" />
+                    </StackPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock TextWrapping="Wrap" Text="{Binding Collections.EmptyCollectionPrompt}" />
           </StackPanel>
         </ScrollViewer>
       </Border>
