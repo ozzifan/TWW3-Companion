@@ -81,6 +81,8 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly DelegateCommand importIntoNewWorkspaceCommand;
   private readonly DelegateCommand importIntoCurrentWorkspaceCommand;
   private string? currentWorkspaceId;
+  private string? currentWorkspacePath;
+  private string? currentCollectionId;
   private bool isDisposingWorkspace;
 
   public ShellViewModel() : this(CreateDefaultOptions())
@@ -117,7 +119,9 @@ public sealed class ShellViewModel : ViewModelBase
     importIntoNewWorkspaceCommand = new DelegateCommand(_ => _ = RunImportIntoNewWorkspaceAsync());
     importIntoCurrentWorkspaceCommand = new DelegateCommand(
         _ => _ = RunImportIntoCurrentWorkspaceAsync(currentWorkspaceId),
-        _ => !string.IsNullOrWhiteSpace(currentWorkspaceId));
+        _ => !string.IsNullOrWhiteSpace(currentWorkspaceId) &&
+             !string.IsNullOrWhiteSpace(currentWorkspacePath) &&
+             !string.IsNullOrWhiteSpace(currentCollectionId));
 
     CreateWorkspaceCommand = createWorkspaceCommand;
     OpenWorkspaceCommand = openWorkspaceCommand;
@@ -223,10 +227,14 @@ public sealed class ShellViewModel : ViewModelBase
     ModLibrary.SelectCollection(collectionId);
     if (string.IsNullOrWhiteSpace(collectionId))
     {
+      currentCollectionId = null;
+      importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
       return;
     }
 
     CollectionDetail.SelectCollection(collectionId);
+    currentCollectionId = CollectionDetail.SelectedCollection?.CollectionId;
+    importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
   }
 
   public void ReturnHome() => _ = ReturnHomeAsync();
@@ -277,28 +285,91 @@ public sealed class ShellViewModel : ViewModelBase
 
   public Task RunImportIntoNewWorkspaceForTestAsync() => RunImportIntoNewWorkspaceAsync();
 
-  public Task RunImportIntoCurrentWorkspaceForTestAsync(string workspaceId) =>
-      RunImportIntoCurrentWorkspaceAsync(workspaceId);
+  public Task RunImportIntoCurrentWorkspaceForTestAsync(
+      string workspaceId,
+      string workspacePath,
+      string collectionId) =>
+      RunImportIntoCurrentWorkspaceAsync(
+          workspaceId,
+          workspacePath,
+          collectionId);
 
-  public void SetCurrentWorkspaceIdForTest(string workspaceId)
+  public async Task<ImportOutcome> ApplyImportPreviewAsync(
+      ImportPreview preview,
+      bool confirm,
+      CancellationToken cancellationToken = default)
+  {
+    try
+    {
+      var outcome = await importService.ApplyAsync(
+          preview,
+          confirm,
+          cancellationToken);
+      if (outcome.Applied &&
+          outcome.TargetContext is
+              ImportTargetContext.CurrentWorkspace current)
+      {
+        await LoadWorkspaceLibraryAsync(current.WorkspacePath);
+      }
+
+      return outcome;
+    }
+    catch (ImportPersistenceException exception)
+    {
+      UpdateWorkspaceError(exception.Error.Message);
+      throw;
+    }
+  }
+
+  public void SetCurrentWorkspaceImportTargetForTest(
+      string workspaceId,
+      string workspacePath,
+      string collectionId)
   {
     currentWorkspaceId = workspaceId;
+    currentWorkspacePath = workspacePath;
+    currentCollectionId = collectionId;
     importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
   }
 
+  public void SetCurrentWorkspaceIdForTest(string workspaceId) =>
+      SetCurrentWorkspaceImportTargetForTest(
+          workspaceId,
+          "C:\\Workspaces\\current.tww3c",
+          "collection-id-123");
+
   private Task RunImportIntoNewWorkspaceAsync() =>
       importService.BuildPreviewAsync(
-          ImportTargetContext.ForNewWorkspace("My New Workspace", "C:\\Workspaces\\my-new.tww3c"),
+          ImportTargetContext.ForNewWorkspace(
+              "My New Workspace",
+              "C:\\Workspaces\\my-new.tww3c",
+              "Imported Collection"),
           []);
 
-  private Task RunImportIntoCurrentWorkspaceAsync(string? workspaceId)
+  private Task RunImportIntoCurrentWorkspaceAsync(string? workspaceId) =>
+      RunImportIntoCurrentWorkspaceAsync(
+          workspaceId,
+          currentWorkspacePath,
+          currentCollectionId);
+
+  private Task RunImportIntoCurrentWorkspaceAsync(
+      string? workspaceId,
+      string? workspacePath,
+      string? collectionId)
   {
-    if (string.IsNullOrWhiteSpace(workspaceId))
+    if (string.IsNullOrWhiteSpace(workspaceId) ||
+        string.IsNullOrWhiteSpace(workspacePath) ||
+        string.IsNullOrWhiteSpace(collectionId))
     {
       return Task.CompletedTask;
     }
 
-    return importService.BuildPreviewAsync(ImportTargetContext.ForCurrentWorkspace(workspaceId), []);
+    return importService.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            workspaceId,
+            workspacePath,
+            collectionId),
+        []);
   }
 
   private async Task RunCreateWorkspaceAsync()
@@ -337,6 +408,7 @@ public sealed class ShellViewModel : ViewModelBase
         else if (result is OperationResult<Workspace>.Success success)
         {
           currentWorkspaceId = success.Value.Id.ToString();
+          currentWorkspacePath = path;
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
@@ -395,6 +467,7 @@ public sealed class ShellViewModel : ViewModelBase
         else if (result is OperationResult<Workspace>.Success success)
         {
           currentWorkspaceId = success.Value.Id.ToString();
+          currentWorkspacePath = path;
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
@@ -466,6 +539,8 @@ public sealed class ShellViewModel : ViewModelBase
     {
       await workspaceDisposalCoordinator.DisposeWorkspaceScopeAsync(CancellationToken.None);
       currentWorkspaceId = null;
+      currentWorkspacePath = null;
+      currentCollectionId = null;
       importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
       ClearWorkspaceLibrary();
       SetScreen(ShellScreen.Home);

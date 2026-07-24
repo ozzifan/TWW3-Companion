@@ -29,21 +29,18 @@ public sealed class WorkspaceFileValidator
       var hasHeader = await HasSqliteHeaderAsync(path, token);
       if (!hasHeader) return Failure("workspace.file.invalid", "The selected file is not a Workspace.");
       await using var connection = await connectionFactory.OpenAsync(path, token);
-      await using var command = connection.CreateCommand();
-      command.CommandText = """
+      await using var metadata = connection.CreateCommand();
+      metadata.CommandText = """
                 SELECT singleton, application_id, schema_version FROM application_metadata;
-                SELECT version, applied_utc FROM schema_migrations;
                 SELECT singleton, id, display_name, created_utc, modified_utc FROM workspace;
-                SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;
                 """;
-      await using var reader = await command.ExecuteReaderAsync(token);
+      await using var reader = await metadata.ExecuteReaderAsync(token);
       if (!await reader.ReadAsync(token) || reader.GetInt64(0) != 1 || reader.GetString(1) != SchemaV1.ApplicationId)
         return Failure("workspace.file.invalid", "The selected SQLite file is not a TWW3 Companion Workspace.");
       var version = reader.GetInt32(2);
       if (version > SchemaVersion.Current) return Failure("workspace.schema.newer", "This Workspace was created by a newer application version.");
       if (version < 1 || await reader.ReadAsync(token)) return Failure("workspace.file.invalid", "Workspace metadata is invalid.");
-      if (!await reader.NextResultAsync(token) || !await reader.ReadAsync(token) || reader.GetInt32(0) != 1 ||
-          !TryUtc(reader.GetString(1), out _) || await reader.ReadAsync(token))
+      if (!await ValidateMigrationMetadataAsync(connection, version, token))
         return Failure("workspace.file.invalid", "Workspace migration metadata is invalid.");
       if (!await reader.NextResultAsync(token) || !await reader.ReadAsync(token) || reader.GetInt64(0) != 1)
         return Failure("workspace.identity.invalid", "Workspace identity is missing or invalid.");
@@ -56,26 +53,18 @@ public sealed class WorkspaceFileValidator
           !TryUtc(createdText, out var created) || !TryUtc(modifiedText, out var modified) ||
           Workspace.Create(id.Value, name.Value, created, modified) is not ValidationResult<Workspace>.Success workspace)
         return Failure("workspace.identity.invalid", "Workspace identity is invalid.");
-      if (!await reader.NextResultAsync(token)) return Failure("workspace.file.invalid", "Workspace structure is invalid.");
-      var tables = new List<string>();
-      while (await reader.ReadAsync(token)) tables.Add(reader.GetString(0));
-      if (!tables.SequenceEqual(["application_metadata", "schema_migrations", "workspace"]))
+      try
+      {
+        await WorkspaceSchemaInspector.ValidateAsync(connection, null, version, token);
+      }
+      catch (WorkspaceSchemaStructureException)
+      {
         return Failure("workspace.file.invalid", "Workspace structure is invalid.");
-      await reader.DisposeAsync();
-      if (!await HasColumnsAsync(connection, "application_metadata",
-              ["singleton|INTEGER|0|1", "application_id|TEXT|1|0", "schema_version|INTEGER|1|0"], token) ||
-          !await HasColumnsAsync(connection, "schema_migrations",
-              ["version|INTEGER|0|1", "applied_utc|TEXT|1|0"], token) ||
-          !await HasColumnsAsync(connection, "workspace",
-              ["singleton|INTEGER|0|1", "id|TEXT|1|0", "display_name|TEXT|1|0", "created_utc|TEXT|1|0", "modified_utc|TEXT|1|0"], token))
-        return Failure("workspace.file.invalid", "Workspace structure is invalid.");
-      await using var check = connection.CreateCommand();
-      check.CommandText = "PRAGMA integrity_check; PRAGMA foreign_key_check;";
-      await using var checkReader = await check.ExecuteReaderAsync(token);
-      if (!await checkReader.ReadAsync(token) || checkReader.GetString(0) != "ok" || await checkReader.ReadAsync(token))
-        return Failure("workspace.file.corrupt", "The Workspace database is corrupt.");
-      if (!await checkReader.NextResultAsync(token) || await checkReader.ReadAsync(token))
-        return Failure("workspace.file.corrupt", "The Workspace database has invalid relationships.");
+      }
+      catch (WorkspaceSchemaIntegrityException exception)
+      {
+        return Failure("workspace.file.corrupt", exception.Message);
+      }
       return new OperationResult<Workspace>.Success(workspace.Value);
     }
     catch (UnauthorizedAccessException) { return Failure("workspace.access.denied", "Access to the Workspace was denied."); }
@@ -85,23 +74,45 @@ public sealed class WorkspaceFileValidator
     catch (SqliteException) { return Failure("workspace.file.invalid", "The selected file is not a valid Workspace."); }
   }
 
-  private static bool TryUtc(string text, out DateTimeOffset value) =>
-      DateTimeOffset.TryParseExact(text, "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out value) && value.Offset == TimeSpan.Zero;
+  internal async Task<int?> ReadSchemaVersionAsync(string path, CancellationToken token)
+  {
+    if (!File.Exists(path)) return null;
+    if (!await HasSqliteHeaderAsync(path, token)) return null;
+    try
+    {
+      await using var connection = await connectionFactory.OpenAsync(path, token);
+      await using var command = connection.CreateCommand();
+      command.CommandText = "SELECT schema_version FROM application_metadata WHERE singleton=1;";
+      var result = await command.ExecuteScalarAsync(token);
+      return result is long value ? (int)value : null;
+    }
+    catch (SqliteException)
+    {
+      return null;
+    }
+  }
 
-  private static async Task<bool> HasColumnsAsync(
+  private static async Task<bool> ValidateMigrationMetadataAsync(
       SqliteConnection connection,
-      string table,
-      IReadOnlyList<string> expected,
+      int schemaVersion,
       CancellationToken token)
   {
     await using var command = connection.CreateCommand();
-    command.CommandText = $"PRAGMA table_info({table});";
+    command.CommandText = "SELECT version, applied_utc FROM schema_migrations ORDER BY version;";
     await using var reader = await command.ExecuteReaderAsync(token);
-    var actual = new List<string>();
+    var seen = 0;
     while (await reader.ReadAsync(token))
-      actual.Add($"{reader.GetString(1)}|{reader.GetString(2)}|{reader.GetInt32(3)}|{reader.GetInt32(5)}");
-    return actual.SequenceEqual(expected);
+    {
+      seen++;
+      if (reader.GetInt32(0) != seen || !TryUtc(reader.GetString(1), out _))
+        return false;
+    }
+
+    return seen == schemaVersion;
   }
+
+  private static bool TryUtc(string text, out DateTimeOffset value) =>
+      DateTimeOffset.TryParseExact(text, "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out value) && value.Offset == TimeSpan.Zero;
 
   private async Task<bool> HasSqliteHeaderAsync(string path, CancellationToken token)
   {

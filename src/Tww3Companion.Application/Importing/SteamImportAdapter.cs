@@ -35,7 +35,7 @@ internal static class SteamImportAdapter
     return new SteamImportResult(candidates, diagnostics);
   }
 
-  private static bool TryGetWorkshopItemId(string sourceReference, out string workshopItemId)
+  internal static bool TryGetWorkshopItemId(string sourceReference, out string workshopItemId)
   {
     if (sourceReference.All(char.IsAsciiDigit))
     {

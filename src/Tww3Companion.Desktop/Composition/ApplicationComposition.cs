@@ -14,6 +14,8 @@ using Tww3Companion.Infrastructure.Paths;
 using Tww3Companion.Infrastructure.Settings;
 using Tww3Companion.Infrastructure.Startup;
 using Tww3Companion.Infrastructure.Storage;
+using Tww3Companion.Infrastructure.Storage.Backups;
+using Tww3Companion.Infrastructure.Storage.Migrations;
 
 namespace Tww3Companion.Desktop.Composition;
 
@@ -118,8 +120,31 @@ public sealed class ApplicationComposition
     var loggingProvider = LoggingConfiguration.CreateProvider(paths);
     var settingsStore = new JsonApplicationSettingsStore(paths.SettingsFile);
     var settings = settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
-    var lifecycle = CreateWorkspaceLifecycle(settingsStore);
-    var workspaceLibraryQuery = new WorkspaceLibraryQuery(lifecycle.WorkspaceStore);
+    var clock = new SystemClock();
+    var uuidGenerator = new GuidUuidGenerator();
+    var connectionFactory = new SqliteConnectionFactory();
+    var backupService = new WorkspaceBackupService(
+        connectionFactory,
+        paths,
+        clock);
+    var migrationRunner = new MigrationRunner(
+        connectionFactory,
+        backupService,
+        clock,
+        [new MigrateV1ToV2()]);
+    var workspaceStore = new SqliteWorkspaceStore(
+        connectionFactory,
+        migrationRunner: migrationRunner);
+    var catalogStore = new SqliteWorkspaceCatalogStore(
+        connectionFactory,
+        uuidGenerator,
+        clock);
+    var workspaceLibraryQuery = new WorkspaceLibraryQuery(catalogStore);
+    var lifecycle = CreateWorkspaceLifecycle(
+        settingsStore,
+        workspaceStore,
+        clock,
+        uuidGenerator);
     var workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator();
 
     TopLevel? topLevel = null;
@@ -135,7 +160,7 @@ public sealed class ApplicationComposition
         workspaceDisposalCoordinator,
         workspaceLibraryQuery: workspaceLibraryQuery,
         importService: new EngineShellImportService(
-            new ImportEngine(new CompositionWorkspaceImportStore())));
+            new ImportEngine(catalogStore)));
     if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
     {
       shell.EvaluateWorkArea(width, height);
@@ -152,15 +177,15 @@ public sealed class ApplicationComposition
         loggingProvider);
   }
 
-  internal static WorkspaceLifecycle CreateWorkspaceLifecycle(IApplicationSettingsStore settingsStore)
-  {
-    var workspaceStore = new SqliteWorkspaceStore();
-    var clock = new SystemClock();
-    return new WorkspaceLifecycle(
-        workspaceStore,
-        new CreateWorkspace(workspaceStore, settingsStore, clock, new GuidUuidGenerator()),
-        new OpenWorkspace(workspaceStore, settingsStore, clock));
-  }
+  internal static WorkspaceLifecycle CreateWorkspaceLifecycle(
+      IApplicationSettingsStore settingsStore,
+      IWorkspaceStore workspaceStore,
+      IClock clock,
+      IUuidGenerator uuidGenerator) =>
+      new(
+          workspaceStore,
+          new CreateWorkspace(workspaceStore, settingsStore, clock, uuidGenerator),
+          new OpenWorkspace(workspaceStore, settingsStore, clock));
 
   internal static ManagedPaths DetectManagedPaths(string executableDirectory, string localApplicationDataDirectory)
   {
@@ -214,38 +239,6 @@ public sealed class ApplicationComposition
         bool confirm,
         CancellationToken cancellationToken = default) =>
         engine.ApplyAsync(preview, confirm, cancellationToken);
-  }
-
-  private sealed class CompositionWorkspaceImportStore : IWorkspaceImportStore
-  {
-    public Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
-        ImportTargetContext targetContext,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<ImportCandidate>>([]);
-
-    public Task<bool> ModExistsAsync(
-        ImportTargetContext.CurrentWorkspace targetContext,
-        string modId,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(false);
-
-    public Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
-        ImportPreview preview,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: preview.Applied));
-
-    public Task<ImportPreview> SavePreviewAsync(
-        ImportTargetContext targetContext,
-        IReadOnlyList<ImportCandidate> candidates,
-        IReadOnlyList<ImportResolution> resolutions,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
-
-    public Task<ImportOutcome> CommitAtomicallyAsync(
-        ImportPreview preview,
-        bool confirm,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
   }
 }
 

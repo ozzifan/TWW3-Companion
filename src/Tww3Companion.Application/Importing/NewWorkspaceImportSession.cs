@@ -18,6 +18,11 @@ internal sealed class NewWorkspaceImportSession(
     {
       throw new ArgumentException("A new Workspace import requires a destination path.", nameof(targetContext));
     }
+
+    if (string.IsNullOrWhiteSpace(targetContext.CollectionDisplayName))
+    {
+      throw new ArgumentException("A new Workspace import requires a Collection display name.", nameof(targetContext));
+    }
   }
 
   public async Task<ImportOutcome> ApplyAsync(bool confirm, CancellationToken cancellationToken = default)

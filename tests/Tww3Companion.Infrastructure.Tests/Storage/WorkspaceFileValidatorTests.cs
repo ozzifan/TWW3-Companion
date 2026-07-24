@@ -32,7 +32,7 @@ public sealed class WorkspaceFileValidatorTests
   }
 
   [Theory]
-  [InlineData("UPDATE application_metadata SET schema_version=2", "workspace.schema.newer")]
+  [InlineData("UPDATE application_metadata SET schema_version=3", "workspace.schema.newer")]
   [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET schema_version=0", "workspace.file.invalid")]
   [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET application_id='forged'", "workspace.file.invalid")]
   [InlineData("PRAGMA ignore_check_constraints=ON; UPDATE application_metadata SET singleton=2", "workspace.file.invalid")]
@@ -52,7 +52,7 @@ public sealed class WorkspaceFileValidatorTests
   [Theory]
   [InlineData("DELETE FROM schema_migrations", "workspace.file.invalid")]
   [InlineData("UPDATE schema_migrations SET applied_utc='not-a-timestamp'", "workspace.file.invalid")]
-  [InlineData("UPDATE schema_migrations SET version=2", "workspace.file.invalid")]
+  [InlineData("DELETE FROM schema_migrations WHERE version=1", "workspace.file.invalid")]
   [InlineData("CREATE TABLE unexpected(value TEXT)", "workspace.file.invalid")]
   [InlineData("ALTER TABLE workspace ADD COLUMN forged TEXT", "workspace.file.invalid")]
   public async Task Open_RejectsInvalidMigrationOrStructure(string mutation, string code)
@@ -89,7 +89,7 @@ public sealed class WorkspaceFileValidatorTests
             DROP TABLE original_workspace;
             """);
 
-    await AssertCodeAsync(path, "workspace.file.corrupt");
+    await AssertCodeAsync(path, "workspace.file.invalid");
   }
 
   [Fact]
