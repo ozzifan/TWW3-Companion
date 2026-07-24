@@ -27,7 +27,11 @@ Making the project open source followed naturally from the problem domain. Mod c
 
 ## Current Phase
 
-**v0.0.1** (repository bootstrap), **v0.0.2 — Architecture complete**, and the **Workspace foundation slice** are complete. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target, [RFC-0004](../RFC/RFC-0004.md) established deterministic staged import, and [RFC-0005](../RFC/RFC-0005.md) established the C#/.NET, Avalonia, and MVVM user-interface architecture. The first implementation slice added the shell, Home composition, startup wiring, smoke-test hooks, and the supporting developer guide. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
+**v0.0.1** (repository bootstrap), **v0.0.2 — Architecture complete**, the **Workspace foundation slice**, and the first import slices are complete. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target, [RFC-0004](../RFC/RFC-0004.md) established deterministic staged import, and [RFC-0005](../RFC/RFC-0005.md) established the C#/.NET, Avalonia, and MVVM user-interface architecture. The implementation now includes the Markdown importer, Workshop ID importer, shared import engine, and shell wiring for both Home and Workspace import actions. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
+
+### First Import Milestone
+
+The first import milestone arrived in the 2026-07-23 import-core slice set: Markdown import, Workshop ID import, the shared import engine, and shell wiring for both new-Workspace and current-Workspace import actions. That work established the first end-to-end import path the roadmap had been promising since the architecture RFCs were approved.
 
 ## Looking Ahead
 

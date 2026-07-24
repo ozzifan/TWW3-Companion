@@ -39,7 +39,7 @@ No application code in this milestone.
 
 ## v0.1 — First working prototype
 
-**Status:** Planned
+**Status:** In Progress
 
 *Requires v0.0.2 approval.*
 
@@ -55,6 +55,14 @@ Workspace foundation slice:
 - Markdown importer
 - Workshop ID importer
 - Local Workspace persistence
+
+Completed v0.1 slices:
+
+- Workspace foundation
+- Markdown importer
+- Workshop ID importer
+- Shared import engine
+- Home and Workspace shell wiring to the shared engine
 
 Success: a user can import a list into a Collection, persist its Workspace locally, and reload it reliably.
 

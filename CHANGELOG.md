@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Markdown import slice: adapter, parser, preview, and apply flow
+- Workshop ID import slice: collection and single-item import support with metadata enrichment
+- Shared import engine: normalisation, matching, preview, validation, and atomic persistence
+- Desktop shell wiring for importing into a new Workspace or the current Workspace through the shared engine
+
 ## [0.0.2] - 2026-07-19
 
 ### Added
