@@ -164,8 +164,8 @@ public sealed class ShellViewModel : ViewModelBase
         OpenWorkspace = openWorkspace,
         DefaultWorkspaceDirectory = defaultWorkspaceDirectory,
         SettingsDirectory = settingsDirectory,
-        WorkspaceDisposalCoordinator = workspaceDisposalCoordinator
-        ,ImportService = importService ?? new PassiveShellImportService()
+        WorkspaceDisposalCoordinator = workspaceDisposalCoordinator,
+        ImportService = importService ?? new PassiveShellImportService()
       });
 
   public ShellScreen CurrentScreen => _currentScreen;
@@ -312,8 +312,8 @@ public sealed class ShellViewModel : ViewModelBase
         {
           currentWorkspaceId = result switch
           {
-              OperationResult<Workspace>.Success success => success.Value.Id.ToString(),
-              _ => currentWorkspaceId
+            OperationResult<Workspace>.Success success => success.Value.Id.ToString(),
+            _ => currentWorkspaceId
           };
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
@@ -373,8 +373,8 @@ public sealed class ShellViewModel : ViewModelBase
         {
           currentWorkspaceId = result switch
           {
-              OperationResult<Workspace>.Success success => success.Value.Id.ToString(),
-              _ => currentWorkspaceId
+            OperationResult<Workspace>.Success success => success.Value.Id.ToString(),
+            _ => currentWorkspaceId
           };
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
