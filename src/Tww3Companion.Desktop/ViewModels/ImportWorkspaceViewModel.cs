@@ -35,7 +35,7 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
     Resolution = new ImportResolutionViewModel(coordinator, Preview);
     Confirmation = new ImportConfirmationViewModel();
 
-    Source.SetContinueHandler(() => HandleSourceContinueAsync(CancellationToken.None));
+    Source.SetContinueHandler(() => ContinueFromSourceAsync(CancellationToken.None));
     Confirmation.SetApplyHandler(() => ApplyAsync(CancellationToken.None));
     BackCommand = new ViewModelCommand(() => GoBack(), () => CanGoBack);
     ContinueDestinationCommand = new ViewModelCommand(
@@ -139,6 +139,30 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
 
     Destination.ApplySuggestionIfNeeded(Source.SelectedKind);
     Stage = ImportTaskStage.Destination;
+  }
+
+  public async Task ContinueFromSourceAsync(CancellationToken cancellationToken = default)
+  {
+    if (stage != ImportTaskStage.Source || !Source.CanContinue)
+    {
+      return;
+    }
+
+    var loadResult = await coordinator.LoadSourceAsync(
+        new ImportSourceRequest(
+            Source.SelectedKind,
+            Source.InputText,
+            Source.SelectedDocumentName,
+            RequestMetadata: false),
+        cancellationToken);
+    Source.ApplyLoadResult(loadResult);
+
+    if (loadResult.Diagnostics.Any(diagnostic => diagnostic.IsBlocking))
+    {
+      return;
+    }
+
+    OpenDestination();
   }
 
   public void GoBack()
@@ -280,12 +304,6 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
   }
 
   internal void SetCancelHandler(Action handler) => cancelHandler = handler ?? throw new ArgumentNullException(nameof(handler));
-
-  private Task HandleSourceContinueAsync(CancellationToken cancellationToken)
-  {
-    OpenDestination();
-    return Task.CompletedTask;
-  }
 
   private ImportPreviewFingerprint BuildFingerprint() =>
       new(

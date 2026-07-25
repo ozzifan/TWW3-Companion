@@ -97,7 +97,7 @@ Imports are additive-only: omission never removes a Membership or Mod. Headings 
 
 Blank fields may be enriched after preview. Distinct imported notes append with source document name, date, and source lines. Scalar conflicts require an explicit choice. Failed validation or persistence rolls back the entire confirmed import.
 
-Workshop metadata enrichment is optional and user-initiated. The UI discloses which Workshop IDs will be requested before any network call; metadata is not fetched before the user continues from Source. Partial metadata failure surfaces as diagnostics; valid identities remain importable and every new Mod still requires a user-entered or explicitly accepted display name.
+Workshop metadata enrichment is optional and user-initiated. The UI discloses which Workshop IDs will be requested when the user continues from Source (local parse only, no network). Metadata is fetched when the user continues from Destination. Partial metadata failure surfaces as diagnostics; valid identities remain importable and every new Mod still requires a user-entered or explicitly accepted display name.
 
 Preview construction and user resolution perform no persistence. Warnings are counted as warnings remaining, not as accepted outcomes. Failed Apply retains the preview and resolution state; successful Apply reloads the Workspace library.
 

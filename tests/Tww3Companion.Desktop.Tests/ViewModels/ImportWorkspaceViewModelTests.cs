@@ -8,6 +8,61 @@ namespace Tww3Companion.Desktop.Tests.ViewModels;
 public sealed class ImportWorkspaceViewModelTests
 {
   [Fact]
+  public async Task ContinueFromSource_loads_without_metadata_and_discloses_workshop_ids()
+  {
+    var coordinator = new RecordingImportTaskCoordinator();
+    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), coordinator);
+
+    subject.Source.Select(ImportSourceKind.SteamItems);
+    subject.Source.InputText = "123456789";
+    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(1, coordinator.LoadSourceCallCount);
+    Assert.False(coordinator.LastRequestMetadata);
+    Assert.Equal(["123456789"], subject.Source.DisclosedWorkshopIds);
+    Assert.True(subject.Source.HasDisclosedWorkshopIds);
+    Assert.Equal(ImportTaskStage.Destination, subject.Stage);
+  }
+
+  [Fact]
+  public async Task ContinueFromSource_stays_on_source_when_blocking_diagnostics()
+  {
+    var coordinator = new RecordingImportTaskCoordinator
+    {
+      BlockingInputText = "invalid"
+    };
+    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), coordinator);
+
+    subject.Source.Select(ImportSourceKind.SteamItems);
+    subject.Source.InputText = "invalid";
+    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(1, coordinator.LoadSourceCallCount);
+    Assert.False(coordinator.LastRequestMetadata);
+    Assert.Equal(ImportTaskStage.Source, subject.Stage);
+    Assert.Contains(subject.Source.Diagnostics, diagnostic => diagnostic.IsBlocking);
+  }
+
+  [Fact]
+  public async Task ContinueFromDestination_requests_metadata()
+  {
+    var coordinator = new RecordingImportTaskCoordinator();
+    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), coordinator);
+
+    subject.Source.Select(ImportSourceKind.SteamItems);
+    subject.Source.InputText = "123456789";
+    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+    coordinator.ResetCounters();
+
+    subject.Destination.SelectLibraryOnly();
+    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(1, coordinator.LoadSourceCallCount);
+    Assert.True(coordinator.LastRequestMetadata);
+    Assert.Equal(ImportTaskStage.Preview, subject.Stage);
+  }
+
+  [Fact]
   public void SteamCollection_suggests_selected_collection_but_does_not_lock_it()
   {
     var subject = CreateSubject(new ImportLaunchContext(
@@ -79,7 +134,7 @@ public sealed class ImportWorkspaceViewModelTests
     subject.Source.InputText = "987654321";
     await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
 
-    Assert.Equal(2, coordinator.LoadSourceCallCount);
+    Assert.Equal(3, coordinator.LoadSourceCallCount);
     Assert.Equal(2, coordinator.BuildPreviewCallCount);
     Assert.Equal(ImportTaskStage.Preview, subject.Stage);
     Assert.Null(subject.Confirmation.Summary);
@@ -95,7 +150,7 @@ public sealed class ImportWorkspaceViewModelTests
 
     subject.Source.Select(ImportSourceKind.SteamItems);
     subject.Source.InputText = "123456789";
-    subject.OpenDestination();
+    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
     subject.Destination.SelectLibraryOnly();
     await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
 
@@ -224,7 +279,7 @@ public sealed class ImportWorkspaceViewModelTests
   {
     subject.Source.Select(ImportSourceKind.SteamItems);
     subject.Source.InputText = "123456789";
-    subject.OpenDestination();
+    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
     subject.Destination.SelectLibraryOnly();
     await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
     Assert.Equal(1, coordinator.BuildPreviewCallCount);
@@ -249,6 +304,8 @@ public sealed class ImportWorkspaceViewModelTests
     public int LoadSourceCallCount { get; private set; }
     public int BuildPreviewCallCount { get; private set; }
     public int ApplyCallCount { get; private set; }
+    public bool? LastRequestMetadata { get; private set; }
+    public string? BlockingInputText { get; init; }
     public Exception? ApplyException { get; init; }
     public ImportPreview LastBuiltPreview { get; private set; } = CreateDefaultPreview();
 
@@ -257,6 +314,7 @@ public sealed class ImportWorkspaceViewModelTests
       LoadSourceCallCount = 0;
       BuildPreviewCallCount = 0;
       ApplyCallCount = 0;
+      LastRequestMetadata = null;
     }
 
     public Task<ImportSourceLoadResult> LoadSourceAsync(
@@ -264,6 +322,23 @@ public sealed class ImportWorkspaceViewModelTests
         CancellationToken cancellationToken = default)
     {
       LoadSourceCallCount++;
+      LastRequestMetadata = request.RequestMetadata;
+
+      if (BlockingInputText is not null &&
+          string.Equals(request.InputText, BlockingInputText, StringComparison.Ordinal))
+      {
+        return Task.FromResult(new ImportSourceLoadResult(
+            [],
+            [
+                new ImportTaskDiagnostic(
+                    "import.source.invalid",
+                    "The source text is invalid.",
+                    IsBlocking: true,
+                    SafeNextAction: "Fix the source text.")
+            ],
+            []));
+      }
+
       return Task.FromResult(new ImportSourceLoadResult(
           [new SteamImportCandidate("123456789", "Example Mod")],
           [],

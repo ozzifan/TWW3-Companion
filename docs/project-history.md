@@ -43,4 +43,4 @@ The first fully user-operable import milestone: a full-page Desktop task walks t
 
 ## Looking Ahead
 
-Future history will be recorded here at major milestones: first import, first persisted collection, first public release. Contributors are welcome to add dated entries when those events occur.
+Future history will be recorded here at major milestones: first persisted collection, first public release. Contributors are welcome to add dated entries when those events occur.

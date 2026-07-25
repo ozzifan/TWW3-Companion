@@ -82,8 +82,11 @@ public sealed class ImportSourceViewModel : ViewModelBase
     {
       disclosedWorkshopIds = value;
       OnPropertyChanged();
+      OnPropertyChanged(nameof(HasDisclosedWorkshopIds));
     }
   }
+
+  public bool HasDisclosedWorkshopIds => disclosedWorkshopIds.Count > 0;
 
   public IReadOnlyList<ImportTaskDiagnostic> Diagnostics
   {

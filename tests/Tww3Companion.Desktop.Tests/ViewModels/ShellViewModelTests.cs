@@ -116,7 +116,7 @@ public sealed class ShellViewModelTests
     var importTask = shell.ImportWorkspace!;
     importTask.Source.Select(ImportSourceKind.SteamItems);
     importTask.Source.InputText = "123456789";
-    importTask.OpenDestination();
+    await importTask.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
     importTask.Destination.SelectLibraryOnly();
     await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
     await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
@@ -154,7 +154,7 @@ public sealed class ShellViewModelTests
     var importTask = shell.ImportWorkspace!;
     importTask.Source.Select(ImportSourceKind.SteamItems);
     importTask.Source.InputText = "123456789";
-    importTask.OpenDestination();
+    await importTask.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
     importTask.Destination.SelectLibraryOnly();
     await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
     await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
@@ -190,7 +190,7 @@ public sealed class ShellViewModelTests
     var importTask = shell.ImportWorkspace!;
     importTask.Source.Select(ImportSourceKind.SteamItems);
     importTask.Source.InputText = "123456789";
-    importTask.OpenDestination();
+    await importTask.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
     importTask.Destination.SelectLibraryOnly();
     await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
     await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);

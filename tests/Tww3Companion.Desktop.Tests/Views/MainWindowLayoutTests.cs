@@ -87,6 +87,7 @@ public sealed class MainWindowLayoutTests
     Assert.Contains("AutomationProperties.Name=\"Import Continue\"", text);
     Assert.Contains("AutomationProperties.Name=\"Import Apply\"", text);
     Assert.Contains("AutomationProperties.Name=\"Import Cancel\"", text);
+    Assert.Contains("AutomationProperties.Name=\"Import disclosed Workshop IDs\"", text);
     Assert.Contains("AutomationProperties.LiveSetting", text);
     Assert.DoesNotContain(">Search<", text, StringComparison.OrdinalIgnoreCase);
     Assert.DoesNotContain(">Profiles<", text, StringComparison.OrdinalIgnoreCase);

@@ -62,7 +62,7 @@ Import is a full-page task reachable from Home (**Import into a new Workspace**)
 → 4. Confirm and Apply
 ```
 
-Source and destination are independent. Supported sources are Markdown (paste or file), one Steam Collection, and multiple Steam items (paste or file). Steam metadata is disclosed before any network request and fetched only after the user continues from Source.
+Source and destination are independent. Supported sources are Markdown (paste or file), one Steam Collection, and multiple Steam items (paste or file). Continuing from Source parses locally and discloses Workshop IDs without network access. Continuing from Destination requests disclosed metadata and builds the preview.
 
 The destination stage collects:
 

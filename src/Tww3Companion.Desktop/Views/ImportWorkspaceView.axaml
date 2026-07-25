@@ -45,6 +45,18 @@
                       Command="{Binding Source.ChooseFileCommand}" />
               <TextBlock VerticalAlignment="Center" Text="{Binding Source.SelectedDocumentName}" />
             </StackPanel>
+            <StackPanel Spacing="4"
+                        IsVisible="{Binding Source.HasDisclosedWorkshopIds}">
+              <TextBlock FontWeight="SemiBold" Text="Workshop IDs to request" />
+              <ItemsControl ItemsSource="{Binding Source.DisclosedWorkshopIds}"
+                            AutomationProperties.Name="Import disclosed Workshop IDs">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
             <ItemsControl ItemsSource="{Binding Source.Diagnostics}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:ImportTaskDiagnostic">

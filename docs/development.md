@@ -97,17 +97,17 @@ Use a disposable `.tww3c` Workspace outside the repository. Do not commit test W
 
 | Check | Steps | Expected |
 |-------|-------|----------|
-| Markdown paste | Home → Import into a new Workspace → Markdown → paste a short mod list → Continue | Source loads; disclosed Workshop IDs shown if present |
-| Markdown file | Choose file with a Markdown mod list → Continue | Document name shown; content loaded |
-| Steam Collection | Select Steam Collection → paste one public collection ID → review disclosure → Continue | Member Workshop IDs disclosed before metadata request |
-| Steam items paste | Select Steam items → paste multiple IDs or URLs → Continue | Each ID disclosed; partial metadata failure shows diagnostics, not a blocking failure for valid IDs |
-| Steam items file | Choose file with Workshop IDs → Continue | Same as paste |
+| Markdown paste | Home → Import into a new Workspace → Markdown → paste a short mod list → Continue | Source loads locally; disclosed Workshop IDs shown if present |
+| Markdown file | Choose file with a Markdown mod list → Continue | Document name shown; content parsed locally |
+| Steam Collection | Select Steam Collection → paste one public collection ID → review disclosure on Source → Continue → Destination → Continue | Member Workshop IDs disclosed on Source Continue (no network); metadata requested on Destination Continue |
+| Steam items paste | Select Steam items → paste multiple IDs or URLs → Source Continue → Destination Continue | Each ID disclosed on Source Continue; metadata requested on Destination Continue |
+| Steam items file | Choose file with Workshop IDs → Source Continue | Same disclosure behaviour as paste |
 | Library-only new Workspace | Destination → Library only → name/path → preview → Apply | Mods in library; no Collection created |
 | Library-only current Workspace | Open Workspace → Import → Library only → Apply | Mods added to library only |
 | Existing Collection | Import → select existing Collection → Apply | New Memberships appended; existing Memberships unchanged |
 | New Collection | Import → New Collection → name → Apply | Collection created with new Memberships |
-| Metadata partial failure | Steam source where one item metadata fails | Diagnostic shown; item importable with manual display name |
-| Back unchanged | Reach Preview → Back to Destination without changing destination → Continue | Preview rebuilds; prior resolutions cleared only if source/destination changed |
+| Metadata partial failure | Steam source where one item metadata fails on Destination Continue | Diagnostic shown; item importable with manual display name |
+| Back unchanged | Reach Preview → Back to Destination without changing destination → Continue | Preview and resolutions preserved/reused without reload |
 | Back changed destination | Change destination after preview → Continue | Preview and confirmation reset for new target |
 | Blocking resolution | Preview with unmatched identity → resolve or Skip each blocking item | Apply disabled until resolved; Skip removes candidate from commit |
 | Failed Apply | Force persistence failure if possible, or use invalid path for new Workspace | Preview and resolutions retained; banner states no commit |
