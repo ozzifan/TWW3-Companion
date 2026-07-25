@@ -67,4 +67,38 @@ public sealed class MainWindowLayoutTests
     Assert.Contains("ColorValuesChanged", appCode);
     Assert.Contains("RequestedThemeVariant", appCode);
   }
+
+  [Fact]
+  public void ImportWorkspaceViewDeclaresStagedControlsAndAccessibleNames()
+  {
+    var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "ImportWorkspaceView.axaml"));
+
+    Assert.Contains("Source", text);
+    Assert.Contains("Destination", text);
+    Assert.Contains("Preview", text);
+    Assert.Contains("Confirmation", text);
+    Assert.Contains("Markdown", text);
+    Assert.Contains("Steam Collection", text);
+    Assert.Contains("Steam items", text);
+    Assert.Contains("Library", text);
+    Assert.Contains("Membership", text);
+    Assert.Contains("Needs Attention", text);
+    Assert.Contains("AutomationProperties.Name=\"Import Back\"", text);
+    Assert.Contains("AutomationProperties.Name=\"Import Continue\"", text);
+    Assert.Contains("AutomationProperties.Name=\"Import Apply\"", text);
+    Assert.Contains("AutomationProperties.Name=\"Import Cancel\"", text);
+    Assert.Contains("AutomationProperties.LiveSetting", text);
+    Assert.DoesNotContain(">Search<", text, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain(">Profiles<", text, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain(">Health<", text, StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Fact]
+  public void MainWindowHostsImportWorkspaceView()
+  {
+    var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "MainWindow.axaml"));
+
+    Assert.Contains("ImportWorkspaceView", text);
+    Assert.Contains("IsImportVisible", text);
+  }
 }

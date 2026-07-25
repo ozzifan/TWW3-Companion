@@ -16,6 +16,10 @@
 
     <views:HomeView IsVisible="{Binding IsHomeVisible}" />
 
+    <Grid IsVisible="{Binding IsImportVisible}">
+      <views:ImportWorkspaceView DataContext="{Binding ImportWorkspace}" />
+    </Grid>
+
     <Grid Name="WorkspaceShell" IsVisible="{Binding IsWorkspaceVisible}" AutomationProperties.Name="Workspace shell">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="208" />

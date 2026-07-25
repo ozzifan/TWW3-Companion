@@ -9,6 +9,7 @@ public sealed class ImportResolutionViewModel : ViewModelBase
   private readonly ImportPreviewViewModel previewViewModel;
   private ImportPreviewRowViewModel? activeRow;
   private string? selectedScalarValue;
+  private string draftDisplayName = string.Empty;
 
   public ImportResolutionViewModel(
       IImportTaskCoordinator coordinator,
@@ -16,6 +17,18 @@ public sealed class ImportResolutionViewModel : ViewModelBase
   {
     this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
     this.previewViewModel = previewViewModel ?? throw new ArgumentNullException(nameof(previewViewModel));
+    LinkToOwnerCommand = new ViewModelCommand(
+        () => _ = LinkToModAsync(SourceOwnerModId ?? string.Empty, CancellationToken.None),
+        () => CanLinkToOwner);
+    CreateCommand = new ViewModelCommand(
+        () => _ = CreateWithDisplayNameAsync(DraftDisplayName, CancellationToken.None),
+        () => CanCreate && !string.IsNullOrWhiteSpace(DraftDisplayName));
+    SkipCommand = new ViewModelCommand(
+        () => _ = SkipAsync(CancellationToken.None),
+        () => CanSkip);
+    ApplyScalarCommand = new ViewModelCommand(
+        () => _ = ApplyScalarSelectionAsync(CancellationToken.None),
+        () => CanApplyResolution);
     SyncActiveRow();
   }
 
@@ -61,10 +74,35 @@ public sealed class ImportResolutionViewModel : ViewModelBase
   public bool CanApplyResolution =>
       CanChooseScalarValue && !string.IsNullOrWhiteSpace(SelectedScalarValue);
 
+  public string DraftDisplayName
+  {
+    get => draftDisplayName;
+    set
+    {
+      if (string.Equals(draftDisplayName, value, StringComparison.Ordinal))
+      {
+        return;
+      }
+
+      draftDisplayName = value ?? string.Empty;
+      OnPropertyChanged();
+      CreateCommand.RaiseCanExecuteChanged();
+    }
+  }
+
+  public ViewModelCommand LinkToOwnerCommand { get; }
+
+  public ViewModelCommand CreateCommand { get; }
+
+  public ViewModelCommand SkipCommand { get; }
+
+  public ViewModelCommand ApplyScalarCommand { get; }
+
   internal void SyncActiveRow()
   {
     activeRow = previewViewModel.GetActiveBlockingRow();
     selectedScalarValue = null;
+    draftDisplayName = string.Empty;
     OnPropertyChanged(nameof(ActiveCandidateId));
     OnPropertyChanged(nameof(SourceOwnerModId));
     OnPropertyChanged(nameof(CompetingScalarValues));
@@ -73,6 +111,11 @@ public sealed class ImportResolutionViewModel : ViewModelBase
     OnPropertyChanged(nameof(CanSkip));
     OnPropertyChanged(nameof(CanChooseScalarValue));
     OnPropertyChanged(nameof(CanApplyResolution));
+    OnPropertyChanged(nameof(DraftDisplayName));
+    LinkToOwnerCommand.RaiseCanExecuteChanged();
+    CreateCommand.RaiseCanExecuteChanged();
+    SkipCommand.RaiseCanExecuteChanged();
+    ApplyScalarCommand.RaiseCanExecuteChanged();
   }
 
   public Task LinkToModAsync(string modId, CancellationToken cancellationToken = default)
@@ -148,6 +191,7 @@ public sealed class ImportResolutionViewModel : ViewModelBase
     activeRow = previewViewModel.GetNextBlockingRow(currentCandidateId)
         ?? previewViewModel.GetActiveBlockingRow();
     selectedScalarValue = null;
+    draftDisplayName = string.Empty;
 
     OnPropertyChanged(nameof(ActiveCandidateId));
     OnPropertyChanged(nameof(SourceOwnerModId));
@@ -157,6 +201,11 @@ public sealed class ImportResolutionViewModel : ViewModelBase
     OnPropertyChanged(nameof(CanSkip));
     OnPropertyChanged(nameof(CanChooseScalarValue));
     OnPropertyChanged(nameof(CanApplyResolution));
+    OnPropertyChanged(nameof(DraftDisplayName));
+    LinkToOwnerCommand.RaiseCanExecuteChanged();
+    CreateCommand.RaiseCanExecuteChanged();
+    SkipCommand.RaiseCanExecuteChanged();
+    ApplyScalarCommand.RaiseCanExecuteChanged();
   }
 
   private static bool IsSourceOwnerConflict(ImportPreviewRowViewModel row) =>

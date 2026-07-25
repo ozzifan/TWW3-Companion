@@ -21,6 +21,9 @@ public sealed class ImportSourceViewModel : ViewModelBase
     ContinueCommand = new ViewModelCommand(
         () => _ = ContinueAsync(),
         () => CanContinue);
+    SelectMarkdownCommand = new ViewModelCommand(() => Select(ImportSourceKind.Markdown));
+    SelectSteamCollectionCommand = new ViewModelCommand(() => Select(ImportSourceKind.SteamCollection));
+    SelectSteamItemsCommand = new ViewModelCommand(() => Select(ImportSourceKind.SteamItems));
   }
 
   public ImportSourceKind SelectedKind
@@ -119,6 +122,12 @@ public sealed class ImportSourceViewModel : ViewModelBase
   public ViewModelCommand ChooseFileCommand { get; }
 
   public ViewModelCommand ContinueCommand { get; }
+
+  public ViewModelCommand SelectMarkdownCommand { get; }
+
+  public ViewModelCommand SelectSteamCollectionCommand { get; }
+
+  public ViewModelCommand SelectSteamItemsCommand { get; }
 
   internal void Select(ImportSourceKind kind) => SelectedKind = kind;
 

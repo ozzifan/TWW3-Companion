@@ -19,13 +19,26 @@ public sealed class ImportDestinationViewModel : ViewModelBase
   {
     this.launchContext = launchContext ?? throw new ArgumentNullException(nameof(launchContext));
     workspacePath = launchContext.WorkspacePath ?? string.Empty;
+    SelectLibraryOnlyCommand = new ViewModelCommand(() => SelectLibraryOnly());
+    SelectNewCollectionCommand = new ViewModelCommand(() => SelectNewCollection());
+    SelectExistingCollectionCommand = new ViewModelCommand(
+        parameter => SelectExistingCollectionFromView(parameter),
+        parameter => parameter is CollectionSummary);
   }
 
   public bool ShowsWorkspaceDetails => launchContext.IsNewWorkspace;
 
   public bool HasExistingCollectionOption => !launchContext.IsNewWorkspace;
 
+  public bool CanChooseExistingCollection => HasExistingCollectionOption;
+
   public IReadOnlyList<CollectionSummary> Collections => launchContext.Collections;
+
+  public ViewModelCommand SelectLibraryOnlyCommand { get; }
+
+  public ViewModelCommand SelectNewCollectionCommand { get; }
+
+  public ViewModelCommand SelectExistingCollectionCommand { get; }
 
   public string WorkspaceDisplayName
   {
@@ -71,7 +84,23 @@ public sealed class ImportDestinationViewModel : ViewModelBase
 
       selectedCollectionId = value;
       OnPropertyChanged();
+      OnPropertyChanged(nameof(SelectedCollection));
       OnPropertyChanged(nameof(CanContinue));
+    }
+  }
+
+  public CollectionSummary? SelectedCollection
+  {
+    get => Collections.FirstOrDefault(collection =>
+        string.Equals(collection.CollectionId, selectedCollectionId, StringComparison.Ordinal));
+    set
+    {
+      if (value is null)
+      {
+        return;
+      }
+
+      SelectExistingCollection(value.CollectionId);
     }
   }
 
@@ -192,6 +221,14 @@ public sealed class ImportDestinationViewModel : ViewModelBase
     IsExistingCollection = true;
     IsNewCollection = false;
     SelectedCollectionId = collectionId;
+  }
+
+  private void SelectExistingCollectionFromView(object? parameter)
+  {
+    if (parameter is CollectionSummary collection)
+    {
+      SelectExistingCollection(collection.CollectionId);
+    }
   }
 
   internal void SelectNewCollection(string? displayName = null, bool isSuggestion = false)

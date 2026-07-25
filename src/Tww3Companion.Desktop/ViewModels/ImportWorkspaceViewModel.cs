@@ -16,6 +16,7 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
   private IReadOnlyList<object>? cachedCandidates;
   private bool requiresDiscardConfirmation;
   private bool discardConfirmed;
+  private Action? cancelHandler;
 
   public ImportWorkspaceViewModel(
       ImportLaunchContext launchContext,
@@ -36,9 +37,22 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
 
     Source.SetContinueHandler(() => HandleSourceContinueAsync(CancellationToken.None));
     Confirmation.SetApplyHandler(() => ApplyAsync(CancellationToken.None));
+    BackCommand = new ViewModelCommand(() => GoBack(), () => CanGoBack);
+    ContinueDestinationCommand = new ViewModelCommand(
+        () => _ = ContinueFromDestinationAsync(CancellationToken.None),
+        () => stage == ImportTaskStage.Destination && Destination.CanContinue);
+    ContinuePreviewCommand = new ViewModelCommand(
+        () => _ = ContinueFromPreviewAsync(CancellationToken.None),
+        () => stage == ImportTaskStage.Preview && Preview.CanContinue);
+    ConfirmDiscardCommand = new ViewModelCommand(() => ConfirmDiscard());
+    CancelCommand = new ViewModelCommand(() => cancelHandler?.Invoke(), () => CanCancel);
   }
 
+  public ImportLaunchContext LaunchContext => launchContext;
+
   public event EventHandler<ImportTaskCompletedEvent>? Completed;
+
+  public event EventHandler? StageChanged;
 
   public ImportTaskStage Stage
   {
@@ -54,6 +68,15 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
       OnPropertyChanged();
       OnPropertyChanged(nameof(CanGoBack));
       OnPropertyChanged(nameof(CanCancel));
+      OnPropertyChanged(nameof(IsSourceStage));
+      OnPropertyChanged(nameof(IsDestinationStage));
+      OnPropertyChanged(nameof(IsPreviewStage));
+      OnPropertyChanged(nameof(IsConfirmationStage));
+      BackCommand.RaiseCanExecuteChanged();
+      ContinueDestinationCommand.RaiseCanExecuteChanged();
+      ContinuePreviewCommand.RaiseCanExecuteChanged();
+      CancelCommand.RaiseCanExecuteChanged();
+      StageChanged?.Invoke(this, EventArgs.Empty);
     }
   }
 
@@ -66,6 +89,25 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
   public ImportResolutionViewModel Resolution { get; }
 
   public ImportConfirmationViewModel Confirmation { get; }
+
+  public ViewModelCommand BackCommand { get; }
+
+  public ViewModelCommand ContinueDestinationCommand { get; }
+
+  public ViewModelCommand ContinuePreviewCommand { get; }
+
+  public ViewModelCommand ConfirmDiscardCommand { get; }
+
+  public ViewModelCommand CancelCommand { get; }
+
+  public bool IsSourceStage => stage == ImportTaskStage.Source;
+
+  public bool IsDestinationStage => stage == ImportTaskStage.Destination;
+
+  public bool IsPreviewStage =>
+      stage is ImportTaskStage.Preview or ImportTaskStage.Finalizing;
+
+  public bool IsConfirmationStage => stage == ImportTaskStage.Confirmation;
 
   public bool RequiresDiscardConfirmation
   {
@@ -231,6 +273,8 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
   }
 
   public void ConfirmDiscard() => discardConfirmed = true;
+
+  internal void SetCancelHandler(Action handler) => cancelHandler = handler ?? throw new ArgumentNullException(nameof(handler));
 
   private Task HandleSourceContinueAsync(CancellationToken cancellationToken)
   {

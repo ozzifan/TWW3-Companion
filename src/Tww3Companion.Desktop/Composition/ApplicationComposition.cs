@@ -9,6 +9,7 @@ using Tww3Companion.Application.Workspaces;
 using Tww3Companion.Desktop.Services;
 using Tww3Companion.Desktop.Startup;
 using Tww3Companion.Desktop.ViewModels;
+using Tww3Companion.Infrastructure.Importing;
 using Tww3Companion.Infrastructure.Logging;
 using Tww3Companion.Infrastructure.Paths;
 using Tww3Companion.Infrastructure.Settings;
@@ -149,6 +150,17 @@ public sealed class ApplicationComposition
 
     TopLevel? topLevel = null;
     var workspaceDialogService = new WorkspaceDialogService(() => topLevel);
+    var steamHttpClient = new HttpClient
+    {
+      BaseAddress = new Uri("https://api.steampowered.com/"),
+      Timeout = TimeSpan.FromSeconds(30)
+    };
+    var steamMetadataClient = new SteamWebApiMetadataClient(steamHttpClient);
+    var importEngine = new ImportEngine(catalogStore);
+    var importFileService = new ImportSourceFileService(() => topLevel);
+    var importCoordinator = new ImportTaskCoordinator(
+        importEngine,
+        steamMetadataClient);
     var shell = ShellViewModel.Create(
         settings,
         settingsStore,
@@ -158,9 +170,9 @@ public sealed class ApplicationComposition
         paths.WorkspacesDirectory,
         Path.GetDirectoryName(paths.SettingsFile)!,
         workspaceDisposalCoordinator,
-        workspaceLibraryQuery: workspaceLibraryQuery,
-        importService: new EngineShellImportService(
-            new ImportEngine(catalogStore)));
+        importCoordinator,
+        importFileService,
+        workspaceLibraryQuery: workspaceLibraryQuery);
     if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
     {
       shell.EvaluateWorkArea(width, height);
@@ -174,7 +186,8 @@ public sealed class ApplicationComposition
         () => topLevel = null,
         control => topLevel = control,
         lease,
-        loggingProvider);
+        loggingProvider,
+        steamHttpClient);
   }
 
   internal static WorkspaceLifecycle CreateWorkspaceLifecycle(
@@ -225,21 +238,6 @@ public sealed class ApplicationComposition
       IWorkspaceStore WorkspaceStore,
       CreateWorkspace CreateWorkspace,
       OpenWorkspace OpenWorkspace);
-
-  private sealed class EngineShellImportService(IImportEngine engine) : IShellImportService
-  {
-    public Task<ImportPreview> BuildPreviewAsync(
-        ImportTargetContext targetContext,
-        IReadOnlyList<object> candidates,
-        CancellationToken cancellationToken = default) =>
-        engine.BuildPreviewAsync(targetContext, candidates, cancellationToken);
-
-    public Task<ImportOutcome> ApplyAsync(
-        ImportPreview preview,
-        bool confirm,
-        CancellationToken cancellationToken = default) =>
-        engine.ApplyAsync(preview, confirm, cancellationToken);
-  }
 }
 
 public sealed class CompositionTestOptions
@@ -284,7 +282,8 @@ public sealed class ApplicationRuntime(
     Action clearTopLevel,
     Action<TopLevel> attachTopLevel,
     ISingleInstanceLease singleInstanceLease,
-    ILoggerProvider loggingProvider) : IDisposable
+    ILoggerProvider loggingProvider,
+    HttpClient steamHttpClient) : IDisposable
 {
   public ShellViewModel ShellViewModel { get; } = shellViewModel;
   public ManagedPaths ManagedPaths { get; } = managedPaths;
@@ -300,6 +299,7 @@ public sealed class ApplicationRuntime(
   public void Dispose()
   {
     clearTopLevel();
+    steamHttpClient.Dispose();
     loggingProvider.Dispose();
     singleInstanceLease.Dispose();
   }

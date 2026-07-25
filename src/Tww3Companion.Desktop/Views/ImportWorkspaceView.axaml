@@ -1,0 +1,208 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Tww3Companion.Desktop.ViewModels"
+             x:Class="Tww3Companion.Desktop.Views.ImportWorkspaceView"
+             x:DataType="vm:ImportWorkspaceViewModel"
+             AutomationProperties.Name="Import Workspace">
+  <Grid Margin="24" RowDefinitions="Auto,*,Auto">
+    <StackPanel Grid.Row="0" Spacing="8" Margin="0,0,0,16">
+      <TextBlock FontSize="28" FontWeight="SemiBold" Text="Import into Workspace" />
+      <StackPanel Orientation="Horizontal" Spacing="16">
+        <TextBlock Text="Source" FontWeight="SemiBold" />
+        <TextBlock Text="Destination" FontWeight="SemiBold" />
+        <TextBlock Text="Preview" FontWeight="SemiBold" />
+        <TextBlock Text="Confirmation" FontWeight="SemiBold" />
+      </StackPanel>
+      <TextBlock AutomationProperties.LiveSetting="Polite"
+                 Text="{Binding Stage}" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="1">
+      <StackPanel Spacing="20">
+        <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                IsVisible="{Binding IsSourceStage}">
+          <StackPanel Spacing="12">
+            <TextBlock FontWeight="SemiBold" Text="Source" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Button Content="Markdown"
+                      AutomationProperties.Name="Import source Markdown"
+                      Command="{Binding Source.SelectMarkdownCommand}" />
+              <Button Content="Steam Collection"
+                      AutomationProperties.Name="Import source Steam Collection"
+                      Command="{Binding Source.SelectSteamCollectionCommand}" />
+              <Button Content="Steam items"
+                      AutomationProperties.Name="Import source Steam items"
+                      Command="{Binding Source.SelectSteamItemsCommand}" />
+            </StackPanel>
+            <TextBox AcceptsReturn="True"
+                     MinHeight="120"
+                     Text="{Binding Source.InputText}"
+                     PlaceholderText="Paste import source text"
+                     AutomationProperties.Name="Import source text" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Button Content="Choose file"
+                      AutomationProperties.Name="Import choose source file"
+                      Command="{Binding Source.ChooseFileCommand}" />
+              <TextBlock VerticalAlignment="Center" Text="{Binding Source.SelectedDocumentName}" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Source.Diagnostics}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ImportTaskDiagnostic">
+                  <TextBlock TextWrapping="Wrap" Text="{Binding Message}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Content="Continue"
+                    HorizontalAlignment="Left"
+                    AutomationProperties.Name="Import Continue"
+                    Command="{Binding Source.ContinueCommand}" />
+          </StackPanel>
+        </Border>
+
+        <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                IsVisible="{Binding IsDestinationStage}">
+          <StackPanel Spacing="12">
+            <TextBlock FontWeight="SemiBold" Text="Destination" />
+            <StackPanel Spacing="8" IsVisible="{Binding Destination.ShowsWorkspaceDetails}">
+              <TextBlock Text="Workspace display name" />
+              <TextBox Text="{Binding Destination.WorkspaceDisplayName}"
+                       AutomationProperties.Name="Import workspace display name" />
+              <TextBlock Text="Workspace file path" />
+              <TextBox Text="{Binding Destination.WorkspacePath}"
+                       AutomationProperties.Name="Import workspace path" />
+            </StackPanel>
+            <RadioButton Content="Mod Library only"
+                         IsChecked="{Binding Destination.IsLibraryOnly}"
+                         AutomationProperties.Name="Import destination Mod Library only"
+                         Command="{Binding Destination.SelectLibraryOnlyCommand}" />
+            <RadioButton Content="Existing Collection"
+                         IsVisible="{Binding Destination.CanChooseExistingCollection}"
+                         IsChecked="{Binding Destination.IsExistingCollection}"
+                         AutomationProperties.Name="Import destination existing Collection"
+                         Command="{Binding Destination.SelectExistingCollectionCommand}" />
+            <ComboBox ItemsSource="{Binding Destination.Collections}"
+                      SelectedItem="{Binding Destination.SelectedCollection}"
+                      IsVisible="{Binding Destination.IsExistingCollection}"
+                      AutomationProperties.Name="Import existing Collection">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:CollectionSummary">
+                  <TextBlock Text="{Binding DisplayName}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <RadioButton Content="New Collection"
+                         IsChecked="{Binding Destination.IsNewCollection}"
+                         AutomationProperties.Name="Import destination new Collection"
+                         Command="{Binding Destination.SelectNewCollectionCommand}" />
+            <TextBox Text="{Binding Destination.NewCollectionName}"
+                     IsVisible="{Binding Destination.IsNewCollection}"
+                     AutomationProperties.Name="Import new Collection name" />
+            <Button Content="Continue"
+                    HorizontalAlignment="Left"
+                    AutomationProperties.Name="Import Continue"
+                    Command="{Binding ContinueDestinationCommand}" />
+          </StackPanel>
+        </Border>
+
+        <StackPanel Spacing="16" IsVisible="{Binding IsPreviewStage}">
+          <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+            <StackPanel Spacing="12">
+              <TextBlock FontWeight="SemiBold" Text="Preview" />
+              <ComboBox Width="240"
+                        HorizontalAlignment="Left"
+                        ItemsSource="{x:Static vm:ImportPreviewViewModel.FilterChoices}"
+                        SelectedItem="{Binding Preview.SelectedFilter}"
+                        AutomationProperties.Name="Import preview filter" />
+              <Grid ColumnDefinitions="*,*">
+                <TextBlock Grid.Column="0" FontWeight="SemiBold" Text="Library" />
+                <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Membership" />
+              </Grid>
+              <ItemsControl ItemsSource="{Binding Preview.FilteredRows}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ImportPreviewRowViewModel">
+                    <Grid ColumnDefinitions="*,*" Margin="0,4">
+                      <TextBlock Grid.Column="0" Text="{Binding LibraryAction}" />
+                      <TextBlock Grid.Column="1" Text="{Binding MembershipAction}" />
+                      <TextBlock Grid.ColumnSpan="2" Margin="0,20,0,0" Text="{Binding DisplayName}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+            <StackPanel Spacing="12">
+              <TextBlock FontWeight="SemiBold" Text="Needs Attention" />
+              <TextBlock Text="{Binding Resolution.ActiveCandidateId}"
+                         AutomationProperties.LiveSetting="Polite" />
+              <Button Content="Link to owning Mod"
+                      AutomationProperties.Name="Import link to owning Mod"
+                      Command="{Binding Resolution.LinkToOwnerCommand}" />
+              <TextBox Text="{Binding Resolution.DraftDisplayName}"
+                       PlaceholderText="Display name for new Mod"
+                       AutomationProperties.Name="Import resolution display name" />
+              <Button Content="Create Mod"
+                      AutomationProperties.Name="Import create Mod"
+                      Command="{Binding Resolution.CreateCommand}" />
+              <ComboBox ItemsSource="{Binding Resolution.CompetingScalarValues}"
+                        SelectedItem="{Binding Resolution.SelectedScalarValue}"
+                        IsVisible="{Binding Resolution.CanChooseScalarValue}"
+                        AutomationProperties.Name="Import scalar conflict choice" />
+              <Button Content="Apply selected value"
+                      AutomationProperties.Name="Import apply scalar selection"
+                      Command="{Binding Resolution.ApplyScalarCommand}" />
+              <Button Content="Skip item"
+                      AutomationProperties.Name="Import skip item"
+                      Command="{Binding Resolution.SkipCommand}" />
+            </StackPanel>
+          </Border>
+
+          <Button Content="Continue"
+                  HorizontalAlignment="Left"
+                  AutomationProperties.Name="Import Continue"
+                  Command="{Binding ContinuePreviewCommand}" />
+        </StackPanel>
+
+        <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                IsVisible="{Binding IsConfirmationStage}">
+          <StackPanel Spacing="12">
+            <TextBlock FontWeight="SemiBold" Text="Confirmation" />
+            <TextBlock AutomationProperties.LiveSetting="Polite"
+                       Text="Review the import summary before applying." />
+            <TextBlock Text="{Binding Confirmation.Summary.ModsCreated, StringFormat=Mods created: {0}}" />
+            <TextBlock Text="{Binding Confirmation.Summary.ModsEnriched, StringFormat=Mods enriched: {0}}" />
+            <TextBlock Text="{Binding Confirmation.Summary.ExistingModsUnchanged, StringFormat=Existing Mods unchanged: {0}}" />
+            <TextBlock Text="{Binding Confirmation.Summary.CollectionsCreated, StringFormat=Collections created: {0}}" />
+            <TextBlock Text="{Binding Confirmation.Summary.MembershipsAdded, StringFormat=Memberships added: {0}}" />
+            <TextBlock Text="{Binding Confirmation.Summary.ExistingMembershipsUnchanged, StringFormat=Existing memberships unchanged: {0}}" />
+            <TextBlock Text="{Binding Confirmation.Summary.CandidatesSkipped, StringFormat=Candidates skipped: {0}}" />
+            <TextBlock Text="{Binding Confirmation.Summary.WarningsRemaining, StringFormat=Warnings remaining: {0}}" />
+            <Button Content="Apply"
+                    AutomationProperties.Name="Import Apply"
+                    Command="{Binding Confirmation.ApplyCommand}" />
+          </StackPanel>
+        </Border>
+
+        <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                IsVisible="{Binding RequiresDiscardConfirmation}">
+          <StackPanel Spacing="8">
+            <TextBlock TextWrapping="Wrap" Text="Discard this import session and lose unresolved preview changes?" />
+            <Button Content="Confirm discard"
+                    AutomationProperties.Name="Import confirm discard"
+                    Command="{Binding ConfirmDiscardCommand}" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12" Margin="0,16,0,0">
+      <Button Content="Back"
+              AutomationProperties.Name="Import Back"
+              Command="{Binding BackCommand}" />
+      <Button Content="Cancel"
+              AutomationProperties.Name="Import Cancel"
+              Command="{Binding CancelCommand}" />
+    </StackPanel>
+  </Grid>
+</UserControl>

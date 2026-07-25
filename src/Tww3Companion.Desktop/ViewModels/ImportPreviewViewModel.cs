@@ -75,6 +75,9 @@ public sealed class ImportPreviewViewModel : ViewModelBase
   public IReadOnlyList<ImportPreviewRowViewModel> FilteredRows =>
       rows.Where(MatchesSelectedFilter).ToArray();
 
+  public static IReadOnlyList<ImportPreviewFilter> FilterChoices { get; } =
+      Enum.GetValues<ImportPreviewFilter>().Cast<ImportPreviewFilter>().ToArray();
+
   public bool CanContinue =>
       preview is not null &&
       rows.All(row => !row.IsBlocking);
