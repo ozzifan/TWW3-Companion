@@ -110,6 +110,35 @@ public sealed class SqliteWorkspaceCatalogStore :
     return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture) == 1L;
   }
 
+  public async Task<IReadOnlySet<string>> ReadCollectionMemberModIdsAsync(
+      ImportTargetContext.CurrentWorkspace targetContext,
+      string collectionId,
+      CancellationToken cancellationToken = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+
+    await using var connection = await OpenValidatedConnectionAsync(
+        targetContext.WorkspacePath,
+        targetContext.WorkspaceId,
+        requireCollection: false,
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText = """
+        SELECT mod_id
+        FROM collection_memberships
+        WHERE collection_id = $collectionId;
+        """;
+    command.Parameters.AddWithValue("$collectionId", collectionId);
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    var memberModIds = new HashSet<string>(StringComparer.Ordinal);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      memberModIds.Add(reader.GetString(0));
+    }
+
+    return memberModIds;
+  }
+
   public async Task<ImportOutcome> CommitAtomicallyAsync(
       ImportPreview preview,
       bool confirm,
@@ -158,7 +187,13 @@ public sealed class SqliteWorkspaceCatalogStore :
             CancellationToken.None);
 
         await transaction.CommitAsync(CancellationToken.None);
-        return new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: true);
+
+        var membershipDestination = collectionId is not null
+            ? ImportMembershipDestination.ForExistingCollection(collectionId)
+            : current.MembershipDestination;
+
+        var appliedTarget = current with { MembershipDestination = membershipDestination };
+        return new ImportOutcome(appliedTarget, preview.Candidates, Applied: true);
       }
       catch
       {

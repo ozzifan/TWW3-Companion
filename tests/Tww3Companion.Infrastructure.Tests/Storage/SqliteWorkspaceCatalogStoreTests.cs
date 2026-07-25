@@ -52,6 +52,31 @@ public sealed class SqliteWorkspaceCatalogStoreTests
   }
 
   [Fact]
+  public async Task CurrentWorkspace_NewCollection_outcome_remaps_to_created_collection()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination.ForNewCollection("Imported Collection"),
+        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
+
+    var outcome = await fixture.Store.CommitAtomicallyAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+    var current = Assert.IsType<ImportTargetContext.CurrentWorkspace>(outcome.TargetContext);
+    var existingCollection = Assert.IsType<ImportMembershipDestination.ExistingCollection>(
+        current.MembershipDestination);
+    var snapshot = await fixture.Store.ReadLibrarySnapshotAsync(
+        fixture.WorkspacePath,
+        TestContext.Current.CancellationToken);
+    var created = Assert.Single(
+        snapshot.Collections,
+        collection => collection.DisplayName == "Imported Collection");
+
+    Assert.Equal(created.CollectionId, existingCollection.CollectionId);
+  }
+
+  [Fact]
   public async Task NewWorkspace_LibraryOnly_creates_workspace_and_mod_without_collection_or_membership()
   {
     using var directory = new TemporaryDirectory();
