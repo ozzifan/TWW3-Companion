@@ -30,6 +30,7 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
     Source = new ImportSourceViewModel(fileService);
     Destination = new ImportDestinationViewModel(launchContext);
     Preview = new ImportPreviewViewModel();
+    Preview.Loaded += preview => cachedPreview = preview;
     Resolution = new ImportResolutionViewModel(coordinator, Preview);
     Confirmation = new ImportConfirmationViewModel();
 
@@ -146,6 +147,17 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
         Destination.BuildTargetContext(),
         loadResult.Candidates,
         cancellationToken);
+
+    if (cachedPreview is not null && cachedCandidates is not null)
+    {
+      preview = await ImportPreviewResolutionRetention.MergeAsync(
+          preview,
+          cachedPreview,
+          cachedCandidates,
+          loadResult.Candidates,
+          coordinator,
+          cancellationToken);
+    }
 
     cachedPreview = preview;
     cachedFingerprint = fingerprint;

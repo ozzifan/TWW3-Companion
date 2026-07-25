@@ -82,6 +82,37 @@ public sealed class ImportWorkspaceViewModelTests
     Assert.Equal(2, coordinator.LoadSourceCallCount);
     Assert.Equal(2, coordinator.BuildPreviewCallCount);
     Assert.Equal(ImportTaskStage.Preview, subject.Stage);
+    Assert.Null(subject.Confirmation.Summary);
+  }
+
+  [Fact]
+  public async Task Changed_destination_retains_resolution_when_candidates_and_choices_unchanged()
+  {
+    var coordinator = new BlockingResolutionCoordinator();
+    var subject = CreateSubject(
+        CurrentWorkspaceLaunchContext(),
+        coordinator);
+
+    subject.Source.Select(ImportSourceKind.SteamItems);
+    subject.Source.InputText = "123456789";
+    subject.OpenDestination();
+    subject.Destination.SelectLibraryOnly();
+    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+
+    await subject.Resolution.LinkToModAsync("owner-mod", TestContext.Current.CancellationToken);
+
+    Assert.Null(subject.Resolution.ActiveCandidateId);
+    Assert.True(subject.Preview.CanContinue);
+
+    subject.GoBack();
+    subject.Destination.SelectExistingCollection("collection-1");
+    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(2, coordinator.BuildPreviewCallCount);
+    var row = Assert.Single(subject.Preview.Rows);
+    Assert.Equal("owner-mod", row.Candidate.LinkedModId);
+    Assert.True(subject.Preview.CanContinue);
+    Assert.Null(subject.Confirmation.Summary);
   }
 
   [Fact]
@@ -167,7 +198,7 @@ public sealed class ImportWorkspaceViewModelTests
 
   private static ImportWorkspaceViewModel CreateSubject(
       ImportLaunchContext launchContext,
-      RecordingImportTaskCoordinator? coordinator = null) =>
+      IImportTaskCoordinator? coordinator = null) =>
       new(
           launchContext,
           coordinator ?? new RecordingImportTaskCoordinator(),
@@ -250,5 +281,108 @@ public sealed class ImportWorkspaceViewModelTests
                     ImportMembershipAction.None,
                     [])
             ]);
+  }
+
+  private sealed class BlockingResolutionCoordinator : IImportTaskCoordinator
+  {
+    public int LoadSourceCallCount { get; private set; }
+    public int BuildPreviewCallCount { get; private set; }
+
+    public Task<ImportSourceLoadResult> LoadSourceAsync(
+        ImportSourceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+      LoadSourceCallCount++;
+      return Task.FromResult(new ImportSourceLoadResult(
+          [new SteamImportCandidate("123456789", "Example Mod")],
+          [],
+          ["123456789"]));
+    }
+
+    public Task<ImportPreview> BuildPreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<object> candidates,
+        CancellationToken cancellationToken = default)
+    {
+      BuildPreviewCallCount++;
+      return Task.FromResult(CreateBlockingPreview(targetContext));
+    }
+
+    public Task<ImportPreview> ResolveAsync(
+        ImportPreview preview,
+        ImportCandidate resolvedCandidate,
+        CancellationToken cancellationToken = default)
+    {
+      var updatedCandidates = preview.Candidates
+          .Select(candidate => candidate.CandidateId == resolvedCandidate.CandidateId
+              ? resolvedCandidate
+              : candidate)
+          .ToArray();
+      var updatedIssues = (preview.ValidationIssues ?? [])
+          .Where(issue => !string.Equals(issue.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
+          .ToArray();
+      var updatedOperations = (preview.Operations ?? [])
+          .Select(operation =>
+          {
+            if (!string.Equals(operation.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
+            {
+              return operation;
+            }
+
+            var candidate = updatedCandidates.First(entry =>
+                string.Equals(entry.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal));
+            return new ImportPreviewOperation(
+                operation.CandidateId,
+                ImportPreviewRules.InferLibraryAction(candidate),
+                ImportPreviewRules.InferMembershipAction(candidate, preview.TargetContext),
+                []);
+          })
+          .ToArray();
+
+      return Task.FromResult(preview with
+      {
+        Candidates = updatedCandidates,
+        ValidationIssues = updatedIssues,
+        Operations = updatedOperations
+      });
+    }
+
+    public Task<ImportOutcome> ApplyAsync(
+        ImportPreview preview,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportOutcome(preview.TargetContext, [], Applied: true));
+
+    private static ImportPreview CreateBlockingPreview(ImportTargetContext targetContext)
+    {
+      const string candidateId = "steam:123456789:0";
+      return new ImportPreview(
+          targetContext,
+          [
+              ImportCandidate.Unresolved(
+                  candidateId,
+                  ImportSourceReference.SteamWorkshop("123456789"))
+          ],
+          Applied: false,
+          Operations:
+          [
+              new ImportPreviewOperation(
+                  candidateId,
+                  ImportLibraryAction.Conflict,
+                  ImportMembershipAction.Blocked,
+                  [
+                      new ImportValidationIssue(
+                          candidateId,
+                          "import.source.owner.conflict",
+                          "The source identity is already owned by Mod owner-mod.")
+                  ])
+          ],
+          ValidationIssues:
+          [
+              new ImportValidationIssue(
+                  candidateId,
+                  "import.source.owner.conflict",
+                  "The source identity is already owned by Mod owner-mod.")
+          ]);
+    }
   }
 }

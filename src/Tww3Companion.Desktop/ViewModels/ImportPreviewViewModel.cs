@@ -79,6 +79,8 @@ public sealed class ImportPreviewViewModel : ViewModelBase
       preview is not null &&
       rows.All(row => !row.IsBlocking);
 
+  internal event Action<ImportPreview>? Loaded;
+
   public void Load(ImportPreview value)
   {
     preview = value;
@@ -108,6 +110,7 @@ public sealed class ImportPreviewViewModel : ViewModelBase
     OnPropertyChanged(nameof(Rows));
     OnPropertyChanged(nameof(FilteredRows));
     OnPropertyChanged(nameof(CanContinue));
+    Loaded?.Invoke(value);
   }
 
   public ImportConfirmationSummary BuildConfirmationSummary()
