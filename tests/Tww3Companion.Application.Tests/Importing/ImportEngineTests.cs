@@ -544,6 +544,89 @@ public sealed class ImportEngineTests
     Assert.True(store.CommitAtomicallyCalled);
   }
 
+  [Fact]
+  public async Task Preview_marks_matched_mod_with_blank_display_name_as_enrich()
+  {
+    var store = new FakeWorkspaceImportStore
+    {
+      ExistingCandidates =
+      [
+        new ImportCandidate(
+            "catalog:mod-1",
+            ImportSourceReference.SteamWorkshop("123"),
+            "mod-1",
+            "",
+            IsSkipped: false)
+      ]
+    };
+    var engine = new ImportEngine(store);
+
+    var preview = await engine.BuildPreviewAsync(
+        CurrentWorkspaceTarget,
+        [new SteamImportCandidate("123", "Imported Title")],
+        TestContext.Current.CancellationToken);
+
+    var operation = Assert.Single(preview.Operations!);
+    Assert.Equal(ImportLibraryAction.Enrich, operation.LibraryAction);
+  }
+
+  [Fact]
+  public async Task Preview_marks_scalar_display_name_conflict()
+  {
+    var store = new FakeWorkspaceImportStore
+    {
+      ExistingCandidates =
+      [
+        new ImportCandidate(
+            "catalog:mod-1",
+            ImportSourceReference.SteamWorkshop("123"),
+            "mod-1",
+            "User Name",
+            IsSkipped: false)
+      ]
+    };
+    var engine = new ImportEngine(store);
+
+    var preview = await engine.BuildPreviewAsync(
+        CurrentWorkspaceTarget,
+        [new SteamImportCandidate("123", "Imported Title")],
+        TestContext.Current.CancellationToken);
+
+    var operation = Assert.Single(preview.Operations!);
+    Assert.Equal(ImportLibraryAction.Conflict, operation.LibraryAction);
+    Assert.Contains(
+        preview.ValidationIssues!,
+        issue => issue.Code == "import.scalar.conflict");
+  }
+
+  [Fact]
+  public async Task Preview_marks_existing_collection_membership_as_unchanged()
+  {
+    var store = new FakeWorkspaceImportStore
+    {
+      ExistingCandidates =
+      [
+        new ImportCandidate(
+            "catalog:mod-1",
+            ImportSourceReference.SteamWorkshop("123"),
+            "mod-1",
+            "Existing Mod",
+            IsSkipped: false)
+      ],
+      CollectionMemberModIds = new HashSet<string>(StringComparer.Ordinal) { "mod-1" }
+    };
+    var engine = new ImportEngine(store);
+
+    var preview = await engine.BuildPreviewAsync(
+        CurrentWorkspaceTarget,
+        [new SteamImportCandidate("123", "Existing Mod")],
+        TestContext.Current.CancellationToken);
+
+    var operation = Assert.Single(preview.Operations!);
+    Assert.Equal(ImportLibraryAction.Existing, operation.LibraryAction);
+    Assert.Equal(ImportMembershipAction.Existing, operation.MembershipAction);
+  }
+
   private sealed class FakeWorkspaceImportStore : IWorkspaceImportStore
   {
     public bool ReadCandidatesCalled { get; private set; }
@@ -551,6 +634,9 @@ public sealed class ImportEngineTests
     public IReadOnlyList<ImportCandidate> ExistingCandidates { get; init; } = [];
 
     public IReadOnlySet<string> ExistingModIds { get; init; } = new HashSet<string>(StringComparer.Ordinal) { "mod-1" };
+
+    public IReadOnlySet<string> CollectionMemberModIds { get; init; } =
+        new HashSet<string>(StringComparer.Ordinal);
 
     public ImportPreview? CommittedPreview { get; private set; }
 
@@ -571,6 +657,12 @@ public sealed class ImportEngineTests
         string modId,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(ExistingModIds.Contains(modId));
+
+    public Task<IReadOnlySet<string>> ReadCollectionMemberModIdsAsync(
+        ImportTargetContext.CurrentWorkspace targetContext,
+        string collectionId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(CollectionMemberModIds);
 
     public Task<ImportPreview> SavePreviewAsync(
         ImportTargetContext targetContext,

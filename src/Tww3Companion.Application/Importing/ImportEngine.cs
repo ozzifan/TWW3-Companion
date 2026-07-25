@@ -98,13 +98,23 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
 
     var matchedCandidates = MatchExactSourceReferences(candidates, existingCandidates);
     var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
-    var validationIssues = DetectSourceOwnerConflicts(suggestedCandidates, existingCandidates);
+    var validationIssues = DetectSourceOwnerConflicts(suggestedCandidates, existingCandidates)
+        .Concat(DetectScalarConflicts(suggestedCandidates, existingCandidates))
+        .ToArray();
+    var collectionMemberModIds = await ReadCollectionMemberModIdsAsync(
+        targetContext,
+        cancellationToken);
     var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
         candidate.CandidateId,
         candidate.LinkedModId,
         candidate.DisplayName,
         CanSkip: string.IsNullOrWhiteSpace(candidate.LinkedModId))).ToArray();
-    var operations = BuildOperations(suggestedCandidates, validationIssues, targetContext);
+    var operations = BuildOperations(
+        suggestedCandidates,
+        validationIssues,
+        targetContext,
+        existingCandidates,
+        collectionMemberModIds);
     var warningCount = CountWarnings(suggestedCandidates, validationIssues);
 
     var preview = await _store.SavePreviewAsync(
@@ -237,10 +247,55 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
           .Cast<ImportValidationIssue>()
           .ToArray();
 
+  private async Task<IReadOnlySet<string>?> ReadCollectionMemberModIdsAsync(
+      ImportTargetContext targetContext,
+      CancellationToken cancellationToken)
+  {
+    if (targetContext is not ImportTargetContext.CurrentWorkspace current ||
+        current.MembershipDestination is not ImportMembershipDestination.ExistingCollection existing)
+    {
+      return null;
+    }
+
+    return await _store.ReadCollectionMemberModIdsAsync(
+        current,
+        existing.CollectionId,
+        cancellationToken);
+  }
+
+  private static IReadOnlyList<ImportValidationIssue> DetectScalarConflicts(
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportCandidate> existingCandidates) =>
+      candidates
+          .Where(candidate =>
+              !candidate.IsSkipped &&
+              !string.IsNullOrWhiteSpace(candidate.LinkedModId) &&
+              !string.IsNullOrWhiteSpace(candidate.DisplayName))
+          .Select(candidate =>
+          {
+            var existing = FindExistingMod(existingCandidates, candidate.LinkedModId!);
+            if (existing is null ||
+                string.IsNullOrWhiteSpace(existing.DisplayName) ||
+                DisplayNamesEqual(existing.DisplayName, candidate.DisplayName!))
+            {
+              return null;
+            }
+
+            return new ImportValidationIssue(
+                candidate.CandidateId,
+                "import.scalar.conflict",
+                "The imported display name differs from the existing Mod.");
+          })
+          .Where(issue => issue is not null)
+          .Cast<ImportValidationIssue>()
+          .ToArray();
+
   private static IReadOnlyList<ImportPreviewOperation> BuildOperations(
       IReadOnlyList<ImportCandidate> candidates,
       IReadOnlyList<ImportValidationIssue> validationIssues,
-      ImportTargetContext targetContext) =>
+      ImportTargetContext targetContext,
+      IReadOnlyList<ImportCandidate> existingCandidates,
+      IReadOnlySet<string>? collectionMemberModIds) =>
       candidates.Select(candidate =>
       {
         var candidateIssues = validationIssues
@@ -249,28 +304,37 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
 
         return new ImportPreviewOperation(
             candidate.CandidateId,
-            DetermineLibraryAction(candidate, candidateIssues),
-            DetermineMembershipAction(candidate, candidateIssues, targetContext),
+            DetermineLibraryAction(candidate, candidateIssues, existingCandidates),
+            DetermineMembershipAction(
+                candidate,
+                candidateIssues,
+                targetContext,
+                collectionMemberModIds),
             candidateIssues);
       }).ToArray();
 
   private static ImportLibraryAction DetermineLibraryAction(
       ImportCandidate candidate,
-      IReadOnlyList<ImportValidationIssue> candidateIssues)
+      IReadOnlyList<ImportValidationIssue> candidateIssues,
+      IReadOnlyList<ImportCandidate> existingCandidates)
   {
     if (candidate.IsSkipped)
     {
       return ImportLibraryAction.Skip;
     }
 
-    if (candidateIssues.Any(issue => issue.Code == "import.source.owner.conflict"))
+    if (candidateIssues.Any(issue =>
+            issue.Code is "import.source.owner.conflict" or "import.scalar.conflict"))
     {
       return ImportLibraryAction.Conflict;
     }
 
     if (!string.IsNullOrWhiteSpace(candidate.LinkedModId))
     {
-      return ImportLibraryAction.Existing;
+      var existing = FindExistingMod(existingCandidates, candidate.LinkedModId);
+      return RequiresEnrichment(candidate, existing)
+          ? ImportLibraryAction.Enrich
+          : ImportLibraryAction.Existing;
     }
 
     if (!string.IsNullOrWhiteSpace(candidate.SuggestedModId))
@@ -289,7 +353,8 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
   private static ImportMembershipAction DetermineMembershipAction(
       ImportCandidate candidate,
       IReadOnlyList<ImportValidationIssue> candidateIssues,
-      ImportTargetContext targetContext)
+      ImportTargetContext targetContext,
+      IReadOnlySet<string>? collectionMemberModIds)
   {
     if (candidate.IsSkipped)
     {
@@ -307,9 +372,39 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
           ImportMembershipAction.None,
       ImportTargetContext.CurrentWorkspace { MembershipDestination: ImportMembershipDestination.LibraryOnly } =>
           ImportMembershipAction.None,
+      ImportTargetContext.CurrentWorkspace { MembershipDestination: ImportMembershipDestination.ExistingCollection }
+          when !string.IsNullOrWhiteSpace(candidate.LinkedModId) &&
+               collectionMemberModIds?.Contains(candidate.LinkedModId) == true =>
+          ImportMembershipAction.Existing,
       _ => ImportMembershipAction.Add
     };
   }
+
+  private static ImportCandidate? FindExistingMod(
+      IReadOnlyList<ImportCandidate> existingCandidates,
+      string linkedModId) =>
+      existingCandidates.FirstOrDefault(existing =>
+          string.Equals(existing.LinkedModId, linkedModId, StringComparison.Ordinal));
+
+  private static bool RequiresEnrichment(ImportCandidate candidate, ImportCandidate? existing)
+  {
+    if (existing is null)
+    {
+      return false;
+    }
+
+    if (!string.IsNullOrWhiteSpace(candidate.DisplayName) &&
+        string.IsNullOrWhiteSpace(existing.DisplayName))
+    {
+      return true;
+    }
+
+    return candidate.SourceReference is not null &&
+           existing.SourceReference is null;
+  }
+
+  private static bool DisplayNamesEqual(string left, string right) =>
+      string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
 
   private static int CountWarnings(
       IReadOnlyList<ImportCandidate> candidates,
