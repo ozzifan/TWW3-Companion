@@ -41,6 +41,7 @@ public static class SteamCollectionImportAdapter
       }
       catch (Exception exception) when (exception is not OperationCanceledException)
       {
+        candidates.Add(new SteamImportCandidate(memberSourceReference));
         diagnostics.Add(new SteamImportDiagnostic(memberSourceReference, exception.Message, true));
       }
     }
