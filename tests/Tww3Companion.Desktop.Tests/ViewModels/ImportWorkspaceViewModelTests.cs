@@ -133,6 +133,40 @@ public sealed class ImportWorkspaceViewModelTests
   }
 
   [Fact]
+  public void ConfirmDiscardCommand_invokes_cancel_handler()
+  {
+    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), new RecordingImportTaskCoordinator());
+    var cancelInvoked = false;
+    subject.SetCancelHandler(() => cancelInvoked = true);
+
+    subject.ConfirmDiscardCommand.Execute(null);
+
+    Assert.True(cancelInvoked);
+  }
+
+  [Fact]
+  public void SelectExistingCollectionCommand_activates_without_command_parameter()
+  {
+    var subject = CreateSubject(new ImportLaunchContext(
+        IsNewWorkspace: false,
+        WorkspaceId: "workspace-1",
+        WorkspacePath: @"C:\Data\workspace.tww3c",
+        Collections: [new CollectionSummary("collection-1", "Current", 0)],
+        SelectedCollectionId: "collection-1"));
+
+    subject.Source.Select(ImportSourceKind.Markdown);
+    subject.OpenDestination();
+    subject.Destination.SelectLibraryOnly();
+    Assert.False(subject.Destination.IsExistingCollection);
+
+    Assert.True(subject.Destination.SelectExistingCollectionCommand.CanExecute(null));
+    subject.Destination.SelectExistingCollectionCommand.Execute(null);
+
+    Assert.True(subject.Destination.IsExistingCollection);
+    Assert.Equal("collection-1", subject.Destination.SelectedCollectionId);
+  }
+
+  [Fact]
   public async Task Apply_sets_finalizing_disables_navigation_and_raises_completion()
   {
     var coordinator = new RecordingImportTaskCoordinator();

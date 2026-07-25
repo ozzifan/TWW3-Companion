@@ -21,9 +21,7 @@ public sealed class ImportDestinationViewModel : ViewModelBase
     workspacePath = launchContext.WorkspacePath ?? string.Empty;
     SelectLibraryOnlyCommand = new ViewModelCommand(() => SelectLibraryOnly());
     SelectNewCollectionCommand = new ViewModelCommand(() => SelectNewCollection());
-    SelectExistingCollectionCommand = new ViewModelCommand(
-        parameter => SelectExistingCollectionFromView(parameter),
-        parameter => parameter is CollectionSummary);
+    SelectExistingCollectionCommand = new ViewModelCommand(SelectExistingCollectionFromRadio);
   }
 
   public bool ShowsWorkspaceDetails => launchContext.IsNewWorkspace;
@@ -223,12 +221,22 @@ public sealed class ImportDestinationViewModel : ViewModelBase
     SelectedCollectionId = collectionId;
   }
 
-  private void SelectExistingCollectionFromView(object? parameter)
+  internal void SelectExistingCollectionFromRadio()
   {
-    if (parameter is CollectionSummary collection)
+    if (!HasExistingCollectionOption)
     {
-      SelectExistingCollection(collection.CollectionId);
+      return;
     }
+
+    var collectionId = SelectedCollectionId
+        ?? launchContext.SelectedCollectionId
+        ?? Collections.FirstOrDefault()?.CollectionId;
+    if (string.IsNullOrWhiteSpace(collectionId))
+    {
+      return;
+    }
+
+    SelectExistingCollection(collectionId);
   }
 
   internal void SelectNewCollection(string? displayName = null, bool isSuggestion = false)

@@ -101,6 +101,42 @@ public sealed class ShellViewModelTests
   }
 
   [Fact]
+  public async Task Successful_new_workspace_import_completion_sets_active_workspace_and_enters_workspace()
+  {
+    const string workspaceId = "new-workspace-id";
+    const string workspacePath = @"C:\Workspaces\new.tww3c";
+    var reader = new RecordingCatalogReader();
+    var query = new WorkspaceLibraryQuery(reader);
+    var coordinator = new ConfigurableImportCoordinator();
+    var shell = ShellViewModel.CreateForTest(
+        importCoordinator: coordinator,
+        workspaceLibraryQuery: query);
+
+    shell.ImportIntoNewWorkspaceCommand.Execute(null);
+    var importTask = shell.ImportWorkspace!;
+    importTask.Source.Select(ImportSourceKind.SteamItems);
+    importTask.Source.InputText = "123456789";
+    importTask.OpenDestination();
+    importTask.Destination.SelectLibraryOnly();
+    await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+    await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
+
+    var appliedTarget = ImportTargetContext.ForCurrentWorkspace(
+        workspaceId,
+        workspacePath,
+        ImportMembershipDestination.ForLibraryOnly());
+    coordinator.ConfigureApplyOutcome(new ImportOutcome(appliedTarget, [], Applied: true));
+
+    await importTask.ApplyAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal(ShellScreen.Workspace, shell.CurrentScreen);
+    Assert.False(shell.IsImportVisible);
+    Assert.Equal(workspacePath, reader.LastPath);
+    Assert.Null(shell.ModLibrary.SelectedCollection);
+    Assert.Contains(shell.ModLibrary.Mods, mod => mod.DisplayName == "Persisted Mod");
+  }
+
+  [Fact]
   public async Task Successful_import_completion_reloads_library_and_enters_workspace()
   {
     const string workspaceId = "workspace-id-123";

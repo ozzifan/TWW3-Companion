@@ -272,7 +272,12 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
     return false;
   }
 
-  public void ConfirmDiscard() => discardConfirmed = true;
+  public void ConfirmDiscard()
+  {
+    discardConfirmed = true;
+    OnPropertyChanged(nameof(RequiresDiscardConfirmation));
+    cancelHandler?.Invoke();
+  }
 
   internal void SetCancelHandler(Action handler) => cancelHandler = handler ?? throw new ArgumentNullException(nameof(handler));
 
