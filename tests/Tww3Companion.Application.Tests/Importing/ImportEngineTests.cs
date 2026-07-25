@@ -345,6 +345,28 @@ public sealed class ImportEngineTests
   }
 
   [Fact]
+  public async Task NewWorkspace_import_applies_library_only_without_collection_membership()
+  {
+    var store = new FakeWorkspaceImportStore();
+    var engine = new ImportEngine(store);
+    var target = ImportTargetContext.ForNewWorkspace(
+        NewWorkspaceDisplayName,
+        NewWorkspacePath,
+        ImportMembershipDestination.ForLibraryOnly());
+    var preview = await engine.BuildPreviewAsync(
+        target,
+        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+        TestContext.Current.CancellationToken);
+
+    var outcome = await engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.Applied);
+    Assert.True(store.CommitNewWorkspaceAtomicallyCalled);
+    Assert.IsType<ImportMembershipDestination.LibraryOnly>(
+        Assert.IsType<ImportTargetContext.NewWorkspace>(store.CommittedPreview!.TargetContext).MembershipDestination);
+  }
+
+  [Fact]
   public async Task NewWorkspace_import_applies_into_the_new_workspace()
   {
     var store = new FakeWorkspaceImportStore();
