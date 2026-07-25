@@ -99,7 +99,7 @@ Use a disposable `.tww3c` Workspace outside the repository. Do not commit test W
 |-------|-------|----------|
 | Markdown paste | Home → Import into a new Workspace → Markdown → paste a short mod list → Continue | Source loads locally; disclosed Workshop IDs shown if present |
 | Markdown file | Choose file with a Markdown mod list → Continue | Document name shown; content parsed locally |
-| Steam Collection | Select Steam Collection → paste one public collection ID → review disclosure on Source → Continue → Destination → Continue | Member Workshop IDs disclosed on Source Continue (no network); metadata requested on Destination Continue |
+| Steam Collection | Select Steam Collection → paste one public collection ID or URL → review disclosure on Source → Continue → Destination → Continue | Collection ID disclosed on Source Continue (no network); member Workshop IDs after Destination Continue |
 | Steam items paste | Select Steam items → paste multiple IDs or URLs → Source Continue → Destination Continue | Each ID disclosed on Source Continue; metadata requested on Destination Continue |
 | Steam items file | Choose file with Workshop IDs → Source Continue | Same disclosure behaviour as paste |
 | Library-only new Workspace | Destination → Library only → name/path → preview → Apply | Mods in library; no Collection created |
