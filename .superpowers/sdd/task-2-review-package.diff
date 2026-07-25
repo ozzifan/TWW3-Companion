@@ -1,0 +1,1124 @@
+BASE: 2c526a0c6c8df0b943d15519569b0f2bc0172d4d
+HEAD: 45bb9afb221884a50234069b541c700eca0cb824
+
+## Commits
+
+45bb9af feat: persist all import membership destinations
+
+## Stat
+
+ .../Storage/SqliteWorkspaceCatalogStore.cs         | 142 +++++++----
+ .../Importing/ImportEngineTests.cs                 |  22 ++
+ .../Storage/SqliteWorkspaceCatalogStoreTests.cs    | 277 +++++++++++++++++++--
+ 3 files changed, 368 insertions(+), 73 deletions(-)
+
+## Diff
+
+diff --git a/src/Tww3Companion.Infrastructure/Storage/SqliteWorkspaceCatalogStore.cs b/src/Tww3Companion.Infrastructure/Storage/SqliteWorkspaceCatalogStore.cs
+index 13801e0..66f7aad 100644
+--- a/src/Tww3Companion.Infrastructure/Storage/SqliteWorkspaceCatalogStore.cs
++++ b/src/Tww3Companion.Infrastructure/Storage/SqliteWorkspaceCatalogStore.cs
+@@ -130,61 +130,39 @@ public sealed class SqliteWorkspaceCatalogStore :
+ 
+     ValidatePreview(preview);
+ 
+     try
+     {
+       cancellationToken.ThrowIfCancellationRequested();
+ 
+       await using var connection = await OpenValidatedConnectionAsync(
+           current.WorkspacePath,
+           current.WorkspaceId,
+-          requireCollection: true,
+-          cancellationToken,
+-          current.CollectionId);
++          requireCollection: false,
++          cancellationToken);
+       await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+-      var persistedCandidateCount = 0;
+ 
+       try
+       {
+         await VerifyWorkspaceIdAsync(connection, transaction, current.WorkspaceId, CancellationToken.None);
+-        await VerifyCollectionExistsAsync(connection, transaction, current.CollectionId, CancellationToken.None);
+-
+-        var nextPosition = await ReadNextMembershipPositionAsync(
++        var collectionId = await PrepareMembershipDestinationAsync(
+             connection,
+             transaction,
+-            current.CollectionId,
++            current.MembershipDestination,
+             CancellationToken.None);
+ 
+-        foreach (var candidate in preview.Candidates.OfType<ImportCandidate>())
+-        {
+-          cancellationToken.ThrowIfCancellationRequested();
+-          if (candidate.IsSkipped)
+-          {
+-            continue;
+-          }
+-
+-          var modId = await ResolveOrCreateModAsync(
+-              connection,
+-              transaction,
+-              candidate,
+-              CancellationToken.None);
+-          nextPosition = await EnsureMembershipAsync(
+-              connection,
+-              transaction,
+-              current.CollectionId,
+-              modId,
+-              nextPosition,
+-              CancellationToken.None);
+-
+-          persistedCandidateCount++;
+-          afterCandidatePersisted?.Invoke(persistedCandidateCount);
+-        }
++        await PersistCandidatesAsync(
++            connection,
++            transaction,
++            preview.Candidates.OfType<ImportCandidate>().ToArray(),
++            collectionId,
++            CancellationToken.None);
+ 
+         await transaction.CommitAsync(CancellationToken.None);
+         return new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: true);
+       }
+       catch
+       {
+         await transaction.RollbackAsync(CancellationToken.None);
+         throw;
+       }
+     }
+@@ -198,20 +176,27 @@ public sealed class SqliteWorkspaceCatalogStore :
+       ImportPreview preview,
+       CancellationToken cancellationToken = default)
+   {
+     if (preview.TargetContext is not ImportTargetContext.NewWorkspace target)
+     {
+       throw new ArgumentException("The preview must target a new Workspace.", nameof(preview));
+     }
+ 
+     ValidatePreview(preview);
+ 
++    if (target.MembershipDestination is ImportMembershipDestination.ExistingCollection)
++    {
++      throw new ArgumentException(
++          "A new Workspace import cannot target an existing Collection.",
++          nameof(preview));
++    }
++
+     var destination = target.DestinationPath;
+     var temporaryPath =
+         $"{destination}.{uuidGenerator.NewUuid().Replace("-", "", StringComparison.Ordinal)}.tmp";
+ 
+     try
+     {
+       cancellationToken.ThrowIfCancellationRequested();
+ 
+       if (File.Exists(destination))
+       {
+@@ -222,71 +207,73 @@ public sealed class SqliteWorkspaceCatalogStore :
+       }
+ 
+       using (fileSystem.CreateWriteProbe(Path.GetDirectoryName(destination)!))
+       {
+       }
+ 
+       var workspace = CreateWorkspaceIdentity(
+           target.DisplayName,
+           uuidGenerator.NewUuid(),
+           clock.UtcNow);
+-      var collectionId = uuidGenerator.NewUuid();
++      string? collectionId;
+ 
+       await using (var connection = await connectionFactory.OpenAsync(temporaryPath, cancellationToken))
+       {
+         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+ 
+         try
+         {
+           await SchemaV2.InitializeAsync(
+               connection,
+               transaction,
+               workspace,
+               CancellationToken.None);
+ 
+-          await InsertCollectionAsync(
++          collectionId = await PrepareMembershipDestinationAsync(
+               connection,
+               transaction,
+-              collectionId,
+-              target.CollectionDisplayName,
++              target.MembershipDestination,
+               CancellationToken.None);
+ 
+           await PersistCandidatesAsync(
+               connection,
+               transaction,
++              preview.Candidates.OfType<ImportCandidate>().ToArray(),
+               collectionId,
+-              preview.Candidates.OfType<ImportCandidate>(),
+-              initialPosition: 0,
+               CancellationToken.None);
+ 
+           await WorkspaceSchemaInspector.ValidateAsync(
+               connection,
+               transaction,
+               SchemaVersion.Current,
+               CancellationToken.None);
+ 
+           await transaction.CommitAsync(CancellationToken.None);
+         }
+         catch
+         {
+           await transaction.RollbackAsync(CancellationToken.None);
+           throw;
+         }
+       }
+ 
+       fileSystem.MoveWithoutOverwrite(temporaryPath, destination);
+ 
++      var membershipDestination = collectionId is not null
++          ? ImportMembershipDestination.ForExistingCollection(collectionId)
++          : ImportMembershipDestination.ForLibraryOnly();
++
+       return new ImportOutcome(
+           ImportTargetContext.ForCurrentWorkspace(
+               workspace.Id.ToString(),
+               destination,
+-              collectionId),
++              membershipDestination),
+           preview.Candidates,
+           Applied: true);
+     }
+     catch (Exception exception)
+     {
+       throw MapPersistenceFailure(exception);
+     }
+     finally
+     {
+       try
+@@ -431,20 +418,65 @@ public sealed class SqliteWorkspaceCatalogStore :
+             CanonicalizeUuid(expectedWorkspaceId),
+             StringComparison.Ordinal))
+     {
+       throw ImportError(
+           "import.workspace.mismatch",
+           "The selected file is not the expected Workspace.",
+           "Return to the Workspace and choose the import destination again.");
+     }
+   }
+ 
++  private async Task<string?> PrepareMembershipDestinationAsync(
++      SqliteConnection connection,
++      SqliteTransaction transaction,
++      ImportMembershipDestination destination,
++      CancellationToken cancellationToken) =>
++      destination switch
++      {
++        ImportMembershipDestination.LibraryOnly => null,
++        ImportMembershipDestination.ExistingCollection existing =>
++            await VerifyAndReturnCollectionAsync(
++                connection,
++                transaction,
++                existing.CollectionId,
++                cancellationToken),
++        ImportMembershipDestination.NewCollection created =>
++            await InsertAndReturnCollectionAsync(
++                connection,
++                transaction,
++                uuidGenerator.NewUuid(),
++                created.DisplayName,
++                cancellationToken),
++        _ => throw new ArgumentException("Unsupported import membership destination.", nameof(destination))
++      };
++
++  private static async Task<string> VerifyAndReturnCollectionAsync(
++      SqliteConnection connection,
++      SqliteTransaction? transaction,
++      string collectionId,
++      CancellationToken cancellationToken)
++  {
++    await VerifyCollectionExistsAsync(connection, transaction, collectionId, cancellationToken);
++    return collectionId;
++  }
++
++  private static async Task<string> InsertAndReturnCollectionAsync(
++      SqliteConnection connection,
++      SqliteTransaction transaction,
++      string collectionId,
++      string displayName,
++      CancellationToken cancellationToken)
++  {
++    await InsertCollectionAsync(connection, transaction, collectionId, displayName, cancellationToken);
++    return collectionId;
++  }
++
+   private static async Task VerifyCollectionExistsAsync(
+       SqliteConnection connection,
+       SqliteTransaction? transaction,
+       string collectionId,
+       CancellationToken cancellationToken)
+   {
+     await using var command = connection.CreateCommand();
+     command.Transaction = transaction;
+     command.CommandText = """
+         SELECT EXISTS(
+@@ -697,47 +729,57 @@ public sealed class SqliteWorkspaceCatalogStore :
+       {
+         ImportSourceType.SteamWorkshop => SteamWorkshopSourceType,
+         _ => throw new ArgumentOutOfRangeException(nameof(sourceType), sourceType, "Unsupported import source type.")
+       };
+ 
+   private static string CanonicalizeUuid(string value) => value.Trim().ToLowerInvariant();
+ 
+   private async Task PersistCandidatesAsync(
+       SqliteConnection connection,
+       SqliteTransaction transaction,
+-      string collectionId,
+-      IEnumerable<ImportCandidate> candidates,
+-      int initialPosition,
++      IReadOnlyList<ImportCandidate> candidates,
++      string? collectionId,
+       CancellationToken cancellationToken)
+   {
+-    var nextPosition = initialPosition;
++    var nextPosition = collectionId is null
++        ? 0
++        : await ReadNextMembershipPositionAsync(
++            connection,
++            transaction,
++            collectionId,
++            cancellationToken);
+     var persistedCandidateCount = 0;
+ 
+     foreach (var candidate in candidates)
+     {
++      cancellationToken.ThrowIfCancellationRequested();
+       if (candidate.IsSkipped)
+       {
+         continue;
+       }
+ 
+       var modId = await ResolveOrCreateModAsync(
+           connection,
+           transaction,
+           candidate,
+           cancellationToken);
+-      nextPosition = await EnsureMembershipAsync(
+-          connection,
+-          transaction,
+-          collectionId,
+-          modId,
+-          nextPosition,
+-          cancellationToken);
++
++      if (collectionId is not null)
++      {
++        nextPosition = await EnsureMembershipAsync(
++            connection,
++            transaction,
++            collectionId,
++            modId,
++            nextPosition,
++            cancellationToken);
++      }
+ 
+       persistedCandidateCount++;
+       afterCandidatePersisted?.Invoke(persistedCandidateCount);
+     }
+   }
+ 
+   private static async Task InsertCollectionAsync(
+       SqliteConnection connection,
+       SqliteTransaction transaction,
+       string collectionId,
+diff --git a/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs b/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs
+index c8cd4b9..41be991 100644
+--- a/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs
++++ b/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs
+@@ -337,20 +337,42 @@ public sealed class ImportEngineTests
+         TestContext.Current.CancellationToken));
+     await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
+         ImportTargetContext.ForNewWorkspace(
+             NewWorkspaceDisplayName,
+             NewWorkspacePath,
+             ImportMembershipDestination.ForExistingCollection("collection-1")),
+         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+         TestContext.Current.CancellationToken));
+   }
+ 
++  [Fact]
++  public async Task NewWorkspace_import_applies_library_only_without_collection_membership()
++  {
++    var store = new FakeWorkspaceImportStore();
++    var engine = new ImportEngine(store);
++    var target = ImportTargetContext.ForNewWorkspace(
++        NewWorkspaceDisplayName,
++        NewWorkspacePath,
++        ImportMembershipDestination.ForLibraryOnly());
++    var preview = await engine.BuildPreviewAsync(
++        target,
++        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
++        TestContext.Current.CancellationToken);
++
++    var outcome = await engine.ApplyAsync(preview, confirm: true, TestContext.Current.CancellationToken);
++
++    Assert.True(outcome.Applied);
++    Assert.True(store.CommitNewWorkspaceAtomicallyCalled);
++    Assert.IsType<ImportMembershipDestination.LibraryOnly>(
++        Assert.IsType<ImportTargetContext.NewWorkspace>(store.CommittedPreview!.TargetContext).MembershipDestination);
++  }
++
+   [Fact]
+   public async Task NewWorkspace_import_applies_into_the_new_workspace()
+   {
+     var store = new FakeWorkspaceImportStore();
+     var engine = new ImportEngine(store);
+     var target = NewWorkspaceTarget;
+     var preview = await engine.BuildPreviewAsync(
+         target,
+         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+         TestContext.Current.CancellationToken);
+diff --git a/tests/Tww3Companion.Infrastructure.Tests/Storage/SqliteWorkspaceCatalogStoreTests.cs b/tests/Tww3Companion.Infrastructure.Tests/Storage/SqliteWorkspaceCatalogStoreTests.cs
+index 1d903a1..d87b74f 100644
+--- a/tests/Tww3Companion.Infrastructure.Tests/Storage/SqliteWorkspaceCatalogStoreTests.cs
++++ b/tests/Tww3Companion.Infrastructure.Tests/Storage/SqliteWorkspaceCatalogStoreTests.cs
+@@ -5,29 +5,202 @@ using Tww3Companion.Application.Importing;
+ using Tww3Companion.Domain.Validation;
+ using Tww3Companion.Domain.Workspaces;
+ using Tww3Companion.Infrastructure.Settings;
+ using Tww3Companion.Infrastructure.Storage;
+ using Xunit;
+ 
+ namespace Tww3Companion.Infrastructure.Tests.Storage;
+ 
+ public sealed class SqliteWorkspaceCatalogStoreTests
+ {
++  [Fact]
++  public async Task CurrentWorkspace_LibraryOnly_persists_mod_without_collection_or_membership()
++  {
++    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
++    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
++        ImportMembershipDestination.ForLibraryOnly(),
++        ImportCandidate.CreateWithDisplayName(
++            "candidate-1",
++            "Library Mod",
++            ImportSourceReference.SteamWorkshop("123")));
++
++    var outcome = await fixture.Store.CommitAtomicallyAsync(
++        preview,
++        confirm: true,
++        TestContext.Current.CancellationToken);
++
++    Assert.True(outcome.Applied);
++    Assert.Equal(1L, await fixture.CountAsync("mods"));
++    Assert.Equal(2L, await fixture.CountAsync("collections"));
++    Assert.Equal(0L, await fixture.CountAsync("collection_memberships"));
++  }
++
++  [Fact]
++  public async Task CurrentWorkspace_NewCollection_creates_collection_and_membership_atomically()
++  {
++    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
++    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
++        ImportMembershipDestination.ForNewCollection("Imported Collection"),
++        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
++
++    await fixture.Store.CommitAtomicallyAsync(
++        preview,
++        confirm: true,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(3L, await fixture.CountAsync("collections"));
++    Assert.Equal(1L, await fixture.CountAsync("collection_memberships"));
++  }
++
++  [Fact]
++  public async Task NewWorkspace_LibraryOnly_creates_workspace_and_mod_without_collection_or_membership()
++  {
++    using var directory = new TemporaryDirectory();
++    var destination = Path.Combine(directory.Path, "library-only.tww3c");
++    var store = CreateDeterministicStore();
++    var preview = await store.SavePreviewAsync(
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForLibraryOnly()),
++        [ImportCandidate.CreateWithDisplayName("candidate-1", "Library Mod")],
++        [],
++        TestContext.Current.CancellationToken);
++
++    var outcome = await store.CommitNewWorkspaceAtomicallyAsync(
++        preview,
++        TestContext.Current.CancellationToken);
++    var current = Assert.IsType<ImportTargetContext.CurrentWorkspace>(outcome.TargetContext);
++    var snapshot = await store.ReadLibrarySnapshotAsync(
++        destination,
++        TestContext.Current.CancellationToken);
++
++    Assert.True(outcome.Applied);
++    Assert.IsType<ImportMembershipDestination.LibraryOnly>(current.MembershipDestination);
++    Assert.Empty(snapshot.Collections);
++    Assert.Single(snapshot.Mods);
++    Assert.Empty(snapshot.Memberships);
++  }
++
++  [Fact]
++  public async Task CurrentWorkspace_ExistingCollection_verifies_collection_before_persisting()
++  {
++    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
++    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
++        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId),
++        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
++
++    await fixture.Store.CommitAtomicallyAsync(
++        preview,
++        confirm: true,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(1L, await fixture.CountAsync("collection_memberships"));
++    Assert.Equal(new[] { 0 }, await fixture.ReadMembershipPositionsAsync(fixture.FirstCollectionId));
++  }
++
++  [Fact]
++  public async Task CurrentWorkspace_NewCollection_with_duplicate_display_name_creates_separate_collection()
++  {
++    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
++    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
++        ImportMembershipDestination.ForNewCollection("First Collection"),
++        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
++
++    await fixture.Store.CommitAtomicallyAsync(
++        preview,
++        confirm: true,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(3L, await fixture.CountAsync("collections"));
++    Assert.Equal(2L, await fixture.CountRowsNamedAsync("collections", "First Collection"));
++  }
++
++  [Fact]
++  public async Task CurrentWorkspace_LibraryOnly_then_add_to_two_collections_without_mod_duplication()
++  {
++    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
++    var candidate = ImportCandidate.CreateWithDisplayName(
++        "candidate-111",
++        "Shared Mod",
++        ImportSourceReference.SteamWorkshop("111"));
++
++    var libraryPreview = await fixture.PreviewForCurrentWorkspaceAsync(
++        ImportMembershipDestination.ForLibraryOnly(),
++        candidate);
++    Assert.True((await fixture.Store.CommitAtomicallyAsync(
++        libraryPreview,
++        confirm: true,
++        TestContext.Current.CancellationToken)).Applied);
++
++    foreach (var collectionId in new[] { fixture.FirstCollectionId, fixture.SecondCollectionId })
++    {
++      var collectionPreview = await fixture.PreviewForCurrentWorkspaceAsync(
++          ImportMembershipDestination.ForExistingCollection(collectionId),
++          candidate with { CandidateId = $"candidate:{collectionId}" });
++      Assert.True((await fixture.Store.CommitAtomicallyAsync(
++          collectionPreview,
++          confirm: true,
++          TestContext.Current.CancellationToken)).Applied);
++    }
++
++    Assert.Equal(1L, await fixture.CountAsync("mods"));
++    Assert.Equal(2L, await fixture.CountAsync("collection_memberships"));
++  }
++
++  [Fact]
++  public async Task CurrentWorkspace_LibraryOnly_failure_after_first_candidate_rolls_back_all_rows()
++  {
++    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
++    var store = new SqliteWorkspaceCatalogStore(
++        fixture.ConnectionFactory,
++        fixture.UuidGenerator,
++        fixture.Clock,
++        afterCandidatePersisted: count =>
++        {
++          if (count == 1)
++          {
++            throw new InvalidOperationException("Injected failure after first candidate.");
++          }
++        });
++    var preview = await store.SavePreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            fixture.WorkspaceId,
++            fixture.WorkspacePath,
++            ImportMembershipDestination.ForLibraryOnly()),
++        [
++          ImportCandidate.CreateWithDisplayName("candidate:1", "First Mod"),
++          ImportCandidate.CreateWithDisplayName("candidate:2", "Second Mod")
++        ],
++        [],
++        TestContext.Current.CancellationToken);
++
++    await Assert.ThrowsAsync<InvalidOperationException>(() =>
++        store.CommitAtomicallyAsync(
++            preview,
++            confirm: true,
++            TestContext.Current.CancellationToken));
++
++    Assert.Equal(0L, await fixture.CountAsync("mods"));
++    Assert.Equal(0L, await fixture.CountAsync("source_references"));
++    Assert.Equal(0L, await fixture.CountAsync("collection_memberships"));
++  }
++
+   [Fact]
+   public async Task CurrentImport_PersistsAndReloadsCatalog()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var store = fixture.Store;
+     var target = ImportTargetContext.ForCurrentWorkspace(
+         fixture.WorkspaceId,
+         fixture.WorkspacePath,
+-        fixture.FirstCollectionId);
++        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
+     var preview = await store.SavePreviewAsync(
+         target,
+         [
+           ImportCandidate.CreateWithDisplayName(
+               "candidate:111",
+               "First Mod",
+               ImportSourceReference.SteamWorkshop("111")),
+           ImportCandidate.CreateWithDisplayName(
+               "candidate:local",
+               "Local Mod")
+@@ -56,39 +229,42 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+   }
+ 
+   [Fact]
+   public async Task SavePreviewAsync_DoesNotCreateWorkspaceFileForNewTarget()
+   {
+     using var directory = new TemporaryDirectory();
+     var destination = Path.Combine(directory.Path, "nonexistent.tww3c");
+     var store = CreateStore();
+ 
+     var preview = await store.SavePreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     Assert.False(preview.Applied);
+     Assert.Empty(preview.ValidationIssues!);
+     Assert.False(File.Exists(destination));
+   }
+ 
+   [Fact]
+   public async Task CommitAtomicallyAsync_WrongWorkspaceId_ThrowsImportPersistenceException()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var preview = await fixture.Store.SavePreviewAsync(
+         ImportTargetContext.ForCurrentWorkspace(
+             "87654321-4321-4abc-8def-1234567890ab",
+             fixture.WorkspacePath,
+-            fixture.FirstCollectionId),
++            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var exception = await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+         fixture.Store.CommitAtomicallyAsync(
+             preview,
+             confirm: true,
+             TestContext.Current.CancellationToken));
+ 
+@@ -97,21 +273,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+   }
+ 
+   [Fact]
+   public async Task CommitAtomicallyAsync_MissingCollection_ThrowsImportPersistenceException()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var preview = await fixture.Store.SavePreviewAsync(
+         ImportTargetContext.ForCurrentWorkspace(
+             fixture.WorkspaceId,
+             fixture.WorkspacePath,
+-            "99999999-9999-4999-8999-999999999999"),
++            ImportMembershipDestination.ForExistingCollection("99999999-9999-4999-8999-999999999999")),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var exception = await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+         fixture.Store.CommitAtomicallyAsync(
+             preview,
+             confirm: true,
+             TestContext.Current.CancellationToken));
+ 
+@@ -119,25 +295,25 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     Assert.False(exception.Error.PersistentChangeCommitted);
+   }
+ 
+   [Fact]
+   public async Task CurrentImport_ExactSourceIdentityReusesModInSecondCollection()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var firstTarget = ImportTargetContext.ForCurrentWorkspace(
+         fixture.WorkspaceId,
+         fixture.WorkspacePath,
+-        fixture.FirstCollectionId);
++        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
+     var secondTarget = ImportTargetContext.ForCurrentWorkspace(
+         fixture.WorkspaceId,
+         fixture.WorkspacePath,
+-        fixture.SecondCollectionId);
++        ImportMembershipDestination.ForExistingCollection(fixture.SecondCollectionId));
+     var candidate = ImportCandidate.CreateWithDisplayName(
+         "candidate:111",
+         "Shared Mod",
+         ImportSourceReference.SteamWorkshop("111"));
+ 
+     var firstPreview = await fixture.Store.SavePreviewAsync(
+         firstTarget,
+         [candidate],
+         [],
+         TestContext.Current.CancellationToken);
+@@ -166,21 +342,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     Assert.Contains(snapshot.Memberships, membership => membership.CollectionId == fixture.SecondCollectionId);
+   }
+ 
+   [Fact]
+   public async Task CurrentImport_ReimportSameCollectionRetainsMembershipAndPosition()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var target = ImportTargetContext.ForCurrentWorkspace(
+         fixture.WorkspaceId,
+         fixture.WorkspacePath,
+-        fixture.FirstCollectionId);
++        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
+     var candidate = ImportCandidate.CreateWithDisplayName(
+         "candidate:111",
+         "Shared Mod",
+         ImportSourceReference.SteamWorkshop("111"));
+ 
+     var firstPreview = await fixture.Store.SavePreviewAsync(
+         target,
+         [candidate],
+         [],
+         TestContext.Current.CancellationToken);
+@@ -210,21 +386,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     await fixture.InsertModWithMembershipAsync(
+         "existing-mod",
+         "Existing Mod",
+         fixture.FirstCollectionId,
+         position: 0);
+ 
+     var target = ImportTargetContext.ForCurrentWorkspace(
+         fixture.WorkspaceId,
+         fixture.WorkspacePath,
+-        fixture.FirstCollectionId);
++        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
+     var preview = await fixture.Store.SavePreviewAsync(
+         target,
+         [
+           ImportCandidate.CreateWithDisplayName("candidate:1", "Second Mod"),
+           ImportCandidate.CreateWithDisplayName("candidate:2", "Third Mod")
+         ],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     Assert.True((await fixture.Store.CommitAtomicallyAsync(
+@@ -235,21 +411,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     Assert.Equal(new[] { 0, 1, 2 }, await fixture.ReadMembershipPositionsAsync(fixture.FirstCollectionId));
+   }
+ 
+   [Fact]
+   public async Task CurrentImport_SourceNeutralModHasNoSourceReferenceRow()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var target = ImportTargetContext.ForCurrentWorkspace(
+         fixture.WorkspaceId,
+         fixture.WorkspacePath,
+-        fixture.FirstCollectionId);
++        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
+     var preview = await fixture.Store.SavePreviewAsync(
+         target,
+         [ImportCandidate.CreateWithDisplayName("candidate:local", "Local Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     Assert.True((await fixture.Store.CommitAtomicallyAsync(
+         preview,
+         confirm: true,
+         TestContext.Current.CancellationToken)).Applied);
+@@ -265,21 +441,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     await fixture.InsertModWithSourceReferenceAsync(
+         "owned-mod",
+         "Owned Mod",
+         ImportSourceReference.SteamWorkshop("111"));
+     await fixture.InsertModAsync("other-mod", "Other Mod");
+ 
+     var preview = await fixture.Store.SavePreviewAsync(
+         ImportTargetContext.ForCurrentWorkspace(
+             fixture.WorkspaceId,
+             fixture.WorkspacePath,
+-            fixture.FirstCollectionId),
++            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
+         [ImportCandidate.Linked(
+             "candidate:111",
+             "other-mod",
+             ImportSourceReference.SteamWorkshop("111"))],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var exception = await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+         fixture.Store.CommitAtomicallyAsync(
+             preview,
+@@ -303,21 +479,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+         {
+           if (count == 1)
+           {
+             throw new InvalidOperationException("Injected failure after first candidate.");
+           }
+         });
+     var preview = await store.SavePreviewAsync(
+         ImportTargetContext.ForCurrentWorkspace(
+             fixture.WorkspaceId,
+             fixture.WorkspacePath,
+-            fixture.FirstCollectionId),
++            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
+         [
+           ImportCandidate.CreateWithDisplayName("candidate:1", "First Mod"),
+           ImportCandidate.CreateWithDisplayName("candidate:2", "Second Mod")
+         ],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     await Assert.ThrowsAsync<InvalidOperationException>(() =>
+         store.CommitAtomicallyAsync(
+             preview,
+@@ -330,21 +506,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+   }
+ 
+   [Fact]
+   public async Task CommitAtomicallyAsync_PreCancelledApplyLeavesCatalogUnchanged()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var preview = await fixture.Store.SavePreviewAsync(
+         ImportTargetContext.ForCurrentWorkspace(
+             fixture.WorkspaceId,
+             fixture.WorkspacePath,
+-            fixture.FirstCollectionId),
++            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+     using var cancellation = new CancellationTokenSource();
+     cancellation.Cancel();
+ 
+     await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+         fixture.Store.CommitAtomicallyAsync(
+             preview,
+             confirm: true,
+@@ -358,21 +534,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+   [Fact]
+   public async Task NewImport_CreatesWorkspaceInitialCollectionAndReloadableCatalog()
+   {
+     using var directory = new TemporaryDirectory();
+     var destination = Path.Combine(directory.Path, "new.tww3c");
+     var store = CreateDeterministicStore();
+     var preview = await store.SavePreviewAsync(
+         ImportTargetContext.ForNewWorkspace(
+             "New Workspace",
+             destination,
+-            "Imported Collection"),
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [
+           ImportCandidate.CreateWithDisplayName(
+               "candidate:111",
+               "First Mod",
+               ImportSourceReference.SteamWorkshop("111"))
+         ],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var outcome = await store.CommitNewWorkspaceAtomicallyAsync(
+@@ -382,32 +558,37 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+         outcome.TargetContext);
+     var snapshot = await store.ReadLibrarySnapshotAsync(
+         destination,
+         TestContext.Current.CancellationToken);
+ 
+     Assert.True(outcome.Applied);
+     Assert.Equal("New Workspace", await ReadWorkspaceNameAsync(destination));
+     Assert.Equal("Imported Collection", Assert.Single(snapshot.Collections).DisplayName);
+     Assert.Equal("First Mod", Assert.Single(snapshot.Mods).DisplayName);
+     Assert.Single(snapshot.Memberships);
+-    Assert.Equal(current.CollectionId, snapshot.Memberships[0].CollectionId);
++    var existingCollection = Assert.IsType<ImportMembershipDestination.ExistingCollection>(
++        current.MembershipDestination);
++    Assert.Equal(existingCollection.CollectionId, snapshot.Memberships[0].CollectionId);
+   }
+ 
+   [Fact]
+   public async Task NewImport_WhenDestinationExists_LeavesItUntouched()
+   {
+     using var directory = new TemporaryDirectory();
+     var destination = Path.Combine(directory.Path, "existing.tww3c");
+     await File.WriteAllTextAsync(destination, "original", TestContext.Current.CancellationToken);
+     var store = CreateDeterministicStore();
+     var preview = await store.SavePreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var exception = await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+         store.CommitNewWorkspaceAtomicallyAsync(
+             preview,
+             TestContext.Current.CancellationToken));
+ 
+     Assert.Equal("import.destination.exists", exception.Error.Code);
+@@ -416,21 +597,24 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     Assert.Empty(Directory.GetFiles(directory.Path, "*.tmp"));
+   }
+ 
+   [Fact]
+   public async Task NewImport_WhenPreCancelled_CreatesNoDestinationOrTemporaryFile()
+   {
+     using var directory = new TemporaryDirectory();
+     var destination = Path.Combine(directory.Path, "cancelled.tww3c");
+     var store = CreateDeterministicStore();
+     var preview = await store.SavePreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+     using var cancellation = new CancellationTokenSource();
+     cancellation.Cancel();
+ 
+     await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+         store.CommitNewWorkspaceAtomicallyAsync(preview, cancellation.Token));
+ 
+     Assert.False(File.Exists(destination));
+@@ -452,21 +636,24 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+           File.Delete(path);
+         },
+         afterCandidatePersisted: count =>
+         {
+           if (count == 1)
+           {
+             throw new InvalidOperationException("Injected failure after first candidate.");
+           }
+         });
+     var preview = await store.SavePreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [
+           ImportCandidate.CreateWithDisplayName("candidate:1", "First Mod"),
+           ImportCandidate.CreateWithDisplayName("candidate:2", "Second Mod")
+         ],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     await Assert.ThrowsAsync<InvalidOperationException>(() =>
+         store.CommitNewWorkspaceAtomicallyAsync(
+             preview,
+@@ -487,21 +674,24 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     string? deletedPath = null;
+     var store = CreateDeterministicStore(
+         fileSystem: new MoveFailingAtomicFileSystem(),
+         deleteOwnedFile: path =>
+         {
+           deletedPath = path;
+           File.Delete(path);
+         });
+ 
+     var preview = await store.SavePreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var exception = await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+         store.CommitNewWorkspaceAtomicallyAsync(
+             preview,
+             TestContext.Current.CancellationToken));
+ 
+     Assert.False(exception.Error.PersistentChangeCommitted);
+@@ -510,49 +700,57 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+     Assert.Equal(expectedTemporaryPath, deletedPath);
+   }
+ 
+   [Fact]
+   public async Task NewImport_GeneratesStableCanonicalUuids()
+   {
+     using var directory = new TemporaryDirectory();
+     var destination = Path.Combine(directory.Path, "uuids.tww3c");
+     var store = CreateDeterministicStore();
+     var preview = await store.SavePreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var outcome = await store.CommitNewWorkspaceAtomicallyAsync(
+         preview,
+         TestContext.Current.CancellationToken);
+     var current = Assert.IsType<ImportTargetContext.CurrentWorkspace>(outcome.TargetContext);
+     var snapshot = await store.ReadLibrarySnapshotAsync(
+         destination,
+         TestContext.Current.CancellationToken);
+ 
+     Assert.Equal("22345678-1234-4abc-8def-1234567890ab", current.WorkspaceId);
+-    Assert.Equal("32345678-1234-4abc-8def-1234567890ab", current.CollectionId);
++    var existingCollection = Assert.IsType<ImportMembershipDestination.ExistingCollection>(
++        current.MembershipDestination);
++    Assert.Equal("32345678-1234-4abc-8def-1234567890ab", existingCollection.CollectionId);
+     Assert.Equal("42345678-1234-4abc-8def-1234567890ab", Assert.Single(snapshot.Mods).ModId);
+     Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(current.WorkspaceId));
+-    Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(current.CollectionId));
++    Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(existingCollection.CollectionId));
+     Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(snapshot.Mods[0].ModId));
+   }
+ 
+   [Fact]
+   public async Task NewImport_PlacedDatabasePassesWorkspaceFileValidator()
+   {
+     using var directory = new TemporaryDirectory();
+     var destination = Path.Combine(directory.Path, "validated.tww3c");
+     var store = CreateDeterministicStore();
+     var preview = await store.SavePreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
++        ImportTargetContext.ForNewWorkspace(
++            "New Workspace",
++            destination,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     await store.CommitNewWorkspaceAtomicallyAsync(
+         preview,
+         TestContext.Current.CancellationToken);
+ 
+     var result = await new WorkspaceFileValidator().OpenAsync(
+         destination,
+@@ -562,21 +760,21 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+   }
+ 
+   [Fact]
+   public async Task CommitAtomicallyAsync_WithConfirmFalse_DoesNotOpenDatabase()
+   {
+     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+     var preview = await fixture.Store.SavePreviewAsync(
+         ImportTargetContext.ForCurrentWorkspace(
+             fixture.WorkspaceId,
+             fixture.WorkspacePath,
+-            fixture.FirstCollectionId),
++            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
+         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
+         [],
+         TestContext.Current.CancellationToken);
+ 
+     var outcome = await fixture.Store.CommitAtomicallyAsync(
+         preview,
+         confirm: false,
+         TestContext.Current.CancellationToken);
+ 
+     Assert.False(outcome.Applied);
+@@ -663,20 +861,37 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+         WorkspaceId = workspaceId,
+         FirstCollectionId = firstCollectionId,
+         SecondCollectionId = secondCollectionId,
+         ConnectionFactory = connectionFactory,
+         UuidGenerator = uuidGenerator,
+         Clock = clock,
+         Store = store
+       };
+     }
+ 
++    public Task<long> CountAsync(string tableName) => CountRowsAsync(tableName);
++
++    public Task<long> CountRowsNamedAsync(string tableName, string displayName) =>
++        ScalarAsync(
++            WorkspacePath,
++            $"SELECT COUNT(*) FROM {tableName} WHERE display_name = $displayName;",
++            ("$displayName", displayName));
++
++    public Task<ImportPreview> PreviewForCurrentWorkspaceAsync(
++        ImportMembershipDestination destination,
++        params ImportCandidate[] candidates) =>
++        Store.SavePreviewAsync(
++            ImportTargetContext.ForCurrentWorkspace(WorkspaceId, WorkspacePath, destination),
++            candidates,
++            [],
++            CancellationToken.None);
++
+     public async Task<int[]> ReadMembershipPositionsAsync(string collectionId)
+     {
+       await using var connection = await ConnectionFactory.OpenAsync(WorkspacePath, CancellationToken.None);
+       await using var command = connection.CreateCommand();
+       command.CommandText = """
+           SELECT position
+           FROM collection_memberships
+           WHERE collection_id = $collectionId
+           ORDER BY position;
+           """;
+@@ -804,18 +1019,34 @@ public sealed class SqliteWorkspaceCatalogStoreTests
+   {
+     public Stream CreateWriteProbe(string directory) => Stream.Null;
+ 
+     public void MoveWithoutOverwrite(string source, string destination) =>
+         throw new IOException("move failed");
+ 
+     public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token) =>
+         throw new NotSupportedException();
+   }
+ 
++  private static async Task<long> ScalarAsync(
++      string path,
++      string sql,
++      params (string Name, object Value)[] parameters)
++  {
++    await using var connection = await new SqliteConnectionFactory().OpenAsync(path, CancellationToken.None);
++    await using var command = connection.CreateCommand();
++    command.CommandText = sql;
++    foreach (var (name, value) in parameters)
++    {
++      command.Parameters.AddWithValue(name, value);
++    }
++
++    return (long)(await command.ExecuteScalarAsync(CancellationToken.None))!;
++  }
++
+   private static async Task<long> ScalarAsync(string path, string sql)
+   {
+     await using var connection = await new SqliteConnectionFactory().OpenAsync(path, CancellationToken.None);
+     await using var command = connection.CreateCommand();
+     command.CommandText = sql;
+     return (long)(await command.ExecuteScalarAsync(CancellationToken.None))!;
+   }
+ }

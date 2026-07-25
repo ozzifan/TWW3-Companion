@@ -1,0 +1,2115 @@
+BASE: c7ba0550216ef493990a4c232ca0a62b18f7eb12
+HEAD: 903b87b4107a246f0ed60f3fa759e07531cc0b78
+
+## Commits
+
+903b87b fix: wire import discard and existing-collection selection
+720a7af feat: add complete import workspace UI
+
+## Stat
+
+ src/Tww3Companion.Desktop/App.axaml                |   6 +
+ .../Composition/ApplicationComposition.cs          |  40 +--
+ .../ViewModels/ImportDestinationViewModel.cs       |  45 ++++
+ .../ViewModels/ImportPreviewViewModel.cs           |   3 +
+ .../ViewModels/ImportResolutionViewModel.cs        |  49 ++++
+ .../ViewModels/ImportSourceViewModel.cs            |   9 +
+ .../ViewModels/ImportWorkspaceViewModel.cs         |  51 +++-
+ .../ViewModels/ShellViewModel.cs                   | 286 ++++++++++++++-------
+ .../Views/ImportWorkspaceView.axaml                | 208 +++++++++++++++
+ .../Views/ImportWorkspaceView.axaml.cs             |  11 +
+ src/Tww3Companion.Desktop/Views/MainWindow.axaml   |   4 +
+ .../Composition/ApplicationCompositionTests.cs     |  19 ++
+ .../ViewModels/ImportWorkspaceViewModelTests.cs    |  34 +++
+ .../ViewModels/ShellViewModelTests.cs              | 255 ++++++++----------
+ .../Views/MainWindowLayoutTests.cs                 |  34 +++
+ 15 files changed, 802 insertions(+), 252 deletions(-)
+
+## Diff
+
+diff --git a/src/Tww3Companion.Desktop/App.axaml b/src/Tww3Companion.Desktop/App.axaml
+index 3a3463f..835cabb 100644
+--- a/src/Tww3Companion.Desktop/App.axaml
++++ b/src/Tww3Companion.Desktop/App.axaml
+@@ -1,9 +1,15 @@
+ <Application xmlns="https://github.com/avaloniaui"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              x:Class="Tww3Companion.Desktop.App"
+              RequestedThemeVariant="Default">
+ 
+     <Application.Styles>
+         <FluentTheme />
++        <Style Selector="TextBox:focus-visible">
++            <Setter Property="BorderThickness" Value="3" />
++        </Style>
++        <Style Selector="RadioButton:focus-visible">
++            <Setter Property="BorderThickness" Value="3" />
++        </Style>
+     </Application.Styles>
+ </Application>
+diff --git a/src/Tww3Companion.Desktop/Composition/ApplicationComposition.cs b/src/Tww3Companion.Desktop/Composition/ApplicationComposition.cs
+index 8533240..d7b2980 100644
+--- a/src/Tww3Companion.Desktop/Composition/ApplicationComposition.cs
++++ b/src/Tww3Companion.Desktop/Composition/ApplicationComposition.cs
+@@ -2,20 +2,21 @@ using Avalonia.Controls;
+ using Microsoft.Extensions.Logging;
+ using Tww3Companion.Application.Abstractions;
+ using Tww3Companion.Application.Common;
+ using Tww3Companion.Application.Importing;
+ using Tww3Companion.Application.Settings;
+ using Tww3Companion.Application.Startup;
+ using Tww3Companion.Application.Workspaces;
+ using Tww3Companion.Desktop.Services;
+ using Tww3Companion.Desktop.Startup;
+ using Tww3Companion.Desktop.ViewModels;
++using Tww3Companion.Infrastructure.Importing;
+ using Tww3Companion.Infrastructure.Logging;
+ using Tww3Companion.Infrastructure.Paths;
+ using Tww3Companion.Infrastructure.Settings;
+ using Tww3Companion.Infrastructure.Startup;
+ using Tww3Companion.Infrastructure.Storage;
+ using Tww3Companion.Infrastructure.Storage.Backups;
+ using Tww3Companion.Infrastructure.Storage.Migrations;
+ 
+ namespace Tww3Companion.Desktop.Composition;
+ 
+@@ -142,46 +143,58 @@ public sealed class ApplicationComposition
+     var workspaceLibraryQuery = new WorkspaceLibraryQuery(catalogStore);
+     var lifecycle = CreateWorkspaceLifecycle(
+         settingsStore,
+         workspaceStore,
+         clock,
+         uuidGenerator);
+     var workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator();
+ 
+     TopLevel? topLevel = null;
+     var workspaceDialogService = new WorkspaceDialogService(() => topLevel);
++    var steamHttpClient = new HttpClient
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/"),
++      Timeout = TimeSpan.FromSeconds(30)
++    };
++    var steamMetadataClient = new SteamWebApiMetadataClient(steamHttpClient);
++    var importEngine = new ImportEngine(catalogStore);
++    var importFileService = new ImportSourceFileService(() => topLevel);
++    var importCoordinator = new ImportTaskCoordinator(
++        importEngine,
++        steamMetadataClient);
+     var shell = ShellViewModel.Create(
+         settings,
+         settingsStore,
+         workspaceDialogService,
+         lifecycle.CreateWorkspace,
+         lifecycle.OpenWorkspace,
+         paths.WorkspacesDirectory,
+         Path.GetDirectoryName(paths.SettingsFile)!,
+         workspaceDisposalCoordinator,
+-        workspaceLibraryQuery: workspaceLibraryQuery,
+-        importService: new EngineShellImportService(
+-            new ImportEngine(catalogStore)));
++        importCoordinator,
++        importFileService,
++        workspaceLibraryQuery: workspaceLibraryQuery);
+     if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
+     {
+       shell.EvaluateWorkArea(width, height);
+     }
+ 
+     return new ApplicationRuntime(
+         shell,
+         paths,
+         lifecycle.CreateWorkspace,
+         lifecycle.OpenWorkspace,
+         () => topLevel = null,
+         control => topLevel = control,
+         lease,
+-        loggingProvider);
++        loggingProvider,
++        steamHttpClient);
+   }
+ 
+   internal static WorkspaceLifecycle CreateWorkspaceLifecycle(
+       IApplicationSettingsStore settingsStore,
+       IWorkspaceStore workspaceStore,
+       IClock clock,
+       IUuidGenerator uuidGenerator) =>
+       new(
+           workspaceStore,
+           new CreateWorkspace(workspaceStore, settingsStore, clock, uuidGenerator),
+@@ -218,35 +231,20 @@ public sealed class ApplicationComposition
+ 
+   private sealed class GuidUuidGenerator : IUuidGenerator
+   {
+     public string NewUuid() => Guid.NewGuid().ToString("D").ToLowerInvariant();
+   }
+ 
+   internal sealed record WorkspaceLifecycle(
+       IWorkspaceStore WorkspaceStore,
+       CreateWorkspace CreateWorkspace,
+       OpenWorkspace OpenWorkspace);
+-
+-  private sealed class EngineShellImportService(IImportEngine engine) : IShellImportService
+-  {
+-    public Task<ImportPreview> BuildPreviewAsync(
+-        ImportTargetContext targetContext,
+-        IReadOnlyList<object> candidates,
+-        CancellationToken cancellationToken = default) =>
+-        engine.BuildPreviewAsync(targetContext, candidates, cancellationToken);
+-
+-    public Task<ImportOutcome> ApplyAsync(
+-        ImportPreview preview,
+-        bool confirm,
+-        CancellationToken cancellationToken = default) =>
+-        engine.ApplyAsync(preview, confirm, cancellationToken);
+-  }
+ }
+ 
+ public sealed class CompositionTestOptions
+ {
+   public string ExecutableDirectory { get; init; } = AppContext.BaseDirectory;
+   public string LocalApplicationDataDirectory { get; init; } = Path.GetTempPath();
+   public IStartupNotification NativeStartupDialog { get; init; } = new NativeStartupDialog();
+   public ISingleInstanceGuard SingleInstanceGuard { get; init; } = new AcquiringTestSingleInstanceGuard();
+   public IManagedPathInitializer? ManagedPathInitializer { get; init; }
+   public double? WorkAreaWidth { get; init; }
+@@ -277,36 +275,38 @@ internal sealed record CompositionOptions(
+     IWorkspaceDisposalCoordinator? WorkspaceDisposalCoordinator);
+ 
+ public sealed class ApplicationRuntime(
+     ShellViewModel shellViewModel,
+     ManagedPaths managedPaths,
+     CreateWorkspace createWorkspace,
+     OpenWorkspace openWorkspace,
+     Action clearTopLevel,
+     Action<TopLevel> attachTopLevel,
+     ISingleInstanceLease singleInstanceLease,
+-    ILoggerProvider loggingProvider) : IDisposable
++    ILoggerProvider loggingProvider,
++    HttpClient steamHttpClient) : IDisposable
+ {
+   public ShellViewModel ShellViewModel { get; } = shellViewModel;
+   public ManagedPaths ManagedPaths { get; } = managedPaths;
+   public CreateWorkspace CreateWorkspace { get; } = createWorkspace;
+   public OpenWorkspace OpenWorkspace { get; } = openWorkspace;
+ 
+   public void AttachTopLevel(TopLevel topLevel)
+   {
+     attachTopLevel(topLevel);
+     EvaluateAttachedWorkArea(topLevel);
+   }
+ 
+   public void Dispose()
+   {
+     clearTopLevel();
++    steamHttpClient.Dispose();
+     loggingProvider.Dispose();
+     singleInstanceLease.Dispose();
+   }
+ 
+   private void EvaluateAttachedWorkArea(TopLevel topLevel)
+   {
+     var primary = topLevel.Screens?.Primary;
+     if (primary is null)
+     {
+       return;
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportDestinationViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportDestinationViewModel.cs
+index 72b53b3..08e20fd 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportDestinationViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportDestinationViewModel.cs
+@@ -12,28 +12,39 @@ public sealed class ImportDestinationViewModel : ViewModelBase
+   private bool isLibraryOnly;
+   private bool isExistingCollection;
+   private bool isNewCollection;
+   private bool destinationInitialized;
+   private bool userSelectedDestination;
+ 
+   public ImportDestinationViewModel(ImportLaunchContext launchContext)
+   {
+     this.launchContext = launchContext ?? throw new ArgumentNullException(nameof(launchContext));
+     workspacePath = launchContext.WorkspacePath ?? string.Empty;
++    SelectLibraryOnlyCommand = new ViewModelCommand(() => SelectLibraryOnly());
++    SelectNewCollectionCommand = new ViewModelCommand(() => SelectNewCollection());
++    SelectExistingCollectionCommand = new ViewModelCommand(SelectExistingCollectionFromRadio);
+   }
+ 
+   public bool ShowsWorkspaceDetails => launchContext.IsNewWorkspace;
+ 
+   public bool HasExistingCollectionOption => !launchContext.IsNewWorkspace;
+ 
++  public bool CanChooseExistingCollection => HasExistingCollectionOption;
++
+   public IReadOnlyList<CollectionSummary> Collections => launchContext.Collections;
+ 
++  public ViewModelCommand SelectLibraryOnlyCommand { get; }
++
++  public ViewModelCommand SelectNewCollectionCommand { get; }
++
++  public ViewModelCommand SelectExistingCollectionCommand { get; }
++
+   public string WorkspaceDisplayName
+   {
+     get => workspaceDisplayName;
+     set
+     {
+       if (string.Equals(workspaceDisplayName, value, StringComparison.Ordinal))
+       {
+         return;
+       }
+ 
+@@ -64,24 +75,40 @@ public sealed class ImportDestinationViewModel : ViewModelBase
+     get => selectedCollectionId;
+     private set
+     {
+       if (string.Equals(selectedCollectionId, value, StringComparison.Ordinal))
+       {
+         return;
+       }
+ 
+       selectedCollectionId = value;
+       OnPropertyChanged();
++      OnPropertyChanged(nameof(SelectedCollection));
+       OnPropertyChanged(nameof(CanContinue));
+     }
+   }
+ 
++  public CollectionSummary? SelectedCollection
++  {
++    get => Collections.FirstOrDefault(collection =>
++        string.Equals(collection.CollectionId, selectedCollectionId, StringComparison.Ordinal));
++    set
++    {
++      if (value is null)
++      {
++        return;
++      }
++
++      SelectExistingCollection(value.CollectionId);
++    }
++  }
++
+   public string NewCollectionName
+   {
+     get => newCollectionName;
+     set
+     {
+       if (string.Equals(newCollectionName, value, StringComparison.Ordinal))
+       {
+         return;
+       }
+ 
+@@ -187,20 +214,38 @@ public sealed class ImportDestinationViewModel : ViewModelBase
+     {
+       userSelectedDestination = true;
+     }
+ 
+     IsLibraryOnly = false;
+     IsExistingCollection = true;
+     IsNewCollection = false;
+     SelectedCollectionId = collectionId;
+   }
+ 
++  internal void SelectExistingCollectionFromRadio()
++  {
++    if (!HasExistingCollectionOption)
++    {
++      return;
++    }
++
++    var collectionId = SelectedCollectionId
++        ?? launchContext.SelectedCollectionId
++        ?? Collections.FirstOrDefault()?.CollectionId;
++    if (string.IsNullOrWhiteSpace(collectionId))
++    {
++      return;
++    }
++
++    SelectExistingCollection(collectionId);
++  }
++
+   internal void SelectNewCollection(string? displayName = null, bool isSuggestion = false)
+   {
+     if (!isSuggestion)
+     {
+       userSelectedDestination = true;
+     }
+ 
+     if (!string.IsNullOrWhiteSpace(displayName))
+     {
+       NewCollectionName = displayName;
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportPreviewViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportPreviewViewModel.cs
+index 070476c..cb5a0ad 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportPreviewViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportPreviewViewModel.cs
+@@ -68,20 +68,23 @@ public sealed class ImportPreviewViewModel : ViewModelBase
+ 
+       selectedFilter = value;
+       OnPropertyChanged();
+       OnPropertyChanged(nameof(FilteredRows));
+     }
+   }
+ 
+   public IReadOnlyList<ImportPreviewRowViewModel> FilteredRows =>
+       rows.Where(MatchesSelectedFilter).ToArray();
+ 
++  public static IReadOnlyList<ImportPreviewFilter> FilterChoices { get; } =
++      Enum.GetValues<ImportPreviewFilter>().Cast<ImportPreviewFilter>().ToArray();
++
+   public bool CanContinue =>
+       preview is not null &&
+       rows.All(row => !row.IsBlocking);
+ 
+   internal event Action<ImportPreview>? Loaded;
+ 
+   public void Load(ImportPreview value)
+   {
+     preview = value;
+     rows.Clear();
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportResolutionViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportResolutionViewModel.cs
+index 53f6a99..24d6303 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportResolutionViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportResolutionViewModel.cs
+@@ -2,27 +2,40 @@ using Tww3Companion.Application.Importing;
+ using Tww3Companion.Desktop.Services;
+ 
+ namespace Tww3Companion.Desktop.ViewModels;
+ 
+ public sealed class ImportResolutionViewModel : ViewModelBase
+ {
+   private readonly IImportTaskCoordinator coordinator;
+   private readonly ImportPreviewViewModel previewViewModel;
+   private ImportPreviewRowViewModel? activeRow;
+   private string? selectedScalarValue;
++  private string draftDisplayName = string.Empty;
+ 
+   public ImportResolutionViewModel(
+       IImportTaskCoordinator coordinator,
+       ImportPreviewViewModel previewViewModel)
+   {
+     this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+     this.previewViewModel = previewViewModel ?? throw new ArgumentNullException(nameof(previewViewModel));
++    LinkToOwnerCommand = new ViewModelCommand(
++        () => _ = LinkToModAsync(SourceOwnerModId ?? string.Empty, CancellationToken.None),
++        () => CanLinkToOwner);
++    CreateCommand = new ViewModelCommand(
++        () => _ = CreateWithDisplayNameAsync(DraftDisplayName, CancellationToken.None),
++        () => CanCreate && !string.IsNullOrWhiteSpace(DraftDisplayName));
++    SkipCommand = new ViewModelCommand(
++        () => _ = SkipAsync(CancellationToken.None),
++        () => CanSkip);
++    ApplyScalarCommand = new ViewModelCommand(
++        () => _ = ApplyScalarSelectionAsync(CancellationToken.None),
++        () => CanApplyResolution);
+     SyncActiveRow();
+   }
+ 
+   public string? ActiveCandidateId => activeRow?.CandidateId;
+ 
+   public string? SourceOwnerModId =>
+       activeRow is null ? null : ExtractOwnerModId(activeRow.Operation.Issues);
+ 
+   public IReadOnlyList<string> CompetingScalarValues =>
+       activeRow is null ? [] : ParseCompetingValues(activeRow.Operation.Issues);
+@@ -54,32 +67,62 @@ public sealed class ImportResolutionViewModel : ViewModelBase
+       !IsScalarConflict(activeRow);
+ 
+   public bool CanSkip => activeRow is not null;
+ 
+   public bool CanChooseScalarValue =>
+       activeRow is not null && IsScalarConflict(activeRow);
+ 
+   public bool CanApplyResolution =>
+       CanChooseScalarValue && !string.IsNullOrWhiteSpace(SelectedScalarValue);
+ 
++  public string DraftDisplayName
++  {
++    get => draftDisplayName;
++    set
++    {
++      if (string.Equals(draftDisplayName, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      draftDisplayName = value ?? string.Empty;
++      OnPropertyChanged();
++      CreateCommand.RaiseCanExecuteChanged();
++    }
++  }
++
++  public ViewModelCommand LinkToOwnerCommand { get; }
++
++  public ViewModelCommand CreateCommand { get; }
++
++  public ViewModelCommand SkipCommand { get; }
++
++  public ViewModelCommand ApplyScalarCommand { get; }
++
+   internal void SyncActiveRow()
+   {
+     activeRow = previewViewModel.GetActiveBlockingRow();
+     selectedScalarValue = null;
++    draftDisplayName = string.Empty;
+     OnPropertyChanged(nameof(ActiveCandidateId));
+     OnPropertyChanged(nameof(SourceOwnerModId));
+     OnPropertyChanged(nameof(CompetingScalarValues));
+     OnPropertyChanged(nameof(CanLinkToOwner));
+     OnPropertyChanged(nameof(CanCreate));
+     OnPropertyChanged(nameof(CanSkip));
+     OnPropertyChanged(nameof(CanChooseScalarValue));
+     OnPropertyChanged(nameof(CanApplyResolution));
++    OnPropertyChanged(nameof(DraftDisplayName));
++    LinkToOwnerCommand.RaiseCanExecuteChanged();
++    CreateCommand.RaiseCanExecuteChanged();
++    SkipCommand.RaiseCanExecuteChanged();
++    ApplyScalarCommand.RaiseCanExecuteChanged();
+   }
+ 
+   public Task LinkToModAsync(string modId, CancellationToken cancellationToken = default)
+   {
+     if (activeRow is null)
+     {
+       return Task.CompletedTask;
+     }
+ 
+     var resolved = ImportCandidate.Linked(
+@@ -141,29 +184,35 @@ public sealed class ImportResolutionViewModel : ViewModelBase
+     var currentCandidateId = activeRow.CandidateId;
+     var updatedPreview = await coordinator.ResolveAsync(
+         previewViewModel.Preview,
+         resolvedCandidate,
+         cancellationToken);
+ 
+     previewViewModel.Load(updatedPreview);
+     activeRow = previewViewModel.GetNextBlockingRow(currentCandidateId)
+         ?? previewViewModel.GetActiveBlockingRow();
+     selectedScalarValue = null;
++    draftDisplayName = string.Empty;
+ 
+     OnPropertyChanged(nameof(ActiveCandidateId));
+     OnPropertyChanged(nameof(SourceOwnerModId));
+     OnPropertyChanged(nameof(CompetingScalarValues));
+     OnPropertyChanged(nameof(CanLinkToOwner));
+     OnPropertyChanged(nameof(CanCreate));
+     OnPropertyChanged(nameof(CanSkip));
+     OnPropertyChanged(nameof(CanChooseScalarValue));
+     OnPropertyChanged(nameof(CanApplyResolution));
++    OnPropertyChanged(nameof(DraftDisplayName));
++    LinkToOwnerCommand.RaiseCanExecuteChanged();
++    CreateCommand.RaiseCanExecuteChanged();
++    SkipCommand.RaiseCanExecuteChanged();
++    ApplyScalarCommand.RaiseCanExecuteChanged();
+   }
+ 
+   private static bool IsSourceOwnerConflict(ImportPreviewRowViewModel row) =>
+       row.Operation.Issues.Any(issue =>
+           string.Equals(issue.Code, "import.source.owner.conflict", StringComparison.Ordinal));
+ 
+   private static bool IsScalarConflict(ImportPreviewRowViewModel row) =>
+       row.Operation.Issues.Any(issue =>
+           string.Equals(issue.Code, "import.scalar.conflict", StringComparison.Ordinal));
+ 
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
+index 71896f4..83f2861 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
+@@ -14,20 +14,23 @@ public sealed class ImportSourceViewModel : ViewModelBase
+   private bool isBusy;
+   private Func<Task>? continueHandler;
+ 
+   public ImportSourceViewModel(IImportSourceFileService fileService)
+   {
+     this.fileService = fileService ?? throw new ArgumentNullException(nameof(fileService));
+     ChooseFileCommand = new ViewModelCommand(() => _ = ChooseFileAsync());
+     ContinueCommand = new ViewModelCommand(
+         () => _ = ContinueAsync(),
+         () => CanContinue);
++    SelectMarkdownCommand = new ViewModelCommand(() => Select(ImportSourceKind.Markdown));
++    SelectSteamCollectionCommand = new ViewModelCommand(() => Select(ImportSourceKind.SteamCollection));
++    SelectSteamItemsCommand = new ViewModelCommand(() => Select(ImportSourceKind.SteamItems));
+   }
+ 
+   public ImportSourceKind SelectedKind
+   {
+     get => selectedKind;
+     private set
+     {
+       if (selectedKind == value)
+       {
+         return;
+@@ -113,20 +116,26 @@ public sealed class ImportSourceViewModel : ViewModelBase
+ 
+   public bool CanContinue =>
+       !IsBusy &&
+       !string.IsNullOrWhiteSpace(InputText) &&
+       !Diagnostics.Any(diagnostic => diagnostic.IsBlocking);
+ 
+   public ViewModelCommand ChooseFileCommand { get; }
+ 
+   public ViewModelCommand ContinueCommand { get; }
+ 
++  public ViewModelCommand SelectMarkdownCommand { get; }
++
++  public ViewModelCommand SelectSteamCollectionCommand { get; }
++
++  public ViewModelCommand SelectSteamItemsCommand { get; }
++
+   internal void Select(ImportSourceKind kind) => SelectedKind = kind;
+ 
+   internal void SetContinueHandler(Func<Task> handler) => continueHandler = handler;
+ 
+   internal void ApplyLoadResult(ImportSourceLoadResult result)
+   {
+     DisclosedWorkshopIds = result.DisclosedWorkshopIds;
+     Diagnostics = result.Diagnostics;
+   }
+ 
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
+index 11a8a60..190dd76 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
+@@ -9,71 +9,113 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
+ {
+   private readonly IImportTaskCoordinator coordinator;
+   private readonly ILogger<ImportWorkspaceViewModel> logger;
+   private readonly ImportLaunchContext launchContext;
+   private ImportTaskStage stage = ImportTaskStage.Source;
+   private ImportPreview? cachedPreview;
+   private ImportPreviewFingerprint? cachedFingerprint;
+   private IReadOnlyList<object>? cachedCandidates;
+   private bool requiresDiscardConfirmation;
+   private bool discardConfirmed;
++  private Action? cancelHandler;
+ 
+   public ImportWorkspaceViewModel(
+       ImportLaunchContext launchContext,
+       IImportTaskCoordinator coordinator,
+       IImportSourceFileService fileService,
+       ILogger<ImportWorkspaceViewModel>? logger = null)
+   {
+     this.launchContext = launchContext ?? throw new ArgumentNullException(nameof(launchContext));
+     this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+     this.logger = logger ?? NullLogger<ImportWorkspaceViewModel>.Instance;
+ 
+     Source = new ImportSourceViewModel(fileService);
+     Destination = new ImportDestinationViewModel(launchContext);
+     Preview = new ImportPreviewViewModel();
+     Preview.Loaded += preview => cachedPreview = preview;
+     Resolution = new ImportResolutionViewModel(coordinator, Preview);
+     Confirmation = new ImportConfirmationViewModel();
+ 
+     Source.SetContinueHandler(() => HandleSourceContinueAsync(CancellationToken.None));
+     Confirmation.SetApplyHandler(() => ApplyAsync(CancellationToken.None));
++    BackCommand = new ViewModelCommand(() => GoBack(), () => CanGoBack);
++    ContinueDestinationCommand = new ViewModelCommand(
++        () => _ = ContinueFromDestinationAsync(CancellationToken.None),
++        () => stage == ImportTaskStage.Destination && Destination.CanContinue);
++    ContinuePreviewCommand = new ViewModelCommand(
++        () => _ = ContinueFromPreviewAsync(CancellationToken.None),
++        () => stage == ImportTaskStage.Preview && Preview.CanContinue);
++    ConfirmDiscardCommand = new ViewModelCommand(() => ConfirmDiscard());
++    CancelCommand = new ViewModelCommand(() => cancelHandler?.Invoke(), () => CanCancel);
+   }
+ 
++  public ImportLaunchContext LaunchContext => launchContext;
++
+   public event EventHandler<ImportTaskCompletedEvent>? Completed;
+ 
++  public event EventHandler? StageChanged;
++
+   public ImportTaskStage Stage
+   {
+     get => stage;
+     private set
+     {
+       if (stage == value)
+       {
+         return;
+       }
+ 
+       stage = value;
+       OnPropertyChanged();
+       OnPropertyChanged(nameof(CanGoBack));
+       OnPropertyChanged(nameof(CanCancel));
++      OnPropertyChanged(nameof(IsSourceStage));
++      OnPropertyChanged(nameof(IsDestinationStage));
++      OnPropertyChanged(nameof(IsPreviewStage));
++      OnPropertyChanged(nameof(IsConfirmationStage));
++      BackCommand.RaiseCanExecuteChanged();
++      ContinueDestinationCommand.RaiseCanExecuteChanged();
++      ContinuePreviewCommand.RaiseCanExecuteChanged();
++      CancelCommand.RaiseCanExecuteChanged();
++      StageChanged?.Invoke(this, EventArgs.Empty);
+     }
+   }
+ 
+   public ImportSourceViewModel Source { get; }
+ 
+   public ImportDestinationViewModel Destination { get; }
+ 
+   public ImportPreviewViewModel Preview { get; }
+ 
+   public ImportResolutionViewModel Resolution { get; }
+ 
+   public ImportConfirmationViewModel Confirmation { get; }
+ 
++  public ViewModelCommand BackCommand { get; }
++
++  public ViewModelCommand ContinueDestinationCommand { get; }
++
++  public ViewModelCommand ContinuePreviewCommand { get; }
++
++  public ViewModelCommand ConfirmDiscardCommand { get; }
++
++  public ViewModelCommand CancelCommand { get; }
++
++  public bool IsSourceStage => stage == ImportTaskStage.Source;
++
++  public bool IsDestinationStage => stage == ImportTaskStage.Destination;
++
++  public bool IsPreviewStage =>
++      stage is ImportTaskStage.Preview or ImportTaskStage.Finalizing;
++
++  public bool IsConfirmationStage => stage == ImportTaskStage.Confirmation;
++
+   public bool RequiresDiscardConfirmation
+   {
+     get => requiresDiscardConfirmation && !discardConfirmed;
+     private set
+     {
+       if (requiresDiscardConfirmation == value)
+       {
+         return;
+       }
+ 
+@@ -223,21 +265,28 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
+     {
+       ClearSession();
+       discardConfirmed = false;
+       return true;
+     }
+ 
+     RequiresDiscardConfirmation = true;
+     return false;
+   }
+ 
+-  public void ConfirmDiscard() => discardConfirmed = true;
++  public void ConfirmDiscard()
++  {
++    discardConfirmed = true;
++    OnPropertyChanged(nameof(RequiresDiscardConfirmation));
++    cancelHandler?.Invoke();
++  }
++
++  internal void SetCancelHandler(Action handler) => cancelHandler = handler ?? throw new ArgumentNullException(nameof(handler));
+ 
+   private Task HandleSourceContinueAsync(CancellationToken cancellationToken)
+   {
+     OpenDestination();
+     return Task.CompletedTask;
+   }
+ 
+   private ImportPreviewFingerprint BuildFingerprint() =>
+       new(
+           Source.SelectedKind,
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ShellViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ShellViewModel.cs
+index 8161c1a..635f237 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ShellViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ShellViewModel.cs
+@@ -2,21 +2,21 @@ using System.Diagnostics;
+ using System.Windows.Input;
+ using Tww3Companion.Application.Common;
+ using Tww3Companion.Application.Importing;
+ using Tww3Companion.Application.Settings;
+ using Tww3Companion.Application.Workspaces;
+ using Tww3Companion.Desktop.Services;
+ using Tww3Companion.Domain.Workspaces;
+ 
+ namespace Tww3Companion.Desktop.ViewModels;
+ 
+-public enum ShellScreen { Home, Workspace, Compatibility }
++public enum ShellScreen { Home, Workspace, Import, Compatibility }
+ public enum ThemeChoice { System, Light, Dark, HighContrast }
+ public enum CompatibilityAction { Exit, ContinueAnyway }
+ public enum WorkspaceOperationState { Idle, Busy, Finalizing }
+ 
+ public sealed record RecentWorkspaceItem(
+     string DisplayName,
+     string Path,
+     bool IsMissing,
+     bool IsRemovable);
+ 
+@@ -31,189 +31,201 @@ public sealed record HomeShellState(
+     WorkspaceOperationState OperationState,
+     string OperationStatusMessage,
+     IReadOnlyList<string> NavigationItems);
+ 
+ public sealed record WorkspaceShellState(
+     string EmptyStateMessage,
+     IReadOnlyList<string> WorkspaceDestinations,
+     string OperationError,
+     bool HasOperationError);
+ 
+-public interface IShellImportService
+-{
+-  Task<ImportPreview> BuildPreviewAsync(
+-      ImportTargetContext targetContext,
+-      IReadOnlyList<object> candidates,
+-      CancellationToken cancellationToken = default);
+-
+-  Task<ImportOutcome> ApplyAsync(
+-      ImportPreview preview,
+-      bool confirm,
+-      CancellationToken cancellationToken = default);
+-}
+-
+ public sealed class ShellViewModel : ViewModelBase
+ {
+   public const double MinimumWidth = 1024;
+   public const double MinimumHeight = 640;
+   private const string EmptyWorkspaceMessage = "This Workspace contains no Mods or Collections yet. No data has been added.";
+   private const string FinalizingMessage = "Finalizing ΓÇö please wait";
+   private static readonly IReadOnlyList<string> DefaultWorkspaceDestinations =
+       ["Mod Library", "Collections", "Import into current Workspace"];
+ 
+   private ShellScreen _currentScreen = ShellScreen.Home;
+   private ThemeChoice _storedTheme = ThemeChoice.System;
+   private bool _isHighContrast;
+   private ApplicationSettings settings;
+   private readonly IApplicationSettingsStore settingsStore;
+   private readonly Func<CancellationToken, Task<string?>> promptCreateDisplayName;
+   private readonly Func<CancellationToken, Task<string?>> promptOpenPath;
+   private readonly CreateWorkspace? createWorkspace;
+   private readonly OpenWorkspace? openWorkspace;
+   private readonly WorkspaceLibraryQuery? workspaceLibraryQuery;
+-  private readonly IShellImportService importService;
++  private readonly IImportTaskCoordinator importCoordinator;
++  private readonly IImportSourceFileService importFileService;
++  private readonly Func<ImportLaunchContext, ImportWorkspaceViewModel> createImportWorkspace;
+   private readonly string defaultWorkspaceDirectory;
+   private readonly string settingsDirectory;
+   private readonly IWorkspaceDisposalCoordinator workspaceDisposalCoordinator;
+   private readonly DelegateCommand createWorkspaceCommand;
+   private readonly DelegateCommand openWorkspaceCommand;
+   private readonly DelegateCommand removeRecentCommand;
+   private readonly DelegateCommand retrySettingsSaveCommand;
+   private readonly DelegateCommand importIntoNewWorkspaceCommand;
+   private readonly DelegateCommand importIntoCurrentWorkspaceCommand;
++  private readonly DelegateCommand cancelImportCommand;
++  private readonly DelegateCommand confirmDiscardImportCommand;
++  private ImportWorkspaceViewModel? importWorkspace;
++  private ShellScreen returnScreen = ShellScreen.Home;
+   private string? currentWorkspaceId;
+   private string? currentWorkspacePath;
+   private string? currentCollectionId;
+   private bool isDisposingWorkspace;
+ 
+   public ShellViewModel() : this(CreateDefaultOptions())
+   {
+   }
+ 
+   private ShellViewModel(ShellViewModelOptions options)
+   {
+     settingsStore = options.SettingsStore;
+     settings = options.InitialSettings ?? settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+     _storedTheme = ParseTheme(settings.Theme);
+     promptCreateDisplayName = options.PromptCreateDisplayName;
+     promptOpenPath = options.PromptOpenPath;
+     createWorkspace = options.CreateWorkspace;
+     openWorkspace = options.OpenWorkspace;
+     workspaceLibraryQuery = options.WorkspaceLibraryQuery;
+-    importService = options.ImportService;
++    importCoordinator = options.ImportCoordinator;
++    importFileService = options.ImportFileService;
++    createImportWorkspace = options.CreateImportWorkspace
++        ?? (launchContext => new ImportWorkspaceViewModel(
++            launchContext,
++            importCoordinator,
++            importFileService));
+     defaultWorkspaceDirectory = options.DefaultWorkspaceDirectory;
+     settingsDirectory = options.SettingsDirectory;
+     workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator;
+     ModLibrary = new ModLibraryViewModel(workspaceLibraryQuery);
+     CollectionDetail = new CollectionDetailViewModel();
+ 
+     Home = CreateHomeState(WorkspaceOperationState.Idle, string.Empty);
+     Workspace = CreateWorkspaceState(string.Empty);
+     createWorkspaceCommand = new DelegateCommand(_ => _ = RunCreateWorkspaceAsync(), _ => !Home.IsBusy);
+     openWorkspaceCommand = new DelegateCommand(_ => _ = RunOpenWorkspaceAsync(), _ => !Home.IsBusy);
+     removeRecentCommand = new DelegateCommand(
+         parameter => _ = RemoveRecentAsync(parameter),
+         parameter => parameter is RecentWorkspaceItem { IsRemovable: true });
+     retrySettingsSaveCommand = new DelegateCommand(
+         _ => _ = SaveSettingsAsync(),
+         _ => !string.IsNullOrWhiteSpace(Home.SettingsSaveError));
+-    importIntoNewWorkspaceCommand = new DelegateCommand(_ => _ = RunImportIntoNewWorkspaceAsync());
++    importIntoNewWorkspaceCommand = new DelegateCommand(_ => EnterImportForNewWorkspace());
+     importIntoCurrentWorkspaceCommand = new DelegateCommand(
+-        _ => _ = RunImportIntoCurrentWorkspaceAsync(currentWorkspaceId),
++        _ => EnterImportForCurrentWorkspace(),
+         _ => !string.IsNullOrWhiteSpace(currentWorkspaceId) &&
+              !string.IsNullOrWhiteSpace(currentWorkspacePath) &&
+              !string.IsNullOrWhiteSpace(currentCollectionId));
++    cancelImportCommand = new DelegateCommand(_ => CancelImport(), _ => importWorkspace?.CanCancel ?? false);
++    confirmDiscardImportCommand = new DelegateCommand(
++        _ => ConfirmDiscardImport(),
++        _ => importWorkspace?.RequiresDiscardConfirmation ?? false);
+ 
+     CreateWorkspaceCommand = createWorkspaceCommand;
+     OpenWorkspaceCommand = openWorkspaceCommand;
+     RemoveRecentCommand = removeRecentCommand;
+     RetrySettingsSaveCommand = retrySettingsSaveCommand;
+     ImportIntoNewWorkspaceCommand = importIntoNewWorkspaceCommand;
+     ImportIntoCurrentWorkspaceCommand = importIntoCurrentWorkspaceCommand;
++    CancelImportCommand = cancelImportCommand;
++    ConfirmDiscardImportCommand = confirmDiscardImportCommand;
+     OpenSettingsFolderCommand = new DelegateCommand(_ => OpenSettingsFolder());
+     ReturnHomeCommand = new DelegateCommand(_ => ReturnHome());
+     ContinueAnywayCommand = new DelegateCommand(_ => ContinueAnyway());
+   }
+ 
+   public static ShellViewModel CreateForTest(
+       IWorkspaceDialogService? workspaceDialogService = null,
+       IApplicationSettingsStore? settingsStore = null,
+       IWorkspaceDisposalCoordinator? workspaceDisposalCoordinator = null,
+-      IShellImportService? importService = null,
++      IImportTaskCoordinator? importCoordinator = null,
++      IImportSourceFileService? importFileService = null,
+       WorkspaceLibraryQuery? workspaceLibraryQuery = null) =>
+       new(new ShellViewModelOptions
+       {
+         SettingsStore = settingsStore ?? new InMemoryApplicationSettingsStore(DefaultSettings()),
+         PromptCreateDisplayName = cancellationToken =>
+               (workspaceDialogService?.PromptForCreateDisplayNameAsync(cancellationToken))
+               ?? Task.FromResult<string?>(null),
+         PromptOpenPath = cancellationToken =>
+               (workspaceDialogService?.PromptForOpenPathAsync(cancellationToken))
+               ?? Task.FromResult<string?>(null),
+         WorkspaceDisposalCoordinator = workspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator(),
+-        ImportService = importService ?? new PassiveShellImportService(),
++        ImportCoordinator = importCoordinator ?? new PassiveImportTaskCoordinator(),
++        ImportFileService = importFileService ?? new PassiveImportSourceFileService(),
+         WorkspaceLibraryQuery = workspaceLibraryQuery
+       });
+ 
+   public static ShellViewModel Create(
+       ApplicationSettings initialSettings,
+       IApplicationSettingsStore settingsStore,
+       IWorkspaceDialogService workspaceDialogService,
+       CreateWorkspace createWorkspace,
+       OpenWorkspace openWorkspace,
+       string defaultWorkspaceDirectory,
+       string settingsDirectory,
+       IWorkspaceDisposalCoordinator workspaceDisposalCoordinator,
+-      WorkspaceLibraryQuery? workspaceLibraryQuery = null,
+-      IShellImportService? importService = null) =>
++      IImportTaskCoordinator importCoordinator,
++      IImportSourceFileService importFileService,
++      WorkspaceLibraryQuery? workspaceLibraryQuery = null) =>
+       new(new ShellViewModelOptions
+       {
+         InitialSettings = initialSettings,
+         SettingsStore = settingsStore,
+         PromptCreateDisplayName = workspaceDialogService.PromptForCreateDisplayNameAsync,
+         PromptOpenPath = workspaceDialogService.PromptForOpenPathAsync,
+         CreateWorkspace = createWorkspace,
+         OpenWorkspace = openWorkspace,
+         WorkspaceLibraryQuery = workspaceLibraryQuery,
+         DefaultWorkspaceDirectory = defaultWorkspaceDirectory,
+         SettingsDirectory = settingsDirectory,
+         WorkspaceDisposalCoordinator = workspaceDisposalCoordinator,
+-        ImportService = importService ?? new PassiveShellImportService()
++        ImportCoordinator = importCoordinator,
++        ImportFileService = importFileService
+       });
+ 
+   public ShellScreen CurrentScreen => _currentScreen;
+   public bool IsHomeVisible => _currentScreen == ShellScreen.Home;
+   public bool IsWorkspaceVisible => _currentScreen == ShellScreen.Workspace;
++  public bool IsImportVisible => _currentScreen == ShellScreen.Import;
+   public bool IsCompatibilityVisible => _currentScreen == ShellScreen.Compatibility;
++  public ImportWorkspaceViewModel? ImportWorkspace => importWorkspace;
+   public IReadOnlyList<string> WorkspaceDestinations { get; } = DefaultWorkspaceDestinations;
+   public IReadOnlyList<ThemeChoice> ThemeChoices { get; } = [ThemeChoice.System, ThemeChoice.Light, ThemeChoice.Dark];
+   public IReadOnlyList<CompatibilityAction> CompatibilityActions { get; } = [CompatibilityAction.Exit, CompatibilityAction.ContinueAnyway];
+   public string EmptyStateMessage { get; } = EmptyWorkspaceMessage;
+   public HomeShellState Home { get; private set; }
+   public WorkspaceShellState Workspace { get; private set; }
+   public ModLibraryViewModel ModLibrary { get; }
+   public CollectionDetailViewModel CollectionDetail { get; }
+-  public IShellImportService ImportService => importService;
+   public bool HasCompatibilityWarning { get; private set; }
+   public ThemeChoice StoredTheme
+   {
+     get => _storedTheme;
+     set => SetTheme(value);
+   }
+ 
+   public ThemeChoice EffectiveTheme => _isHighContrast ? ThemeChoice.HighContrast : _storedTheme;
+   public ICommand CreateWorkspaceCommand { get; }
+   public ICommand OpenWorkspaceCommand { get; }
+   public ICommand RemoveRecentCommand { get; }
+   public ICommand RetrySettingsSaveCommand { get; }
+   public ICommand ImportIntoNewWorkspaceCommand { get; }
+   public ICommand ImportIntoCurrentWorkspaceCommand { get; }
++  public ICommand CancelImportCommand { get; }
++  public ICommand ConfirmDiscardImportCommand { get; }
+   public ICommand OpenSettingsFolderCommand { get; }
+   public ICommand ReturnHomeCommand { get; }
+   public ICommand ContinueAnywayCommand { get; }
+ 
+   public void OpenWorkspace()
+   {
+     UpdateWorkspaceError(string.Empty);
+     SetScreen(ShellScreen.Workspace);
+   }
+ 
+@@ -276,109 +288,184 @@ public sealed class ShellViewModel : ViewModelBase
+     }
+ 
+     _isHighContrast = active;
+     OnPropertyChanged(nameof(EffectiveTheme));
+   }
+ 
+   public void BeginCreateWorkspaceForTest() => SetOperationState(WorkspaceOperationState.Busy);
+ 
+   public void EnterFinalizingForTest() => SetOperationState(WorkspaceOperationState.Finalizing);
+ 
+-  public Task RunImportIntoNewWorkspaceForTestAsync() => RunImportIntoNewWorkspaceAsync();
++  public void CancelImport()
++  {
++    if (importWorkspace is null)
++    {
++      return;
++    }
+ 
+-  public Task RunImportIntoCurrentWorkspaceForTestAsync(
+-      string workspaceId,
+-      string workspacePath,
+-      string collectionId) =>
+-      RunImportIntoCurrentWorkspaceAsync(
+-          workspaceId,
+-          workspacePath,
+-          collectionId);
++    if (!importWorkspace.TryDismiss())
++    {
++      confirmDiscardImportCommand.RaiseCanExecuteChanged();
++      return;
++    }
++
++    LeaveImport();
++    SetScreen(returnScreen);
++  }
+ 
+-  public async Task<ImportOutcome> ApplyImportPreviewAsync(
+-      ImportPreview preview,
+-      bool confirm,
+-      CancellationToken cancellationToken = default)
++  public void ConfirmDiscardImport()
+   {
+-    try
++    importWorkspace?.ConfirmDiscard();
++    if (importWorkspace?.TryDismiss() != true)
+     {
+-      var outcome = await importService.ApplyAsync(
+-          preview,
+-          confirm,
+-          cancellationToken);
+-      if (outcome.Applied &&
+-          outcome.TargetContext is
+-              ImportTargetContext.CurrentWorkspace current)
+-      {
+-        await LoadWorkspaceLibraryAsync(current.WorkspacePath);
+-      }
++      return;
++    }
++
++    LeaveImport();
++    SetScreen(returnScreen);
++  }
+ 
+-      return outcome;
++  private void EnterImportForNewWorkspace()
++  {
++    var suggestedPath = Path.Combine(defaultWorkspaceDirectory, "Imported Workspace.tww3c");
++    EnterImport(new ImportLaunchContext(
++        IsNewWorkspace: true,
++        WorkspaceId: null,
++        WorkspacePath: suggestedPath,
++        Collections: [],
++        SelectedCollectionId: null));
++  }
++
++  private void EnterImportForCurrentWorkspace()
++  {
++    if (string.IsNullOrWhiteSpace(currentWorkspaceId) ||
++        string.IsNullOrWhiteSpace(currentWorkspacePath) ||
++        string.IsNullOrWhiteSpace(currentCollectionId))
++    {
++      return;
++    }
++
++    EnterImport(new ImportLaunchContext(
++        IsNewWorkspace: false,
++        WorkspaceId: currentWorkspaceId,
++        WorkspacePath: currentWorkspacePath,
++        Collections: ModLibrary.Collections.ToArray(),
++        SelectedCollectionId: currentCollectionId));
++  }
++
++  private void EnterImport(ImportLaunchContext launchContext)
++  {
++    returnScreen = _currentScreen == ShellScreen.Workspace ? ShellScreen.Workspace : ShellScreen.Home;
++    DetachImportWorkspace();
++    importWorkspace = createImportWorkspace(launchContext);
++    importWorkspace.SetCancelHandler(CancelImport);
++    importWorkspace.Completed += OnImportCompleted;
++    importWorkspace.StageChanged += OnImportStageChanged;
++    OnPropertyChanged(nameof(ImportWorkspace));
++    cancelImportCommand.RaiseCanExecuteChanged();
++    confirmDiscardImportCommand.RaiseCanExecuteChanged();
++    SetScreen(ShellScreen.Import);
++  }
++
++  private void LeaveImport()
++  {
++    DetachImportWorkspace();
++    OnPropertyChanged(nameof(ImportWorkspace));
++    cancelImportCommand.RaiseCanExecuteChanged();
++    confirmDiscardImportCommand.RaiseCanExecuteChanged();
++  }
++
++  private void DetachImportWorkspace()
++  {
++    if (importWorkspace is null)
++    {
++      return;
++    }
++
++    importWorkspace.Completed -= OnImportCompleted;
++    importWorkspace.StageChanged -= OnImportStageChanged;
++    importWorkspace = null;
++  }
++
++  private async void OnImportCompleted(object? sender, ImportTaskCompletedEvent e)
++  {
++    if (!e.Outcome.Applied)
++    {
++      return;
++    }
++
++    try
++    {
++      await HandleSuccessfulImportAsync(e.Outcome);
+     }
+     catch (ImportPersistenceException exception)
+     {
+       UpdateWorkspaceError(exception.Error.Message);
+-      throw;
++    }
++    catch (Exception exception) when (exception is not OperationCanceledException)
++    {
++      UpdateWorkspaceError(exception.Message);
++    }
++  }
++
++  private void OnImportStageChanged(object? sender, EventArgs e)
++  {
++    cancelImportCommand.RaiseCanExecuteChanged();
++    confirmDiscardImportCommand.RaiseCanExecuteChanged();
++  }
++
++  private async Task HandleSuccessfulImportAsync(ImportOutcome outcome)
++  {
++    if (outcome.TargetContext is not ImportTargetContext.CurrentWorkspace current)
++    {
++      return;
++    }
++
++    currentWorkspaceId = current.WorkspaceId;
++    currentWorkspacePath = current.WorkspacePath;
++    importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
++    await LoadWorkspaceLibraryAsync(current.WorkspacePath);
++    SelectMembershipDestination(current.MembershipDestination);
++    LeaveImport();
++    SetScreen(ShellScreen.Workspace);
++  }
++
++  private void SelectMembershipDestination(ImportMembershipDestination destination)
++  {
++    switch (destination)
++    {
++      case ImportMembershipDestination.LibraryOnly:
++        SelectCollection(null);
++        break;
++      case ImportMembershipDestination.ExistingCollection existing:
++        SelectCollection(existing.CollectionId);
++        break;
+     }
+   }
+ 
+   public void SetCurrentWorkspaceImportTargetForTest(
+       string workspaceId,
+       string workspacePath,
+       string collectionId)
+   {
+     currentWorkspaceId = workspaceId;
+     currentWorkspacePath = workspacePath;
+     currentCollectionId = collectionId;
+     importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
+   }
+ 
+   public void SetCurrentWorkspaceIdForTest(string workspaceId) =>
+       SetCurrentWorkspaceImportTargetForTest(
+           workspaceId,
+           "C:\\Workspaces\\current.tww3c",
+           "collection-id-123");
+ 
+-  private Task RunImportIntoNewWorkspaceAsync() =>
+-      importService.BuildPreviewAsync(
+-          ImportTargetContext.ForNewWorkspace(
+-              "My New Workspace",
+-              "C:\\Workspaces\\my-new.tww3c",
+-              "Imported Collection"),
+-          []);
+-
+-  private Task RunImportIntoCurrentWorkspaceAsync(string? workspaceId) =>
+-      RunImportIntoCurrentWorkspaceAsync(
+-          workspaceId,
+-          currentWorkspacePath,
+-          currentCollectionId);
+-
+-  private Task RunImportIntoCurrentWorkspaceAsync(
+-      string? workspaceId,
+-      string? workspacePath,
+-      string? collectionId)
+-  {
+-    if (string.IsNullOrWhiteSpace(workspaceId) ||
+-        string.IsNullOrWhiteSpace(workspacePath) ||
+-        string.IsNullOrWhiteSpace(collectionId))
+-    {
+-      return Task.CompletedTask;
+-    }
+-
+-    return importService.BuildPreviewAsync(
+-        ImportTargetContext.ForCurrentWorkspace(
+-            workspaceId,
+-            workspacePath,
+-            collectionId),
+-        []);
+-  }
+-
+   private async Task RunCreateWorkspaceAsync()
+   {
+     if (Home.IsBusy)
+     {
+       return;
+     }
+ 
+     SetOperationState(WorkspaceOperationState.Busy);
+     try
+     {
+@@ -700,64 +787,85 @@ public sealed class ShellViewModel : ViewModelBase
+   {
+     if (_currentScreen == screen)
+     {
+       return;
+     }
+ 
+     _currentScreen = screen;
+     OnPropertyChanged(nameof(CurrentScreen));
+     OnPropertyChanged(nameof(IsHomeVisible));
+     OnPropertyChanged(nameof(IsWorkspaceVisible));
++    OnPropertyChanged(nameof(IsImportVisible));
+     OnPropertyChanged(nameof(IsCompatibilityVisible));
+   }
+ 
+   private static ShellViewModelOptions CreateDefaultOptions() => new()
+   {
+-    SettingsStore = new InMemoryApplicationSettingsStore(DefaultSettings())
++    SettingsStore = new InMemoryApplicationSettingsStore(DefaultSettings()),
++    ImportCoordinator = new PassiveImportTaskCoordinator(),
++    ImportFileService = new PassiveImportSourceFileService()
+   };
+ 
+   private static ApplicationSettings DefaultSettings() => new(
+       SchemaVersion: 1,
+       Theme: nameof(ThemeChoice.System),
+       WindowPlacement: null,
+       RecentWorkspaces: [new RecentWorkspace(@"C:\Missing\Workspace.tww3c", DateTimeOffset.UnixEpoch, "Missing Workspace")]);
+ 
+   private sealed class ShellViewModelOptions
+   {
+     public ApplicationSettings? InitialSettings { get; init; }
+     public IApplicationSettingsStore SettingsStore { get; init; } = new InMemoryApplicationSettingsStore(DefaultSettings());
+     public Func<CancellationToken, Task<string?>> PromptCreateDisplayName { get; init; } = _ => Task.FromResult<string?>(null);
+     public Func<CancellationToken, Task<string?>> PromptOpenPath { get; init; } = _ => Task.FromResult<string?>(null);
+     public CreateWorkspace? CreateWorkspace { get; init; }
+     public OpenWorkspace? OpenWorkspace { get; init; }
+     public WorkspaceLibraryQuery? WorkspaceLibraryQuery { get; init; }
+     public string DefaultWorkspaceDirectory { get; init; } = Path.GetTempPath();
+     public string SettingsDirectory { get; init; } = Path.GetTempPath();
+     public IWorkspaceDisposalCoordinator WorkspaceDisposalCoordinator { get; init; } = new WorkspaceDisposalCoordinator();
+-    public IShellImportService ImportService { get; init; } = new PassiveShellImportService();
++    public IImportTaskCoordinator ImportCoordinator { get; init; } = new PassiveImportTaskCoordinator();
++    public IImportSourceFileService ImportFileService { get; init; } = new PassiveImportSourceFileService();
++    public Func<ImportLaunchContext, ImportWorkspaceViewModel>? CreateImportWorkspace { get; init; }
+   }
+ 
+-  private sealed class PassiveShellImportService : IShellImportService
++  private sealed class PassiveImportTaskCoordinator : IImportTaskCoordinator
+   {
++    public Task<ImportSourceLoadResult> LoadSourceAsync(
++        ImportSourceRequest request,
++        CancellationToken cancellationToken = default) =>
++        Task.FromResult(new ImportSourceLoadResult([], [], []));
++
+     public Task<ImportPreview> BuildPreviewAsync(
+         ImportTargetContext targetContext,
+         IReadOnlyList<object> candidates,
+         CancellationToken cancellationToken = default) =>
+-        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
++        Task.FromResult(new ImportPreview(targetContext, [], Applied: false));
++
++    public Task<ImportPreview> ResolveAsync(
++        ImportPreview preview,
++        ImportCandidate resolvedCandidate,
++        CancellationToken cancellationToken = default) =>
++        Task.FromResult(preview);
+ 
+     public Task<ImportOutcome> ApplyAsync(
+         ImportPreview preview,
+-        bool confirm,
+         CancellationToken cancellationToken = default) =>
+         Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false));
+   }
+ 
++  private sealed class PassiveImportSourceFileService : IImportSourceFileService
++  {
++    public Task<ImportSourceDocument?> ChooseTextFileAsync(CancellationToken cancellationToken = default) =>
++        Task.FromResult<ImportSourceDocument?>(null);
++  }
++
+   private sealed class InMemoryApplicationSettingsStore(ApplicationSettings initialSettings) : IApplicationSettingsStore
+   {
+     private ApplicationSettings settings = initialSettings;
+ 
+     public Task<ApplicationSettings> LoadAsync(CancellationToken cancellationToken) =>
+         Task.FromResult(settings);
+ 
+     public Task<OperationResult<ApplicationSettings>> SaveAsync(
+         ApplicationSettings settings,
+         CancellationToken cancellationToken)
+diff --git a/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml b/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml
+new file mode 100644
+index 0000000..738a812
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml
+@@ -0,0 +1,208 @@
++<UserControl xmlns="https://github.com/avaloniaui"
++             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
++             xmlns:vm="using:Tww3Companion.Desktop.ViewModels"
++             x:Class="Tww3Companion.Desktop.Views.ImportWorkspaceView"
++             x:DataType="vm:ImportWorkspaceViewModel"
++             AutomationProperties.Name="Import Workspace">
++  <Grid Margin="24" RowDefinitions="Auto,*,Auto">
++    <StackPanel Grid.Row="0" Spacing="8" Margin="0,0,0,16">
++      <TextBlock FontSize="28" FontWeight="SemiBold" Text="Import into Workspace" />
++      <StackPanel Orientation="Horizontal" Spacing="16">
++        <TextBlock Text="Source" FontWeight="SemiBold" />
++        <TextBlock Text="Destination" FontWeight="SemiBold" />
++        <TextBlock Text="Preview" FontWeight="SemiBold" />
++        <TextBlock Text="Confirmation" FontWeight="SemiBold" />
++      </StackPanel>
++      <TextBlock AutomationProperties.LiveSetting="Polite"
++                 Text="{Binding Stage}" />
++    </StackPanel>
++
++    <ScrollViewer Grid.Row="1">
++      <StackPanel Spacing="20">
++        <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
++                IsVisible="{Binding IsSourceStage}">
++          <StackPanel Spacing="12">
++            <TextBlock FontWeight="SemiBold" Text="Source" />
++            <StackPanel Orientation="Horizontal" Spacing="12">
++              <Button Content="Markdown"
++                      AutomationProperties.Name="Import source Markdown"
++                      Command="{Binding Source.SelectMarkdownCommand}" />
++              <Button Content="Steam Collection"
++                      AutomationProperties.Name="Import source Steam Collection"
++                      Command="{Binding Source.SelectSteamCollectionCommand}" />
++              <Button Content="Steam items"
++                      AutomationProperties.Name="Import source Steam items"
++                      Command="{Binding Source.SelectSteamItemsCommand}" />
++            </StackPanel>
++            <TextBox AcceptsReturn="True"
++                     MinHeight="120"
++                     Text="{Binding Source.InputText}"
++                     PlaceholderText="Paste import source text"
++                     AutomationProperties.Name="Import source text" />
++            <StackPanel Orientation="Horizontal" Spacing="12">
++              <Button Content="Choose file"
++                      AutomationProperties.Name="Import choose source file"
++                      Command="{Binding Source.ChooseFileCommand}" />
++              <TextBlock VerticalAlignment="Center" Text="{Binding Source.SelectedDocumentName}" />
++            </StackPanel>
++            <ItemsControl ItemsSource="{Binding Source.Diagnostics}">
++              <ItemsControl.ItemTemplate>
++                <DataTemplate x:DataType="vm:ImportTaskDiagnostic">
++                  <TextBlock TextWrapping="Wrap" Text="{Binding Message}" />
++                </DataTemplate>
++              </ItemsControl.ItemTemplate>
++            </ItemsControl>
++            <Button Content="Continue"
++                    HorizontalAlignment="Left"
++                    AutomationProperties.Name="Import Continue"
++                    Command="{Binding Source.ContinueCommand}" />
++          </StackPanel>
++        </Border>
++
++        <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
++                IsVisible="{Binding IsDestinationStage}">
++          <StackPanel Spacing="12">
++            <TextBlock FontWeight="SemiBold" Text="Destination" />
++            <StackPanel Spacing="8" IsVisible="{Binding Destination.ShowsWorkspaceDetails}">
++              <TextBlock Text="Workspace display name" />
++              <TextBox Text="{Binding Destination.WorkspaceDisplayName}"
++                       AutomationProperties.Name="Import workspace display name" />
++              <TextBlock Text="Workspace file path" />
++              <TextBox Text="{Binding Destination.WorkspacePath}"
++                       AutomationProperties.Name="Import workspace path" />
++            </StackPanel>
++            <RadioButton Content="Mod Library only"
++                         IsChecked="{Binding Destination.IsLibraryOnly}"
++                         AutomationProperties.Name="Import destination Mod Library only"
++                         Command="{Binding Destination.SelectLibraryOnlyCommand}" />
++            <RadioButton Content="Existing Collection"
++                         IsVisible="{Binding Destination.CanChooseExistingCollection}"
++                         IsChecked="{Binding Destination.IsExistingCollection}"
++                         AutomationProperties.Name="Import destination existing Collection"
++                         Command="{Binding Destination.SelectExistingCollectionCommand}" />
++            <ComboBox ItemsSource="{Binding Destination.Collections}"
++                      SelectedItem="{Binding Destination.SelectedCollection}"
++                      IsVisible="{Binding Destination.IsExistingCollection}"
++                      AutomationProperties.Name="Import existing Collection">
++              <ComboBox.ItemTemplate>
++                <DataTemplate x:DataType="vm:CollectionSummary">
++                  <TextBlock Text="{Binding DisplayName}" />
++                </DataTemplate>
++              </ComboBox.ItemTemplate>
++            </ComboBox>
++            <RadioButton Content="New Collection"
++                         IsChecked="{Binding Destination.IsNewCollection}"
++                         AutomationProperties.Name="Import destination new Collection"
++                         Command="{Binding Destination.SelectNewCollectionCommand}" />
++            <TextBox Text="{Binding Destination.NewCollectionName}"
++                     IsVisible="{Binding Destination.IsNewCollection}"
++                     AutomationProperties.Name="Import new Collection name" />
++            <Button Content="Continue"
++                    HorizontalAlignment="Left"
++                    AutomationProperties.Name="Import Continue"
++                    Command="{Binding ContinueDestinationCommand}" />
++          </StackPanel>
++        </Border>
++
++        <StackPanel Spacing="16" IsVisible="{Binding IsPreviewStage}">
++          <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
++            <StackPanel Spacing="12">
++              <TextBlock FontWeight="SemiBold" Text="Preview" />
++              <ComboBox Width="240"
++                        HorizontalAlignment="Left"
++                        ItemsSource="{x:Static vm:ImportPreviewViewModel.FilterChoices}"
++                        SelectedItem="{Binding Preview.SelectedFilter}"
++                        AutomationProperties.Name="Import preview filter" />
++              <Grid ColumnDefinitions="*,*">
++                <TextBlock Grid.Column="0" FontWeight="SemiBold" Text="Library" />
++                <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Membership" />
++              </Grid>
++              <ItemsControl ItemsSource="{Binding Preview.FilteredRows}">
++                <ItemsControl.ItemTemplate>
++                  <DataTemplate x:DataType="vm:ImportPreviewRowViewModel">
++                    <Grid ColumnDefinitions="*,*" Margin="0,4">
++                      <TextBlock Grid.Column="0" Text="{Binding LibraryAction}" />
++                      <TextBlock Grid.Column="1" Text="{Binding MembershipAction}" />
++                      <TextBlock Grid.ColumnSpan="2" Margin="0,20,0,0" Text="{Binding DisplayName}" />
++                    </Grid>
++                  </DataTemplate>
++                </ItemsControl.ItemTemplate>
++              </ItemsControl>
++            </StackPanel>
++          </Border>
++
++          <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
++            <StackPanel Spacing="12">
++              <TextBlock FontWeight="SemiBold" Text="Needs Attention" />
++              <TextBlock Text="{Binding Resolution.ActiveCandidateId}"
++                         AutomationProperties.LiveSetting="Polite" />
++              <Button Content="Link to owning Mod"
++                      AutomationProperties.Name="Import link to owning Mod"
++                      Command="{Binding Resolution.LinkToOwnerCommand}" />
++              <TextBox Text="{Binding Resolution.DraftDisplayName}"
++                       PlaceholderText="Display name for new Mod"
++                       AutomationProperties.Name="Import resolution display name" />
++              <Button Content="Create Mod"
++                      AutomationProperties.Name="Import create Mod"
++                      Command="{Binding Resolution.CreateCommand}" />
++              <ComboBox ItemsSource="{Binding Resolution.CompetingScalarValues}"
++                        SelectedItem="{Binding Resolution.SelectedScalarValue}"
++                        IsVisible="{Binding Resolution.CanChooseScalarValue}"
++                        AutomationProperties.Name="Import scalar conflict choice" />
++              <Button Content="Apply selected value"
++                      AutomationProperties.Name="Import apply scalar selection"
++                      Command="{Binding Resolution.ApplyScalarCommand}" />
++              <Button Content="Skip item"
++                      AutomationProperties.Name="Import skip item"
++                      Command="{Binding Resolution.SkipCommand}" />
++            </StackPanel>
++          </Border>
++
++          <Button Content="Continue"
++                  HorizontalAlignment="Left"
++                  AutomationProperties.Name="Import Continue"
++                  Command="{Binding ContinuePreviewCommand}" />
++        </StackPanel>
++
++        <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
++                IsVisible="{Binding IsConfirmationStage}">
++          <StackPanel Spacing="12">
++            <TextBlock FontWeight="SemiBold" Text="Confirmation" />
++            <TextBlock AutomationProperties.LiveSetting="Polite"
++                       Text="Review the import summary before applying." />
++            <TextBlock Text="{Binding Confirmation.Summary.ModsCreated, StringFormat=Mods created: {0}}" />
++            <TextBlock Text="{Binding Confirmation.Summary.ModsEnriched, StringFormat=Mods enriched: {0}}" />
++            <TextBlock Text="{Binding Confirmation.Summary.ExistingModsUnchanged, StringFormat=Existing Mods unchanged: {0}}" />
++            <TextBlock Text="{Binding Confirmation.Summary.CollectionsCreated, StringFormat=Collections created: {0}}" />
++            <TextBlock Text="{Binding Confirmation.Summary.MembershipsAdded, StringFormat=Memberships added: {0}}" />
++            <TextBlock Text="{Binding Confirmation.Summary.ExistingMembershipsUnchanged, StringFormat=Existing memberships unchanged: {0}}" />
++            <TextBlock Text="{Binding Confirmation.Summary.CandidatesSkipped, StringFormat=Candidates skipped: {0}}" />
++            <TextBlock Text="{Binding Confirmation.Summary.WarningsRemaining, StringFormat=Warnings remaining: {0}}" />
++            <Button Content="Apply"
++                    AutomationProperties.Name="Import Apply"
++                    Command="{Binding Confirmation.ApplyCommand}" />
++          </StackPanel>
++        </Border>
++
++        <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
++                IsVisible="{Binding RequiresDiscardConfirmation}">
++          <StackPanel Spacing="8">
++            <TextBlock TextWrapping="Wrap" Text="Discard this import session and lose unresolved preview changes?" />
++            <Button Content="Confirm discard"
++                    AutomationProperties.Name="Import confirm discard"
++                    Command="{Binding ConfirmDiscardCommand}" />
++          </StackPanel>
++        </Border>
++      </StackPanel>
++    </ScrollViewer>
++
++    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12" Margin="0,16,0,0">
++      <Button Content="Back"
++              AutomationProperties.Name="Import Back"
++              Command="{Binding BackCommand}" />
++      <Button Content="Cancel"
++              AutomationProperties.Name="Import Cancel"
++              Command="{Binding CancelCommand}" />
++    </StackPanel>
++  </Grid>
++</UserControl>
+diff --git a/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml.cs b/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml.cs
+new file mode 100644
+index 0000000..cc7bc53
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml.cs
+@@ -0,0 +1,11 @@
++using Avalonia.Controls;
++
++namespace Tww3Companion.Desktop.Views;
++
++public partial class ImportWorkspaceView : UserControl
++{
++  public ImportWorkspaceView()
++  {
++    InitializeComponent();
++  }
++}
+diff --git a/src/Tww3Companion.Desktop/Views/MainWindow.axaml b/src/Tww3Companion.Desktop/Views/MainWindow.axaml
+index 6340009..ac71c9f 100644
+--- a/src/Tww3Companion.Desktop/Views/MainWindow.axaml
++++ b/src/Tww3Companion.Desktop/Views/MainWindow.axaml
+@@ -9,20 +9,24 @@
+   <Window.Styles>
+     <Style Selector="Button:focus-visible"><Setter Property="BorderThickness" Value="3" /></Style>
+     <Style Selector="ComboBox:focus-visible"><Setter Property="BorderThickness" Value="3" /></Style>
+   </Window.Styles>
+ 
+   <Grid>
+     <views:CompatibilityView IsVisible="{Binding IsCompatibilityVisible}" />
+ 
+     <views:HomeView IsVisible="{Binding IsHomeVisible}" />
+ 
++    <Grid IsVisible="{Binding IsImportVisible}">
++      <views:ImportWorkspaceView DataContext="{Binding ImportWorkspace}" />
++    </Grid>
++
+     <Grid Name="WorkspaceShell" IsVisible="{Binding IsWorkspaceVisible}" AutomationProperties.Name="Workspace shell">
+       <Grid.ColumnDefinitions>
+         <ColumnDefinition Width="208" />
+         <ColumnDefinition Width="*" MinWidth="300" />
+         <ColumnDefinition Width="384" />
+       </Grid.ColumnDefinitions>
+ 
+       <Border Grid.Column="0" Padding="16" BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+         <ScrollViewer AutomationProperties.Name="Workspace navigation">
+           <StackPanel Spacing="12">
+diff --git a/tests/Tww3Companion.Desktop.Tests/Composition/ApplicationCompositionTests.cs b/tests/Tww3Companion.Desktop.Tests/Composition/ApplicationCompositionTests.cs
+index be2ec43..2e8ee59 100644
+--- a/tests/Tww3Companion.Desktop.Tests/Composition/ApplicationCompositionTests.cs
++++ b/tests/Tww3Companion.Desktop.Tests/Composition/ApplicationCompositionTests.cs
+@@ -23,20 +23,39 @@ public sealed class ApplicationCompositionTests
+     var source = File.ReadAllText(Path.Combine(
+         desktopDirectory,
+         "Composition",
+         "ApplicationComposition.cs"));
+ 
+     Assert.Contains("new SqliteWorkspaceCatalogStore(", source);
+     Assert.DoesNotContain("CompositionWorkspaceImportStore", source);
+     Assert.Contains("new MigrateV1ToV2()", source);
+   }
+ 
++  [Fact]
++  public void ProductionComposition_WiresImportCoordinatorAndSteamMetadataClient()
++  {
++    var desktopDirectory = Path.GetFullPath(Path.Combine(
++        AppContext.BaseDirectory,
++        "..", "..", "..", "..", "..",
++        "src", "Tww3Companion.Desktop"));
++    var source = File.ReadAllText(Path.Combine(
++        desktopDirectory,
++        "Composition",
++        "ApplicationComposition.cs"));
++
++    Assert.Contains("new SteamWebApiMetadataClient(", source);
++    Assert.Contains("new ImportTaskCoordinator(", source);
++    Assert.Contains("new ImportSourceFileService(", source);
++    Assert.Contains("steamHttpClient.Dispose()", source);
++    Assert.DoesNotContain("EngineShellImportService", source);
++  }
++
+   [Fact]
+   public void CompositionUsesTheApprovedStartupOrder()
+   {
+     var composition = ApplicationComposition.CreateForTest();
+ 
+     Assert.Equal(
+         [
+             "detect application mode",
+                 "initialize and probe managed paths",
+                 "acquire single-instance lease",
+diff --git a/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
+index ddfeefe..1c3fe84 100644
+--- a/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
++++ b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
+@@ -125,20 +125,54 @@ public sealed class ImportWorkspaceViewModelTests
+ 
+     await PreparePreviewAsync(subject, coordinator);
+ 
+     Assert.False(subject.TryDismiss());
+ 
+     Assert.True(subject.RequiresDiscardConfirmation);
+     subject.ConfirmDiscard();
+     Assert.True(subject.TryDismiss());
+   }
+ 
++  [Fact]
++  public void ConfirmDiscardCommand_invokes_cancel_handler()
++  {
++    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), new RecordingImportTaskCoordinator());
++    var cancelInvoked = false;
++    subject.SetCancelHandler(() => cancelInvoked = true);
++
++    subject.ConfirmDiscardCommand.Execute(null);
++
++    Assert.True(cancelInvoked);
++  }
++
++  [Fact]
++  public void SelectExistingCollectionCommand_activates_without_command_parameter()
++  {
++    var subject = CreateSubject(new ImportLaunchContext(
++        IsNewWorkspace: false,
++        WorkspaceId: "workspace-1",
++        WorkspacePath: @"C:\Data\workspace.tww3c",
++        Collections: [new CollectionSummary("collection-1", "Current", 0)],
++        SelectedCollectionId: "collection-1"));
++
++    subject.Source.Select(ImportSourceKind.Markdown);
++    subject.OpenDestination();
++    subject.Destination.SelectLibraryOnly();
++    Assert.False(subject.Destination.IsExistingCollection);
++
++    Assert.True(subject.Destination.SelectExistingCollectionCommand.CanExecute(null));
++    subject.Destination.SelectExistingCollectionCommand.Execute(null);
++
++    Assert.True(subject.Destination.IsExistingCollection);
++    Assert.Equal("collection-1", subject.Destination.SelectedCollectionId);
++  }
++
+   [Fact]
+   public async Task Apply_sets_finalizing_disables_navigation_and_raises_completion()
+   {
+     var coordinator = new RecordingImportTaskCoordinator();
+     ImportTaskCompletedEvent? completed = null;
+     var subject = CreateSubject(
+         CurrentWorkspaceLaunchContext(),
+         coordinator);
+     subject.Completed += (_, args) => completed = args;
+ 
+diff --git a/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs b/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs
+index b5560ef..79c7b8e 100644
+--- a/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs
++++ b/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs
+@@ -2,75 +2,62 @@ using Tww3Companion.Application.Common;
+ using Tww3Companion.Application.Importing;
+ using Tww3Companion.Application.Workspaces;
+ using Tww3Companion.Desktop.Services;
+ using Tww3Companion.Desktop.ViewModels;
+ using Xunit;
+ 
+ namespace Tww3Companion.Desktop.Tests.ViewModels;
+ 
+ public sealed class ShellViewModelTests
+ {
+-  [Fact]
+-  public void ShellViewModel_exposes_a_test_import_service_seam()
+-  {
+-    var shell = ShellViewModel.CreateForTest();
+-
+-    Assert.NotNull(shell.ImportService);
+-  }
+-
+   [Fact]
+   public void Home_exposes_import_into_new_workspace()
+   {
+-    var shell = ShellViewModel.CreateForTest(importService: new RecordingImportService());
++    var shell = ShellViewModel.CreateForTest();
+ 
+     Assert.Contains("Import into new Workspace", shell.Home.NavigationItems);
+   }
+ 
+   [Fact]
+   public void Workspace_shell_exposes_import_into_current_workspace()
+   {
+-    var shell = ShellViewModel.CreateForTest(importService: new RecordingImportService());
++    var shell = ShellViewModel.CreateForTest();
+ 
+     Assert.Contains("Import into current Workspace", shell.WorkspaceDestinations);
+   }
+ 
+   [Fact]
+-  public async Task Home_import_action_uses_new_workspace_target_context()
++  public void Home_import_opens_task_with_new_workspace_launch_context()
+   {
+-    var importService = new RecordingImportService();
+-    var shell = ShellViewModel.CreateForTest(importService: importService);
++    var shell = ShellViewModel.CreateForTest();
+ 
+-    await shell.RunImportIntoNewWorkspaceForTestAsync();
++    shell.ImportIntoNewWorkspaceCommand.Execute(null);
+ 
+-    Assert.Equal(
+-        ImportTargetContext.ForNewWorkspace(
+-            "My New Workspace",
+-            "C:\\Workspaces\\my-new.tww3c",
+-            "Imported Collection"),
+-        importService.LastTargetContext);
++    Assert.True(shell.IsImportVisible);
++    Assert.NotNull(shell.ImportWorkspace);
++    Assert.True(shell.ImportWorkspace.LaunchContext.IsNewWorkspace);
++    Assert.False(shell.ImportWorkspace.Destination.CanChooseExistingCollection);
+   }
+ 
+   [Fact]
+-  public async Task Workspace_import_action_uses_current_workspace_target_context()
++  public void Current_import_passes_workspace_and_selected_collection()
+   {
+-    var importService = new RecordingImportService();
+-    var shell = ShellViewModel.CreateForTest(importService: importService);
+-    shell.SetCurrentWorkspaceIdForTest("workspace-id-123");
++    var shell = ShellViewModel.CreateForTest();
++    shell.SetCurrentWorkspaceImportTargetForTest(
++        "workspace-1",
++        @"C:\Data\workspace.tww3c",
++        "collection-1");
+ 
+     shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
+ 
+-    Assert.Equal(
+-        ImportTargetContext.ForCurrentWorkspace(
+-            "workspace-id-123",
+-            "C:\\Workspaces\\current.tww3c",
+-            "collection-id-123"),
+-        importService.LastTargetContext);
++    Assert.True(shell.IsImportVisible);
++    Assert.Equal("collection-1", shell.ImportWorkspace!.LaunchContext.SelectedCollectionId);
+   }
+ 
+   [Fact]
+   public void StartsOnHomeWithImportWorkspaceDestination()
+   {
+     var subject = new ShellViewModel();
+ 
+     Assert.Equal(ShellScreen.Home, subject.CurrentScreen);
+     Assert.Equal(["Mod Library", "Collections", "Import into current Workspace"], subject.Workspace.WorkspaceDestinations);
+     Assert.DoesNotContain(subject.Workspace.WorkspaceDestinations, destination =>
+@@ -107,138 +94,120 @@ public sealed class ShellViewModelTests
+ 
+     Assert.Equal(ShellScreen.Compatibility, subject.CurrentScreen);
+     Assert.Equal([CompatibilityAction.Exit, CompatibilityAction.ContinueAnyway], subject.CompatibilityActions);
+ 
+     subject.ContinueAnyway();
+     Assert.Equal(ShellScreen.Home, subject.CurrentScreen);
+     Assert.True(subject.HasCompatibilityWarning);
+   }
+ 
+   [Fact]
+-  public async Task ApplyImportPreviewAsync_ReloadsLibraryAfterSuccessfulApply()
++  public async Task Successful_new_workspace_import_completion_sets_active_workspace_and_enters_workspace()
+   {
+-    const string workspaceId = "workspace-id-123";
+-    const string workspacePath = @"C:\Workspaces\current.tww3c";
+-    const string collectionId = "collection-id-123";
++    const string workspaceId = "new-workspace-id";
++    const string workspacePath = @"C:\Workspaces\new.tww3c";
+     var reader = new RecordingCatalogReader();
+     var query = new WorkspaceLibraryQuery(reader);
+-    var importService = new ConfigurableImportService();
++    var coordinator = new ConfigurableImportCoordinator();
+     var shell = ShellViewModel.CreateForTest(
+-        importService: importService,
++        importCoordinator: coordinator,
+         workspaceLibraryQuery: query);
+ 
+-    shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+-    query.SetActiveWorkspacePath(workspacePath);
++    shell.ImportIntoNewWorkspaceCommand.Execute(null);
++    var importTask = shell.ImportWorkspace!;
++    importTask.Source.Select(ImportSourceKind.SteamItems);
++    importTask.Source.InputText = "123456789";
++    importTask.OpenDestination();
++    importTask.Destination.SelectLibraryOnly();
++    await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++    await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
+ 
+-    var target = ImportTargetContext.ForCurrentWorkspace(
++    var appliedTarget = ImportTargetContext.ForCurrentWorkspace(
+         workspaceId,
+         workspacePath,
+-        collectionId);
+-    var preview = new ImportPreview(
+-        target,
+-        [ImportCandidate.Linked("candidate:1", "mod-1")],
+-        Applied: false,
+-        Resolutions: []);
+-    importService.ConfigureApplyOutcome(new ImportOutcome(target, preview.Candidates, Applied: true));
+-
+-    await shell.ApplyImportPreviewAsync(
+-        preview,
+-        confirm: true,
+-        TestContext.Current.CancellationToken);
++        ImportMembershipDestination.ForLibraryOnly());
++    coordinator.ConfigureApplyOutcome(new ImportOutcome(appliedTarget, [], Applied: true));
++
++    await importTask.ApplyAsync(TestContext.Current.CancellationToken);
+ 
++    Assert.Equal(ShellScreen.Workspace, shell.CurrentScreen);
++    Assert.False(shell.IsImportVisible);
+     Assert.Equal(workspacePath, reader.LastPath);
+-    Assert.Contains(
+-        shell.ModLibrary.Mods,
+-        mod => mod.DisplayName == "Persisted Mod");
++    Assert.Null(shell.ModLibrary.SelectedCollection);
++    Assert.Contains(shell.ModLibrary.Mods, mod => mod.DisplayName == "Persisted Mod");
+   }
+ 
+   [Fact]
+-  public async Task ApplyImportPreviewAsync_DoesNotReloadWhenNotApplied()
++  public async Task Successful_import_completion_reloads_library_and_enters_workspace()
+   {
+     const string workspaceId = "workspace-id-123";
+     const string workspacePath = @"C:\Workspaces\current.tww3c";
+     const string collectionId = "collection-id-123";
+     var reader = new RecordingCatalogReader();
+     var query = new WorkspaceLibraryQuery(reader);
+-    var importService = new ConfigurableImportService();
++    var coordinator = new ConfigurableImportCoordinator();
+     var shell = ShellViewModel.CreateForTest(
+-        importService: importService,
++        importCoordinator: coordinator,
+         workspaceLibraryQuery: query);
+ 
+     shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+-
+-    var target = ImportTargetContext.ForCurrentWorkspace(
++    shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
++    var importTask = shell.ImportWorkspace!;
++    importTask.Source.Select(ImportSourceKind.SteamItems);
++    importTask.Source.InputText = "123456789";
++    importTask.OpenDestination();
++    importTask.Destination.SelectLibraryOnly();
++    await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++    await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
++
++    var appliedTarget = ImportTargetContext.ForCurrentWorkspace(
+         workspaceId,
+         workspacePath,
+-        collectionId);
+-    var preview = new ImportPreview(
+-        target,
+-        [ImportCandidate.Linked("candidate:1", "mod-1")],
+-        Applied: false,
+-        Resolutions: []);
+-    importService.ConfigureApplyOutcome(new ImportOutcome(target, preview.Candidates, Applied: false));
+-
+-    await shell.ApplyImportPreviewAsync(
+-        preview,
+-        confirm: true,
+-        TestContext.Current.CancellationToken);
+-
+-    Assert.Null(reader.LastPath);
++        ImportMembershipDestination.ForLibraryOnly());
++    coordinator.ConfigureApplyOutcome(new ImportOutcome(appliedTarget, [], Applied: true));
++
++    await importTask.ApplyAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(ShellScreen.Workspace, shell.CurrentScreen);
++    Assert.False(shell.IsImportVisible);
++    Assert.Equal(workspacePath, reader.LastPath);
++    Assert.Contains(shell.ModLibrary.Mods, mod => mod.DisplayName == "Persisted Mod");
+   }
+ 
+   [Fact]
+-  public async Task ApplyImportPreviewAsync_PersistenceFailureShowsErrorWithoutClearingOverlay()
++  public async Task Failed_apply_retains_import_task_with_preview()
+   {
+     const string workspaceId = "workspace-id-123";
+     const string workspacePath = @"C:\Workspaces\current.tww3c";
+     const string collectionId = "collection-id-123";
+-    const string errorMessage = "Import persistence failed.";
+-    var reader = new RecordingCatalogReader();
+-    var query = new WorkspaceLibraryQuery(reader);
+-    var importService = new ConfigurableImportService();
+-    var shell = ShellViewModel.CreateForTest(
+-        importService: importService,
+-        workspaceLibraryQuery: query);
++    var coordinator = new ConfigurableImportCoordinator
++    {
++      ApplyException = new InvalidOperationException("Import persistence failed.")
++    };
++    var shell = ShellViewModel.CreateForTest(importCoordinator: coordinator);
+ 
+     shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+-    query.SetActiveWorkspacePath(workspacePath);
+-    await shell.ModLibrary.LoadAsync(TestContext.Current.CancellationToken);
+-    reader.LastPath = null;
+-
+-    var target = ImportTargetContext.ForCurrentWorkspace(
+-        workspaceId,
+-        workspacePath,
+-        collectionId);
+-    var preview = new ImportPreview(
+-        target,
+-        [ImportCandidate.Linked("candidate:1", "mod-1")],
+-        Applied: false,
+-        Resolutions: []);
+-    importService.ConfigureApplyException(new ImportPersistenceException(
+-        new OperationError(
+-            "import.persistence.failed",
+-            errorMessage,
+-            false,
+-            "Try again.")));
+-
+-    await Assert.ThrowsAsync<ImportPersistenceException>(() =>
+-        shell.ApplyImportPreviewAsync(
+-            preview,
+-            confirm: true,
+-            TestContext.Current.CancellationToken));
+-
+-    Assert.Equal(errorMessage, shell.Workspace.OperationError);
+-    Assert.True(shell.Workspace.HasOperationError);
+-    Assert.Contains(
+-        shell.ModLibrary.Mods,
+-        mod => mod.DisplayName == "Persisted Mod");
+-    Assert.Null(reader.LastPath);
++    shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
++    var importTask = shell.ImportWorkspace!;
++    importTask.Source.Select(ImportSourceKind.SteamItems);
++    importTask.Source.InputText = "123456789";
++    importTask.OpenDestination();
++    importTask.Destination.SelectLibraryOnly();
++    await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++    await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
++
++    await Assert.ThrowsAsync<InvalidOperationException>(() =>
++        importTask.ApplyAsync(TestContext.Current.CancellationToken));
++
++    Assert.True(shell.IsImportVisible);
++    Assert.Equal(ImportTaskStage.Preview, importTask.Stage);
++    Assert.NotNull(importTask.Preview.Preview);
+   }
+ 
+   [Fact]
+   public async Task WorkspaceAndReturnHomeActionsChangeScreen()
+   {
+     var coordinator = new CompletingWorkspaceDisposalCoordinator();
+     var subject = ShellViewModel.CreateForTest(workspaceDisposalCoordinator: coordinator);
+ 
+     subject.OpenWorkspace();
+     Assert.Equal(ShellScreen.Workspace, subject.CurrentScreen);
+@@ -268,68 +237,70 @@ public sealed class ShellViewModelTests
+   {
+     public bool WasDisposed { get; private set; }
+ 
+     public Task DisposeWorkspaceScopeAsync(CancellationToken cancellationToken)
+     {
+       WasDisposed = true;
+       return Task.CompletedTask;
+     }
+   }
+ 
+-  private sealed class RecordingImportService : IShellImportService
+-  {
+-    public ImportTargetContext? LastTargetContext { get; private set; }
+-
+-    public Task<ImportPreview> BuildPreviewAsync(
+-        ImportTargetContext targetContext,
+-        IReadOnlyList<object> candidates,
+-        CancellationToken cancellationToken = default)
+-    {
+-      LastTargetContext = targetContext;
+-      return Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
+-    }
+-
+-    public Task<ImportOutcome> ApplyAsync(
+-        ImportPreview preview,
+-        bool confirm,
+-        CancellationToken cancellationToken = default) =>
+-        Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
+-  }
+-
+-  private sealed class ConfigurableImportService : IShellImportService
++  private sealed class ConfigurableImportCoordinator : IImportTaskCoordinator
+   {
+     private ImportOutcome? applyOutcome;
+-    private ImportPersistenceException? applyException;
++
++    public Exception? ApplyException { get; init; }
+ 
+     public void ConfigureApplyOutcome(ImportOutcome outcome) => applyOutcome = outcome;
+ 
+-    public void ConfigureApplyException(ImportPersistenceException exception) =>
+-        applyException = exception;
++    public Task<ImportSourceLoadResult> LoadSourceAsync(
++        ImportSourceRequest request,
++        CancellationToken cancellationToken = default) =>
++        Task.FromResult(new ImportSourceLoadResult(
++            [new SteamImportCandidate("123456789", "Example Mod")],
++            [],
++            ["123456789"]));
+ 
+     public Task<ImportPreview> BuildPreviewAsync(
+         ImportTargetContext targetContext,
+         IReadOnlyList<object> candidates,
+         CancellationToken cancellationToken = default) =>
+-        Task.FromResult(new ImportPreview(targetContext, candidates, Applied: false));
++        Task.FromResult(new ImportPreview(
++            targetContext,
++            [ImportCandidate.CreateWithDisplayName("candidate-1", "Example Mod")],
++            Applied: false,
++            Operations:
++            [
++                new ImportPreviewOperation(
++                    "candidate-1",
++                    ImportLibraryAction.Create,
++                    ImportMembershipAction.None,
++                    [])
++            ]));
++
++    public Task<ImportPreview> ResolveAsync(
++        ImportPreview preview,
++        ImportCandidate resolvedCandidate,
++        CancellationToken cancellationToken = default) =>
++        Task.FromResult(preview);
+ 
+     public Task<ImportOutcome> ApplyAsync(
+         ImportPreview preview,
+-        bool confirm,
+         CancellationToken cancellationToken = default)
+     {
+-      if (applyException is not null)
++      if (ApplyException is not null)
+       {
+-        throw applyException;
++        return Task.FromException<ImportOutcome>(ApplyException);
+       }
+ 
+       return Task.FromResult(
+-          applyOutcome ?? new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false));
++          applyOutcome ?? new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: true));
+     }
+   }
+ 
+   private sealed class RecordingCatalogReader : IWorkspaceCatalogReader
+   {
+     public string? LastPath { get; set; }
+ 
+     public Task<WorkspaceLibrarySnapshot> ReadLibrarySnapshotAsync(
+         string workspacePath,
+         CancellationToken cancellationToken = default)
+diff --git a/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs b/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs
+index 64e10a6..5e86436 100644
+--- a/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs
++++ b/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs
+@@ -60,11 +60,45 @@ public sealed class MainWindowLayoutTests
+     var windowCode = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "MainWindow.axaml.cs"));
+     var appCode = File.ReadAllText(Path.Combine(DesktopDirectory, "App.axaml.cs"));
+     var compositionCode = File.ReadAllText(Path.Combine(DesktopDirectory, "Composition", "ApplicationComposition.cs"));
+ 
+     Assert.DoesNotContain("Opened +=", windowCode);
+     Assert.Contains("AttachTopLevel", appCode);
+     Assert.Contains("EvaluateAttachedWorkArea", compositionCode);
+     Assert.Contains("ColorValuesChanged", appCode);
+     Assert.Contains("RequestedThemeVariant", appCode);
+   }
++
++  [Fact]
++  public void ImportWorkspaceViewDeclaresStagedControlsAndAccessibleNames()
++  {
++    var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "ImportWorkspaceView.axaml"));
++
++    Assert.Contains("Source", text);
++    Assert.Contains("Destination", text);
++    Assert.Contains("Preview", text);
++    Assert.Contains("Confirmation", text);
++    Assert.Contains("Markdown", text);
++    Assert.Contains("Steam Collection", text);
++    Assert.Contains("Steam items", text);
++    Assert.Contains("Library", text);
++    Assert.Contains("Membership", text);
++    Assert.Contains("Needs Attention", text);
++    Assert.Contains("AutomationProperties.Name=\"Import Back\"", text);
++    Assert.Contains("AutomationProperties.Name=\"Import Continue\"", text);
++    Assert.Contains("AutomationProperties.Name=\"Import Apply\"", text);
++    Assert.Contains("AutomationProperties.Name=\"Import Cancel\"", text);
++    Assert.Contains("AutomationProperties.LiveSetting", text);
++    Assert.DoesNotContain(">Search<", text, StringComparison.OrdinalIgnoreCase);
++    Assert.DoesNotContain(">Profiles<", text, StringComparison.OrdinalIgnoreCase);
++    Assert.DoesNotContain(">Health<", text, StringComparison.OrdinalIgnoreCase);
++  }
++
++  [Fact]
++  public void MainWindowHostsImportWorkspaceView()
++  {
++    var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "MainWindow.axaml"));
++
++    Assert.Contains("ImportWorkspaceView", text);
++    Assert.Contains("IsImportVisible", text);
++  }
+ }

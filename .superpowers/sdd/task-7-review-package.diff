@@ -1,0 +1,810 @@
+BASE: 903b87b4107a246f0ed60f3fa759e07531cc0b78
+HEAD: d1e8e0477a95127f1a1dbc02c086cf96108df82e
+
+## Commits
+
+d1e8e04 fix: disclose workshop ids before metadata request
+d64f754 docs: record complete import workspace workflow
+
+## Stat
+
+ CHANGELOG.md                                       |  1 +
+ ROADMAP.md                                         | 11 +--
+ docs/architecture/import-export.md                 | 42 +++++++++--
+ docs/architecture/ui.md                            | 26 ++++---
+ docs/development.md                                | 41 +++++++++++
+ docs/project-history.md                            |  6 +-
+ .../ViewModels/ImportSourceViewModel.cs            |  3 +
+ .../ViewModels/ImportWorkspaceViewModel.cs         | 32 +++++++--
+ .../Views/ImportWorkspaceView.axaml                | 12 ++++
+ .../ViewModels/ImportWorkspaceViewModelTests.cs    | 81 +++++++++++++++++++++-
+ .../ViewModels/ShellViewModelTests.cs              |  6 +-
+ .../Views/MainWindowLayoutTests.cs                 |  1 +
+ 12 files changed, 229 insertions(+), 33 deletions(-)
+
+## Diff
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index b2bbcdb..240fec1 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,20 +2,21 @@
+ 
+ All notable changes to this project will be documented in this file.
+ 
+ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+ 
+ ## [Unreleased]
+ 
+ ### Added
+ 
++- Complete import workspace UI: Source, Destination, Preview/Resolve, and Confirm/Apply stages with library-only, existing-Collection, and new-Collection destinations; Steam metadata disclosure before network requests; and successful Workspace reload after Apply
+ - Markdown import slice: adapter, parser, preview, and apply flow
+ - Workshop ID import slice: collection and single-item import support with metadata enrichment
+ - Shared import engine: normalisation, matching, preview, validation, and atomic persistence
+ - Desktop shell wiring for importing into a new Workspace or the current Workspace through the shared engine
+ - Local Workspace catalog persistence with schema-v2 migration, atomic Collection imports, and library reload
+ 
+ ## [0.0.2] - 2026-07-19
+ 
+ ### Added
+ 
+diff --git a/ROADMAP.md b/ROADMAP.md
+index b6c0362..4f35b48 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -45,33 +45,36 @@ No application code in this milestone.
+ 
+ The initial release uses C#/.NET, Avalonia, and MVVM on Windows 10 or later x64 through a self-contained one-step installer and portable ZIP. Other platforms are deferred. The minimum supported display is 1280 ├ù 720 at 100% Windows scaling, or enough effective space for a 1024 ├ù 640 logical-pixel window at increased scaling.
+ 
+ v0.1 is delivered through reviewed vertical slices rather than one undivided implementation. The first slice is the [Workspace foundation](docs/superpowers/specs/2026-07-18-workspace-foundation-design.md): startup, Home, empty Workspace creation/opening, SQLite schema and migration infrastructure, and the milestone-bounded shell. Later v0.1 slices add the accepted import, complete Home actions, domain tables, JSON backup/restore, and packaging workflows.
+ 
+ Workspace foundation slice:
+ 
+ - Home composition and startup wiring complete
+ - Later v0.1 slices still add the accepted import, complete Home actions, domain tables, JSON backup/restore, and packaging workflows
+ 
+-- Markdown importer
+-- Workshop ID importer
+-
+ Completed v0.1 slices:
+ 
+ - Workspace foundation
+ - Markdown importer
+ - Workshop ID importer
+ - Shared import engine
+ - Home and Workspace shell wiring to the shared engine
+ - Local Workspace catalog persistence
++- Complete import workspace UI (Source ΓåÆ Destination ΓåÆ Preview/Resolve ΓåÆ Confirm/Apply)
++
++Remaining v0.1 work (not yet assessed complete):
++
++- JSON backup/restore workflow
++- Packaging and release verification
+ 
+-Success: a user can import a list into a Collection, persist its Workspace locally, and reload it reliably.
++Success: a user can import a list into the Mod Library or a Collection, persist its Workspace locally, and reload it reliably. v0.1 itself remains in progress until backup/restore and packaging are assessed.
+ 
+ ---
+ 
+ ## v0.2 ΓÇö Organisation and discovery
+ 
+ **Status:** Planned
+ 
+ Make collections usable day to day:
+ 
+ - **Search** ΓÇö find mods by name, ID, tag, category, or note content
+diff --git a/docs/architecture/import-export.md b/docs/architecture/import-export.md
+index 14e09d8..0c1fb9f 100644
+--- a/docs/architecture/import-export.md
++++ b/docs/architecture/import-export.md
+@@ -3,26 +3,29 @@
+ This document summarises how data crosses the boundary between TWW3 Companion and the outside world. Import architecture is accepted in [RFC-0004](../../RFC/RFC-0004.md); parser libraries and exact implementation details remain undecided.
+ 
+ ---
+ 
+ ## Scope
+ 
+ Import/export adapters translate external representations into the internal domain model (and back) without leaking file-format details into core business logic. Imports distinguish reusable library Mods from Collection Memberships.
+ 
+ ---
+ 
+-## Import Sources (Planned)
++## Import Sources (v0.1)
+ 
+-| Source | Milestone | Description |
+-|--------|-----------|-------------|
+-| Informal Markdown notes | v0.1 | Headings, lists, Workshop links/IDs, names, and attached prose without a mandatory template |
+-| Steam Workshop IDs | v0.1 | Pasted or file-based IDs and supported Workshop URLs |
++| Source | Description |
++|--------|-------------|
++| Informal Markdown notes | Headings, lists, Workshop links/IDs, names, and attached prose without a mandatory template; paste or file |
++| Steam Collection | One numeric collection ID or supported URL; expands to member Workshop IDs after explicit metadata request |
++| Steam items | One or more Workshop IDs or URLs; paste or file |
++
++Import source and import destination are independent. A Steam Collection source does not require a Collection destination.
+ 
+ Optional future sources (workshop metadata API, other tools' exports) belong in [future.md](future.md) until RFC-approved.
+ 
+ Lossless Workspace JSON is handled by the separate backup/restore boundary, not by the RFC-0004 import candidate pipeline.
+ 
+ ---
+ 
+ ## Export Targets (Planned)
+ 
+ | Target | Purpose |
+@@ -36,47 +39,74 @@ Lossless Workspace JSON restore is the inverse of full-Workspace export. It vali
+ Exports should be **lossless** for fields the companion owns (notes, tags, dependencies). Workshop-only metadata may be omitted if not stored locally.
+ 
+ The accepted lossless JSON format represents a complete Workspace and excludes rebuildable caches. Rules for exporting one Collection with its referenced shared knowledge remain deferred to the import/export RFC. A full-Workspace export must not be presented as a privacy-preserving way to share one Collection.
+ 
+ Live SQLite Workspace files are not a supported cross-machine synchronisation format. JSON export and restore are the supported transfer path until a separate synchronisation design is accepted.
+ 
+ ---
+ 
+ ## Import Pipeline
+ 
++Desktop import task:
++
++```text
++Source
++ΓåÆ Destination
++ΓåÆ Preview and resolve
++ΓåÆ Confirm and Apply
+ ```
++
++Engine pipeline (no persistence before Apply):
++
++```text
+ Input
+ ΓåÆ source adapter
+ ΓåÆ candidates
+ ΓåÆ normalisation
+ ΓåÆ exact identity matching
+ ΓåÆ suggested name matches
+ ΓåÆ editable preview
+ ΓåÆ required resolutions
+ ΓåÆ domain validation
+ ΓåÆ one atomic transaction
+ ```
+ 
++### Import destinations
++
++Every confirmed import targets a Workspace and an explicit membership destination:
++
++| Destination | New Workspace | Current Workspace |
++|-------------|---------------|-------------------|
++| Mod Library only | Yes | Yes |
++| Existing Collection | No | Yes |
++| New Collection | Yes | Yes |
++
++The prior mandatory-Collection import rule is superseded. `ImportTargetContext` carries `LibraryOnly`, `ExistingCollection(collectionId)`, or `NewCollection(displayName)` instead of an unconditional target Collection.
++
++Library-only commits create or enrich Mods and Source References only. Collection-targeted commits perform the same library work and additionally create or verify the target Collection and append new Memberships in source order without removing, reordering, replacing, or synchronising existing Memberships.
++
+ Each adapter:
+ 
+ - reads one representation without accessing persistence;
+ - retains source locations and diagnostics;
+ - never performs domain mutation or implicit network access;
+ - emits the common candidate model used by later stages.
+ 
+ Exact Source References may match automatically. Names and aliases only suggest matches. Source-neutral candidates must be linked to an existing Mod, created with a display name, or skipped before application.
+ 
+ Imports are additive-only: omission never removes a Membership or Mod. Headings propose one editable category value without deciding whether the future Category domain is flat or hierarchical. Source position proposes documented ordering information on Collection Memberships, but free-form prose remains notes; v0.1 does not infer Dependencies, Compatibility Claims, or ordering rules from natural language.
+ 
+ Blank fields may be enriched after preview. Distinct imported notes append with source document name, date, and source lines. Scalar conflicts require an explicit choice. Failed validation or persistence rolls back the entire confirmed import.
+ 
+-Workshop metadata enrichment is optional and user-initiated. Network failure never prevents importing a valid identity, although every new Mod still requires a user-entered or explicitly accepted display name.
++Workshop metadata enrichment is optional and user-initiated. The UI discloses which Workshop IDs will be requested when the user continues from Source (local parse only, no network). Metadata is fetched when the user continues from Destination. Partial metadata failure surfaces as diagnostics; valid identities remain importable and every new Mod still requires a user-entered or explicitly accepted display name.
++
++Preview construction and user resolution perform no persistence. Warnings are counted as warnings remaining, not as accepted outcomes. Failed Apply retains the preview and resolution state; successful Apply reloads the Workspace library.
+ 
+ ---
+ 
+ ## Non-Goals
+ 
+ - Importing `.pack` files or game save data
+ - Writing into Steam workshop or game data folders
+ - Automatic download of mod archives on import
+ - Replace or synchronise Collection imports
+ - Relationship inference from free-form prose
+diff --git a/docs/architecture/ui.md b/docs/architecture/ui.md
+index 2932a03..21eb118 100644
+--- a/docs/architecture/ui.md
++++ b/docs/architecture/ui.md
+@@ -46,33 +46,41 @@ The tabs use separate ViewModels, drafts, validation, and Save commands. Collect
+ ## Editing and Destructive Actions
+ 
+ Details are read-only until the user chooses Edit. Save applies one valid changed draft through an application service; Cancel discards it. Navigation with unsaved changes offers Save, Discard, or Stay. Save failure retains the draft and states that no change committed. Version 0.1 does not autosave field edits.
+ 
+ Removing a Membership uses a compact confirmation that names its Collection-local effects and states that the shared Mod remains. Deleting a library Mod requires a complete impact dialog naming affected Collections, Membership knowledge, deleted outgoing Relationships, and unresolved incoming Relationships before the destructive action becomes available. Collection deletion separately states that Memberships are removed while shared Mods remain.
+ 
+ ---
+ 
+ ## Import Workspace
+ 
+-Import is a full-page task within the Workspace shell:
++Import is a full-page task reachable from Home (**Import into a new Workspace**) or the Workspace shell (**Import**). It uses four visible stages:
+ 
+ ```text
+-Choose source
+-ΓåÆ full preview table
+-ΓåÆ Needs Attention resolution queue
+-ΓåÆ final operation summary
+-ΓåÆ explicit Apply
+-ΓåÆ atomic import
+-ΓåÆ result announcement
++1. Source
++ΓåÆ 2. Destination
++ΓåÆ 3. Preview and resolve
++ΓåÆ 4. Confirm and Apply
+ ```
+ 
+-The full RFC-0004 preview remains visible while blocking identity choices, missing display names, ambiguous categories, and conflicts are resolved. Apply remains unavailable until every blocking item is resolved and the domain plan validates. Confirmation shows exact operations and describes the import as additive, never replace or synchronise.
++Source and destination are independent. Supported sources are Markdown (paste or file), one Steam Collection, and multiple Steam items (paste or file). Continuing from Source parses locally and discloses Workshop IDs without network access. Continuing from Destination requests disclosed metadata and builds the preview.
++
++The destination stage collects:
++
++- **New Workspace** ΓÇö display name, destination `.tww3c` path, and `LibraryOnly` or `NewCollection` with a display name;
++- **Current Workspace** ΓÇö `LibraryOnly`, an existing Collection, or `NewCollection`.
++
++Back is available before Apply. Changing source or destination invalidates confirmation and rebuilds the preview.
++
++Stage 3 keeps the full RFC-0004 preview visible alongside the Needs Attention resolution queue while blocking identity choices, missing display names, ambiguous categories, and conflicts are resolved. Apply remains unavailable until every blocking item is resolved and the domain plan validates. Warnings appear as a warnings-remaining count, not as accepted outcomes. Preview and resolution state are not persisted.
++
++Stage 4 shows exact operation counts, describes the import as additive (never replace or synchronise), and requires explicit Apply for one atomic commit. Failed Apply retains preview state; successful Apply reloads the library and returns to the Workspace shell with the appropriate Collection or Mod Library selected.
+ 
+ ---
+ 
+ ## Feedback, Responsiveness, and Safety
+ 
+ - Field errors appear beside their controls and in an accessible summary when several fields fail.
+ - Recoverable failures use a persistent page banner that identifies the operation, whether anything committed, and a safe next action.
+ - Success uses a brief visible and assistive-technology announcement without stealing focus.
+ - Dialogs are reserved for blocking decisions.
+ - Empty, loading, unavailable, and error states replace blank panes.
+diff --git a/docs/development.md b/docs/development.md
+index e7af167..3046af8 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -81,10 +81,51 @@ The smoke runs create operation-owned working directories and leave them behind
+ - Portable mode uses `Data\` beside the executable when `portable.flag` exists
+ - Workspace files use the `.tww3c` extension
+ 
+ ## Safe Manual Copy
+ 
+ Copy a completed `.tww3c` file only after closing TWW3 Companion on every machine that might have the same file open. Never open the same live Workspace from multiple synced machines at once.
+ 
+ ## Known Limitation
+ 
+ There is one instance per Windows user. Installed and portable copies for the same Windows user share the single-instance guard.
++
++## Manual Import Workspace Verification
++
++Use a disposable `.tww3c` Workspace outside the repository. Do not commit test Workspaces. After each run, inspect the application log and confirm no import source text, clipboard content, display names, or full local paths appear.
++
++### Source and destination matrix
++
++| Check | Steps | Expected |
++|-------|-------|----------|
++| Markdown paste | Home ΓåÆ Import into a new Workspace ΓåÆ Markdown ΓåÆ paste a short mod list ΓåÆ Continue | Source loads locally; disclosed Workshop IDs shown if present |
++| Markdown file | Choose file with a Markdown mod list ΓåÆ Continue | Document name shown; content parsed locally |
++| Steam Collection | Select Steam Collection ΓåÆ paste one public collection ID ΓåÆ review disclosure on Source ΓåÆ Continue ΓåÆ Destination ΓåÆ Continue | Member Workshop IDs disclosed on Source Continue (no network); metadata requested on Destination Continue |
++| Steam items paste | Select Steam items ΓåÆ paste multiple IDs or URLs ΓåÆ Source Continue ΓåÆ Destination Continue | Each ID disclosed on Source Continue; metadata requested on Destination Continue |
++| Steam items file | Choose file with Workshop IDs ΓåÆ Source Continue | Same disclosure behaviour as paste |
++| Library-only new Workspace | Destination ΓåÆ Library only ΓåÆ name/path ΓåÆ preview ΓåÆ Apply | Mods in library; no Collection created |
++| Library-only current Workspace | Open Workspace ΓåÆ Import ΓåÆ Library only ΓåÆ Apply | Mods added to library only |
++| Existing Collection | Import ΓåÆ select existing Collection ΓåÆ Apply | New Memberships appended; existing Memberships unchanged |
++| New Collection | Import ΓåÆ New Collection ΓåÆ name ΓåÆ Apply | Collection created with new Memberships |
++| Metadata partial failure | Steam source where one item metadata fails on Destination Continue | Diagnostic shown; item importable with manual display name |
++| Back unchanged | Reach Preview ΓåÆ Back to Destination without changing destination ΓåÆ Continue | Preview and resolutions preserved/reused without reload |
++| Back changed destination | Change destination after preview ΓåÆ Continue | Preview and confirmation reset for new target |
++| Blocking resolution | Preview with unmatched identity ΓåÆ resolve or Skip each blocking item | Apply disabled until resolved; Skip removes candidate from commit |
++| Failed Apply | Force persistence failure if possible, or use invalid path for new Workspace | Preview and resolutions retained; banner states no commit |
++| Successful reload | Complete Apply on current Workspace | Library reloads; shell shows imported Mods/Memberships |
++
++### Layout and accessibility
++
++Run on Windows 10 or later x64 with the window at **1024 ├ù 640** logical pixels:
++
++- Primary actions remain reachable without horizontal scrolling.
++- Preview and Needs Attention panels remain usable (stacked layout).
++
++Repeat representative checks with Windows text scaling at **125%** and **150%**.
++
++Enable **Windows High Contrast** and confirm controls remain readable and focus-visible.
++
++Complete the import workflow using keyboard only (Tab, Shift+Tab, arrows, Enter, Escape).
++
++With **Windows Narrator** enabled, confirm stage changes, blocking counts, and Apply result are announced without stealing focus from the active control.
++
++Record Windows version, display scale, and any skipped accessibility check in the Task 7 report.
+diff --git a/docs/project-history.md b/docs/project-history.md
+index f474f2c..70242a8 100644
+--- a/docs/project-history.md
++++ b/docs/project-history.md
+@@ -30,13 +30,17 @@ Making the project open source followed naturally from the problem domain. Mod c
+ **v0.0.1** (repository bootstrap), **v0.0.2 ΓÇö Architecture complete**, the **Workspace foundation slice**, and the first import slices are complete. [RFC-0002](../RFC/RFC-0002.md) established the Workspace-centred domain model, [RFC-0003](../RFC/RFC-0003.md) established embedded SQLite storage and the initial Windows distribution target, [RFC-0004](../RFC/RFC-0004.md) established deterministic staged import, and [RFC-0005](../RFC/RFC-0005.md) established the C#/.NET, Avalonia, and MVVM user-interface architecture. The implementation now includes the Markdown importer, Workshop ID importer, shared import engine, and shell wiring for both Home and Workspace import actions. Milestones are described in [ROADMAP.md](../ROADMAP.md); vision and scope are captured in [RFC-0001](../RFC/RFC-0001.md) and [README.md](../README.md).
+ 
+ ### First Import Milestone
+ 
+ The first import milestone arrived in the 2026-07-23 import-core slice set: Markdown import, Workshop ID import, the shared import engine, and shell wiring for both new-Workspace and current-Workspace import actions. That work established the first end-to-end import path the roadmap had been promising since the architecture RFCs were approved.
+ 
+ ### Local Workspace Catalog Persistence (2026-07-24)
+ 
+ Schema v2 introduced persisted Mod, Collection, and membership tables with a transactional v1 migration backed by a pre-migration backup. The first Collection import into an open Workspace now commits atomically through the production SQLite catalog store, and successful current-Workspace imports reload the library overlay so the shell reflects the persisted snapshot immediately.
+ 
++### Complete Import Workspace UI (2026-07-25)
++
++The first fully user-operable import milestone: a full-page Desktop task walks through Source, Destination, Preview/Resolve, and Confirm/Apply. Users choose import source and destination independently ΓÇö Mod Library only, an existing Collection, or a new Collection ΓÇö inspect the full RFC-0004 preview while resolving blocking items, and Apply atomically with no persistence before confirmation. Steam metadata is disclosed and requested only after explicit user action. The prior mandatory-Collection import target was superseded by explicit membership destinations.
++
+ ## Looking Ahead
+ 
+-Future history will be recorded here at major milestones: first import, first persisted collection, first public release. Contributors are welcome to add dated entries when those events occur.
++Future history will be recorded here at major milestones: first persisted collection, first public release. Contributors are welcome to add dated entries when those events occur.
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
+index 83f2861..b0ab112 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
+@@ -75,23 +75,26 @@ public sealed class ImportSourceViewModel : ViewModelBase
+     }
+   }
+ 
+   public IReadOnlyList<string> DisclosedWorkshopIds
+   {
+     get => disclosedWorkshopIds;
+     private set
+     {
+       disclosedWorkshopIds = value;
+       OnPropertyChanged();
++      OnPropertyChanged(nameof(HasDisclosedWorkshopIds));
+     }
+   }
+ 
++  public bool HasDisclosedWorkshopIds => disclosedWorkshopIds.Count > 0;
++
+   public IReadOnlyList<ImportTaskDiagnostic> Diagnostics
+   {
+     get => diagnostics;
+     private set
+     {
+       diagnostics = value;
+       OnPropertyChanged();
+       OnPropertyChanged(nameof(CanContinue));
+       RaiseContinueCommandChanged();
+     }
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
+index 190dd76..3b98961 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
+@@ -28,21 +28,21 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
+     this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+     this.logger = logger ?? NullLogger<ImportWorkspaceViewModel>.Instance;
+ 
+     Source = new ImportSourceViewModel(fileService);
+     Destination = new ImportDestinationViewModel(launchContext);
+     Preview = new ImportPreviewViewModel();
+     Preview.Loaded += preview => cachedPreview = preview;
+     Resolution = new ImportResolutionViewModel(coordinator, Preview);
+     Confirmation = new ImportConfirmationViewModel();
+ 
+-    Source.SetContinueHandler(() => HandleSourceContinueAsync(CancellationToken.None));
++    Source.SetContinueHandler(() => ContinueFromSourceAsync(CancellationToken.None));
+     Confirmation.SetApplyHandler(() => ApplyAsync(CancellationToken.None));
+     BackCommand = new ViewModelCommand(() => GoBack(), () => CanGoBack);
+     ContinueDestinationCommand = new ViewModelCommand(
+         () => _ = ContinueFromDestinationAsync(CancellationToken.None),
+         () => stage == ImportTaskStage.Destination && Destination.CanContinue);
+     ContinuePreviewCommand = new ViewModelCommand(
+         () => _ = ContinueFromPreviewAsync(CancellationToken.None),
+         () => stage == ImportTaskStage.Preview && Preview.CanContinue);
+     ConfirmDiscardCommand = new ViewModelCommand(() => ConfirmDiscard());
+     CancelCommand = new ViewModelCommand(() => cancelHandler?.Invoke(), () => CanCancel);
+@@ -134,20 +134,44 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
+   {
+     if (stage != ImportTaskStage.Source)
+     {
+       return;
+     }
+ 
+     Destination.ApplySuggestionIfNeeded(Source.SelectedKind);
+     Stage = ImportTaskStage.Destination;
+   }
+ 
++  public async Task ContinueFromSourceAsync(CancellationToken cancellationToken = default)
++  {
++    if (stage != ImportTaskStage.Source || !Source.CanContinue)
++    {
++      return;
++    }
++
++    var loadResult = await coordinator.LoadSourceAsync(
++        new ImportSourceRequest(
++            Source.SelectedKind,
++            Source.InputText,
++            Source.SelectedDocumentName,
++            RequestMetadata: false),
++        cancellationToken);
++    Source.ApplyLoadResult(loadResult);
++
++    if (loadResult.Diagnostics.Any(diagnostic => diagnostic.IsBlocking))
++    {
++      return;
++    }
++
++    OpenDestination();
++  }
++
+   public void GoBack()
+   {
+     Stage = stage switch
+     {
+       ImportTaskStage.Confirmation => ImportTaskStage.Preview,
+       ImportTaskStage.Preview => ImportTaskStage.Destination,
+       ImportTaskStage.Destination => ImportTaskStage.Source,
+       _ => stage
+     };
+   }
+@@ -274,26 +298,20 @@ public sealed class ImportWorkspaceViewModel : ViewModelBase
+ 
+   public void ConfirmDiscard()
+   {
+     discardConfirmed = true;
+     OnPropertyChanged(nameof(RequiresDiscardConfirmation));
+     cancelHandler?.Invoke();
+   }
+ 
+   internal void SetCancelHandler(Action handler) => cancelHandler = handler ?? throw new ArgumentNullException(nameof(handler));
+ 
+-  private Task HandleSourceContinueAsync(CancellationToken cancellationToken)
+-  {
+-    OpenDestination();
+-    return Task.CompletedTask;
+-  }
+-
+   private ImportPreviewFingerprint BuildFingerprint() =>
+       new(
+           Source.SelectedKind,
+           ImportPreviewRules.ComputeSourceDigest(
+               Source.SelectedKind,
+               Source.InputText,
+               Source.SelectedDocumentName),
+           Destination.BuildTargetContext());
+ 
+   private void InvalidateConfirmation() => Confirmation.ClearSummary();
+diff --git a/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml b/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml
+index 738a812..ffbed68 100644
+--- a/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml
++++ b/src/Tww3Companion.Desktop/Views/ImportWorkspaceView.axaml
+@@ -38,20 +38,32 @@
+                      MinHeight="120"
+                      Text="{Binding Source.InputText}"
+                      PlaceholderText="Paste import source text"
+                      AutomationProperties.Name="Import source text" />
+             <StackPanel Orientation="Horizontal" Spacing="12">
+               <Button Content="Choose file"
+                       AutomationProperties.Name="Import choose source file"
+                       Command="{Binding Source.ChooseFileCommand}" />
+               <TextBlock VerticalAlignment="Center" Text="{Binding Source.SelectedDocumentName}" />
+             </StackPanel>
++            <StackPanel Spacing="4"
++                        IsVisible="{Binding Source.HasDisclosedWorkshopIds}">
++              <TextBlock FontWeight="SemiBold" Text="Workshop IDs to request" />
++              <ItemsControl ItemsSource="{Binding Source.DisclosedWorkshopIds}"
++                            AutomationProperties.Name="Import disclosed Workshop IDs">
++                <ItemsControl.ItemTemplate>
++                  <DataTemplate>
++                    <TextBlock Text="{Binding}" />
++                  </DataTemplate>
++                </ItemsControl.ItemTemplate>
++              </ItemsControl>
++            </StackPanel>
+             <ItemsControl ItemsSource="{Binding Source.Diagnostics}">
+               <ItemsControl.ItemTemplate>
+                 <DataTemplate x:DataType="vm:ImportTaskDiagnostic">
+                   <TextBlock TextWrapping="Wrap" Text="{Binding Message}" />
+                 </DataTemplate>
+               </ItemsControl.ItemTemplate>
+             </ItemsControl>
+             <Button Content="Continue"
+                     HorizontalAlignment="Left"
+                     AutomationProperties.Name="Import Continue"
+diff --git a/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
+index 1c3fe84..d98d985 100644
+--- a/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
++++ b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
+@@ -1,19 +1,74 @@
+ using Tww3Companion.Application.Importing;
+ using Tww3Companion.Desktop.Services;
+ using Tww3Companion.Desktop.ViewModels;
+ using Xunit;
+ 
+ namespace Tww3Companion.Desktop.Tests.ViewModels;
+ 
+ public sealed class ImportWorkspaceViewModelTests
+ {
++  [Fact]
++  public async Task ContinueFromSource_loads_without_metadata_and_discloses_workshop_ids()
++  {
++    var coordinator = new RecordingImportTaskCoordinator();
++    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), coordinator);
++
++    subject.Source.Select(ImportSourceKind.SteamItems);
++    subject.Source.InputText = "123456789";
++    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(1, coordinator.LoadSourceCallCount);
++    Assert.False(coordinator.LastRequestMetadata);
++    Assert.Equal(["123456789"], subject.Source.DisclosedWorkshopIds);
++    Assert.True(subject.Source.HasDisclosedWorkshopIds);
++    Assert.Equal(ImportTaskStage.Destination, subject.Stage);
++  }
++
++  [Fact]
++  public async Task ContinueFromSource_stays_on_source_when_blocking_diagnostics()
++  {
++    var coordinator = new RecordingImportTaskCoordinator
++    {
++      BlockingInputText = "invalid"
++    };
++    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), coordinator);
++
++    subject.Source.Select(ImportSourceKind.SteamItems);
++    subject.Source.InputText = "invalid";
++    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(1, coordinator.LoadSourceCallCount);
++    Assert.False(coordinator.LastRequestMetadata);
++    Assert.Equal(ImportTaskStage.Source, subject.Stage);
++    Assert.Contains(subject.Source.Diagnostics, diagnostic => diagnostic.IsBlocking);
++  }
++
++  [Fact]
++  public async Task ContinueFromDestination_requests_metadata()
++  {
++    var coordinator = new RecordingImportTaskCoordinator();
++    var subject = CreateSubject(CurrentWorkspaceLaunchContext(), coordinator);
++
++    subject.Source.Select(ImportSourceKind.SteamItems);
++    subject.Source.InputText = "123456789";
++    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
++    coordinator.ResetCounters();
++
++    subject.Destination.SelectLibraryOnly();
++    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(1, coordinator.LoadSourceCallCount);
++    Assert.True(coordinator.LastRequestMetadata);
++    Assert.Equal(ImportTaskStage.Preview, subject.Stage);
++  }
++
+   [Fact]
+   public void SteamCollection_suggests_selected_collection_but_does_not_lock_it()
+   {
+     var subject = CreateSubject(new ImportLaunchContext(
+         IsNewWorkspace: false,
+         WorkspaceId: "workspace-1",
+         WorkspacePath: @"C:\Data\workspace.tww3c",
+         Collections: [new CollectionSummary("collection-1", "Current", 0)],
+         SelectedCollectionId: "collection-1"));
+ 
+@@ -72,37 +127,37 @@ public sealed class ImportWorkspaceViewModelTests
+ 
+     await PreparePreviewAsync(subject, coordinator);
+     await subject.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
+     Assert.Equal(ImportTaskStage.Confirmation, subject.Stage);
+ 
+     subject.GoBack();
+     subject.GoBack();
+     subject.Source.InputText = "987654321";
+     await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+ 
+-    Assert.Equal(2, coordinator.LoadSourceCallCount);
++    Assert.Equal(3, coordinator.LoadSourceCallCount);
+     Assert.Equal(2, coordinator.BuildPreviewCallCount);
+     Assert.Equal(ImportTaskStage.Preview, subject.Stage);
+     Assert.Null(subject.Confirmation.Summary);
+   }
+ 
+   [Fact]
+   public async Task Changed_destination_retains_resolution_when_candidates_and_choices_unchanged()
+   {
+     var coordinator = new BlockingResolutionCoordinator();
+     var subject = CreateSubject(
+         CurrentWorkspaceLaunchContext(),
+         coordinator);
+ 
+     subject.Source.Select(ImportSourceKind.SteamItems);
+     subject.Source.InputText = "123456789";
+-    subject.OpenDestination();
++    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+     subject.Destination.SelectLibraryOnly();
+     await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+ 
+     await subject.Resolution.LinkToModAsync("owner-mod", TestContext.Current.CancellationToken);
+ 
+     Assert.Null(subject.Resolution.ActiveCandidateId);
+     Assert.True(subject.Preview.CanContinue);
+ 
+     subject.GoBack();
+     subject.Destination.SelectExistingCollection("collection-1");
+@@ -217,21 +272,21 @@ public sealed class ImportWorkspaceViewModelTests
+           WorkspacePath: @"C:\Data\workspace.tww3c",
+           Collections: [new CollectionSummary("collection-1", "Current", 0)],
+           SelectedCollectionId: null);
+ 
+   private static async Task PreparePreviewAsync(
+       ImportWorkspaceViewModel subject,
+       RecordingImportTaskCoordinator coordinator)
+   {
+     subject.Source.Select(ImportSourceKind.SteamItems);
+     subject.Source.InputText = "123456789";
+-    subject.OpenDestination();
++    await subject.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+     subject.Destination.SelectLibraryOnly();
+     await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+     Assert.Equal(1, coordinator.BuildPreviewCallCount);
+   }
+ 
+   private static ImportWorkspaceViewModel CreateSubject(
+       ImportLaunchContext launchContext,
+       IImportTaskCoordinator? coordinator = null) =>
+       new(
+           launchContext,
+@@ -242,35 +297,55 @@ public sealed class ImportWorkspaceViewModelTests
+   {
+     public Task<ImportSourceDocument?> ChooseTextFileAsync(CancellationToken cancellationToken = default) =>
+         Task.FromResult<ImportSourceDocument?>(null);
+   }
+ 
+   internal sealed class RecordingImportTaskCoordinator : IImportTaskCoordinator
+   {
+     public int LoadSourceCallCount { get; private set; }
+     public int BuildPreviewCallCount { get; private set; }
+     public int ApplyCallCount { get; private set; }
++    public bool? LastRequestMetadata { get; private set; }
++    public string? BlockingInputText { get; init; }
+     public Exception? ApplyException { get; init; }
+     public ImportPreview LastBuiltPreview { get; private set; } = CreateDefaultPreview();
+ 
+     public void ResetCounters()
+     {
+       LoadSourceCallCount = 0;
+       BuildPreviewCallCount = 0;
+       ApplyCallCount = 0;
++      LastRequestMetadata = null;
+     }
+ 
+     public Task<ImportSourceLoadResult> LoadSourceAsync(
+         ImportSourceRequest request,
+         CancellationToken cancellationToken = default)
+     {
+       LoadSourceCallCount++;
++      LastRequestMetadata = request.RequestMetadata;
++
++      if (BlockingInputText is not null &&
++          string.Equals(request.InputText, BlockingInputText, StringComparison.Ordinal))
++      {
++        return Task.FromResult(new ImportSourceLoadResult(
++            [],
++            [
++                new ImportTaskDiagnostic(
++                    "import.source.invalid",
++                    "The source text is invalid.",
++                    IsBlocking: true,
++                    SafeNextAction: "Fix the source text.")
++            ],
++            []));
++      }
++
+       return Task.FromResult(new ImportSourceLoadResult(
+           [new SteamImportCandidate("123456789", "Example Mod")],
+           [],
+           ["123456789"]));
+     }
+ 
+     public Task<ImportPreview> BuildPreviewAsync(
+         ImportTargetContext targetContext,
+         IReadOnlyList<object> candidates,
+         CancellationToken cancellationToken = default)
+diff --git a/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs b/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs
+index 79c7b8e..d771f48 100644
+--- a/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs
++++ b/tests/Tww3Companion.Desktop.Tests/ViewModels/ShellViewModelTests.cs
+@@ -109,21 +109,21 @@ public sealed class ShellViewModelTests
+     var query = new WorkspaceLibraryQuery(reader);
+     var coordinator = new ConfigurableImportCoordinator();
+     var shell = ShellViewModel.CreateForTest(
+         importCoordinator: coordinator,
+         workspaceLibraryQuery: query);
+ 
+     shell.ImportIntoNewWorkspaceCommand.Execute(null);
+     var importTask = shell.ImportWorkspace!;
+     importTask.Source.Select(ImportSourceKind.SteamItems);
+     importTask.Source.InputText = "123456789";
+-    importTask.OpenDestination();
++    await importTask.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+     importTask.Destination.SelectLibraryOnly();
+     await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+     await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
+ 
+     var appliedTarget = ImportTargetContext.ForCurrentWorkspace(
+         workspaceId,
+         workspacePath,
+         ImportMembershipDestination.ForLibraryOnly());
+     coordinator.ConfigureApplyOutcome(new ImportOutcome(appliedTarget, [], Applied: true));
+ 
+@@ -147,21 +147,21 @@ public sealed class ShellViewModelTests
+     var coordinator = new ConfigurableImportCoordinator();
+     var shell = ShellViewModel.CreateForTest(
+         importCoordinator: coordinator,
+         workspaceLibraryQuery: query);
+ 
+     shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+     shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
+     var importTask = shell.ImportWorkspace!;
+     importTask.Source.Select(ImportSourceKind.SteamItems);
+     importTask.Source.InputText = "123456789";
+-    importTask.OpenDestination();
++    await importTask.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+     importTask.Destination.SelectLibraryOnly();
+     await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+     await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
+ 
+     var appliedTarget = ImportTargetContext.ForCurrentWorkspace(
+         workspaceId,
+         workspacePath,
+         ImportMembershipDestination.ForLibraryOnly());
+     coordinator.ConfigureApplyOutcome(new ImportOutcome(appliedTarget, [], Applied: true));
+ 
+@@ -183,21 +183,21 @@ public sealed class ShellViewModelTests
+     {
+       ApplyException = new InvalidOperationException("Import persistence failed.")
+     };
+     var shell = ShellViewModel.CreateForTest(importCoordinator: coordinator);
+ 
+     shell.SetCurrentWorkspaceImportTargetForTest(workspaceId, workspacePath, collectionId);
+     shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
+     var importTask = shell.ImportWorkspace!;
+     importTask.Source.Select(ImportSourceKind.SteamItems);
+     importTask.Source.InputText = "123456789";
+-    importTask.OpenDestination();
++    await importTask.ContinueFromSourceAsync(TestContext.Current.CancellationToken);
+     importTask.Destination.SelectLibraryOnly();
+     await importTask.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
+     await importTask.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
+ 
+     await Assert.ThrowsAsync<InvalidOperationException>(() =>
+         importTask.ApplyAsync(TestContext.Current.CancellationToken));
+ 
+     Assert.True(shell.IsImportVisible);
+     Assert.Equal(ImportTaskStage.Preview, importTask.Stage);
+     Assert.NotNull(importTask.Preview.Preview);
+diff --git a/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs b/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs
+index 5e86436..b0e2c48 100644
+--- a/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs
++++ b/tests/Tww3Companion.Desktop.Tests/Views/MainWindowLayoutTests.cs
+@@ -80,20 +80,21 @@ public sealed class MainWindowLayoutTests
+     Assert.Contains("Markdown", text);
+     Assert.Contains("Steam Collection", text);
+     Assert.Contains("Steam items", text);
+     Assert.Contains("Library", text);
+     Assert.Contains("Membership", text);
+     Assert.Contains("Needs Attention", text);
+     Assert.Contains("AutomationProperties.Name=\"Import Back\"", text);
+     Assert.Contains("AutomationProperties.Name=\"Import Continue\"", text);
+     Assert.Contains("AutomationProperties.Name=\"Import Apply\"", text);
+     Assert.Contains("AutomationProperties.Name=\"Import Cancel\"", text);
++    Assert.Contains("AutomationProperties.Name=\"Import disclosed Workshop IDs\"", text);
+     Assert.Contains("AutomationProperties.LiveSetting", text);
+     Assert.DoesNotContain(">Search<", text, StringComparison.OrdinalIgnoreCase);
+     Assert.DoesNotContain(">Profiles<", text, StringComparison.OrdinalIgnoreCase);
+     Assert.DoesNotContain(">Health<", text, StringComparison.OrdinalIgnoreCase);
+   }
+ 
+   [Fact]
+   public void MainWindowHostsImportWorkspaceView()
+   {
+     var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "MainWindow.axaml"));
