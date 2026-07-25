@@ -3,6 +3,7 @@
 .worktrees/
 .agents/
 .claude/
+.superpowers/brainstorm/
 scripts/test.ps1
 scripts/verify.ps1
 skills-lock.json
