@@ -4,6 +4,7 @@
 .agents/
 .claude/
 .superpowers/brainstorm/
+.superpowers/sdd/
 scripts/test.ps1
 scripts/verify.ps1
 skills-lock.json
