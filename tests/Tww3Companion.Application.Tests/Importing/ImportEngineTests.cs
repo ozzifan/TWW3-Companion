@@ -72,6 +72,117 @@ public sealed class ImportEngineTests
   }
 
   [Fact]
+  public async Task ResolveAsync_rejects_missing_candidate_id()
+  {
+    var engine = new ImportEngine(new FakeWorkspaceImportStore());
+    var preview = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            "workspace-1",
+            @"C:\Data\workspace.tww3c",
+            ImportMembershipDestination.ForLibraryOnly()),
+        [ImportCandidate.Unresolved(
+            "candidate-1",
+            ImportSourceReference.SteamWorkshop("123"))],
+        TestContext.Current.CancellationToken);
+
+    var exception = await Assert.ThrowsAsync<ArgumentException>(() => engine.ResolveAsync(
+        preview,
+        ImportCandidate.CreateWithDisplayName(
+            "missing-id",
+            "Resolved Mod",
+            ImportSourceReference.SteamWorkshop("123")),
+        TestContext.Current.CancellationToken));
+
+    Assert.Equal("resolvedCandidate", exception.ParamName);
+  }
+
+  [Fact]
+  public async Task ResolveAsync_rejects_duplicate_candidate_id()
+  {
+    var engine = new ImportEngine(new FakeWorkspaceImportStore());
+    var target = ImportTargetContext.ForCurrentWorkspace(
+        "workspace-1",
+        @"C:\Data\workspace.tww3c",
+        ImportMembershipDestination.ForLibraryOnly());
+    var duplicateCandidate = ImportCandidate.Unresolved(
+        "duplicate-id",
+        ImportSourceReference.SteamWorkshop("123"));
+    var preview = new ImportPreview(
+        target,
+        [duplicateCandidate, duplicateCandidate with { DisplayName = "Other" }],
+        Applied: false);
+
+    var exception = await Assert.ThrowsAsync<ArgumentException>(() => engine.ResolveAsync(
+        preview,
+        ImportCandidate.CreateWithDisplayName(
+            "duplicate-id",
+            "Resolved Mod",
+            ImportSourceReference.SteamWorkshop("123")),
+        TestContext.Current.CancellationToken));
+
+    Assert.Equal("resolvedCandidate", exception.ParamName);
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_import_accepts_all_membership_destination_variants()
+  {
+    var engine = new ImportEngine(new FakeWorkspaceImportStore());
+    var candidates = new object[] { ImportCandidate.Linked("source-1", "mod-1") };
+
+    var libraryOnly = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            CurrentWorkspaceId,
+            CurrentWorkspacePath,
+            ImportMembershipDestination.ForLibraryOnly()),
+        candidates,
+        TestContext.Current.CancellationToken);
+    Assert.NotNull(libraryOnly);
+
+    var existingCollection = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            CurrentWorkspaceId,
+            CurrentWorkspacePath,
+            ImportMembershipDestination.ForExistingCollection("collection-id-123")),
+        candidates,
+        TestContext.Current.CancellationToken);
+    Assert.NotNull(existingCollection);
+
+    var newCollection = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            CurrentWorkspaceId,
+            CurrentWorkspacePath,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
+        candidates,
+        TestContext.Current.CancellationToken);
+    Assert.NotNull(newCollection);
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_import_rejects_blank_collection_uuid_and_display_name()
+  {
+    var engine = new ImportEngine(new FakeWorkspaceImportStore());
+    var candidates = new object[] { ImportCandidate.Linked("source-1", "mod-1") };
+
+    var blankUuid = await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            CurrentWorkspaceId,
+            CurrentWorkspacePath,
+            ImportMembershipDestination.ForExistingCollection("")),
+        candidates,
+        TestContext.Current.CancellationToken));
+    Assert.Equal("targetContext", blankUuid.ParamName);
+
+    var blankDisplayName = await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            CurrentWorkspaceId,
+            CurrentWorkspacePath,
+            ImportMembershipDestination.ForNewCollection("")),
+        candidates,
+        TestContext.Current.CancellationToken));
+    Assert.Equal("targetContext", blankDisplayName.ParamName);
+  }
+
+  [Fact]
   public async Task ImportEngine_builds_preview_from_candidates_and_target_context()
   {
     var engine = new ImportEngine(new FakeWorkspaceImportStore());
