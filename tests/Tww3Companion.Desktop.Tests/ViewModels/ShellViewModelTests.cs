@@ -54,6 +54,33 @@ public sealed class ShellViewModelTests
   }
 
   [Fact]
+  public void Current_import_enabled_on_mod_library_without_selected_collection()
+  {
+    var shell = ShellViewModel.CreateForTest();
+    shell.SetCurrentWorkspaceImportTargetForTest(
+        "workspace-1",
+        @"C:\Data\workspace.tww3c",
+        collectionId: null);
+
+    Assert.True(shell.ImportIntoCurrentWorkspaceCommand.CanExecute(null));
+  }
+
+  [Fact]
+  public void Current_import_from_mod_library_passes_null_selected_collection()
+  {
+    var shell = ShellViewModel.CreateForTest();
+    shell.SetCurrentWorkspaceImportTargetForTest(
+        "workspace-1",
+        @"C:\Data\workspace.tww3c",
+        collectionId: null);
+
+    shell.ImportIntoCurrentWorkspaceCommand.Execute(null);
+
+    Assert.True(shell.IsImportVisible);
+    Assert.Null(shell.ImportWorkspace!.LaunchContext.SelectedCollectionId);
+  }
+
+  [Fact]
   public void StartsOnHomeWithImportWorkspaceDestination()
   {
     var subject = new ShellViewModel();

@@ -119,8 +119,7 @@ public sealed class ShellViewModel : ViewModelBase
     importIntoCurrentWorkspaceCommand = new DelegateCommand(
         _ => EnterImportForCurrentWorkspace(),
         _ => !string.IsNullOrWhiteSpace(currentWorkspaceId) &&
-             !string.IsNullOrWhiteSpace(currentWorkspacePath) &&
-             !string.IsNullOrWhiteSpace(currentCollectionId));
+             !string.IsNullOrWhiteSpace(currentWorkspacePath));
     cancelImportCommand = new DelegateCommand(_ => CancelImport(), _ => importWorkspace?.CanCancel ?? false);
     confirmDiscardImportCommand = new DelegateCommand(
         _ => ConfirmDiscardImport(),
@@ -338,8 +337,7 @@ public sealed class ShellViewModel : ViewModelBase
   private void EnterImportForCurrentWorkspace()
   {
     if (string.IsNullOrWhiteSpace(currentWorkspaceId) ||
-        string.IsNullOrWhiteSpace(currentWorkspacePath) ||
-        string.IsNullOrWhiteSpace(currentCollectionId))
+        string.IsNullOrWhiteSpace(currentWorkspacePath))
     {
       return;
     }
@@ -445,7 +443,7 @@ public sealed class ShellViewModel : ViewModelBase
   public void SetCurrentWorkspaceImportTargetForTest(
       string workspaceId,
       string workspacePath,
-      string collectionId)
+      string? collectionId = null)
   {
     currentWorkspaceId = workspaceId;
     currentWorkspacePath = workspacePath;
