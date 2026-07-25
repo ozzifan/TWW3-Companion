@@ -1,0 +1,943 @@
+BASE: 594d5739eac763287f9b978ef6c6352293fd1201
+HEAD: 370477f0cffd520098b1f4367fec7dee2767fe62
+
+## Commits
+
+370477f feat: coordinate import sources and previews
+
+## Stat
+
+ .../Services/IImportSourceFileService.cs           |   9 +
+ .../Services/IImportTaskCoordinator.cs             |  25 ++
+ .../Services/ImportSourceFileService.cs            | 131 +++++++++
+ .../Services/ImportTaskCoordinator.cs              | 237 +++++++++++++++
+ .../Tww3Companion.Desktop.csproj                   |   3 +
+ .../ViewModels/ImportTaskModels.cs                 |  27 ++
+ .../Services/ImportSourceFileServiceTests.cs       | 102 +++++++
+ .../Services/ImportTaskCoordinatorTests.cs         | 325 +++++++++++++++++++++
+ 8 files changed, 859 insertions(+)
+
+## Diff
+
+diff --git a/src/Tww3Companion.Desktop/Services/IImportSourceFileService.cs b/src/Tww3Companion.Desktop/Services/IImportSourceFileService.cs
+new file mode 100644
+index 0000000..eb26c51
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/Services/IImportSourceFileService.cs
+@@ -0,0 +1,9 @@
++using Tww3Companion.Desktop.ViewModels;
++
++namespace Tww3Companion.Desktop.Services;
++
++public interface IImportSourceFileService
++{
++  Task<ImportSourceDocument?> ChooseTextFileAsync(
++      CancellationToken cancellationToken = default);
++}
+diff --git a/src/Tww3Companion.Desktop/Services/IImportTaskCoordinator.cs b/src/Tww3Companion.Desktop/Services/IImportTaskCoordinator.cs
+new file mode 100644
+index 0000000..68e3e1a
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/Services/IImportTaskCoordinator.cs
+@@ -0,0 +1,25 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.ViewModels;
++
++namespace Tww3Companion.Desktop.Services;
++
++public interface IImportTaskCoordinator
++{
++  Task<ImportSourceLoadResult> LoadSourceAsync(
++      ImportSourceRequest request,
++      CancellationToken cancellationToken = default);
++
++  Task<ImportPreview> BuildPreviewAsync(
++      ImportTargetContext targetContext,
++      IReadOnlyList<object> candidates,
++      CancellationToken cancellationToken = default);
++
++  Task<ImportPreview> ResolveAsync(
++      ImportPreview preview,
++      ImportCandidate resolvedCandidate,
++      CancellationToken cancellationToken = default);
++
++  Task<ImportOutcome> ApplyAsync(
++      ImportPreview preview,
++      CancellationToken cancellationToken = default);
++}
+diff --git a/src/Tww3Companion.Desktop/Services/ImportSourceFileService.cs b/src/Tww3Companion.Desktop/Services/ImportSourceFileService.cs
+new file mode 100644
+index 0000000..7f065cb
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/Services/ImportSourceFileService.cs
+@@ -0,0 +1,131 @@
++using System.IO;
++using Avalonia.Controls;
++using Avalonia.Platform.Storage;
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.ViewModels;
++
++namespace Tww3Companion.Desktop.Services;
++
++public sealed class ImportSourceFileService : IImportSourceFileService
++{
++  private const int MaxFileSizeBytes = 4 * 1024 * 1024;
++  private static readonly FilePickerFileType MarkdownFileType = new("Markdown")
++  {
++    Patterns = ["*.md"]
++  };
++  private static readonly FilePickerFileType TextFileType = new("Text")
++  {
++    Patterns = ["*.txt"]
++  };
++
++  private readonly Func<IStorageProvider?>? _storageProviderProvider;
++  private readonly Func<FilePickerOpenOptions, CancellationToken, Task<IReadOnlyList<ImportSourceFileSelection>>>? _pickFilesDirectly;
++
++  public ImportSourceFileService(Func<TopLevel?> topLevelProvider)
++  {
++    ArgumentNullException.ThrowIfNull(topLevelProvider);
++    _storageProviderProvider = () => topLevelProvider()?.StorageProvider;
++  }
++
++  internal ImportSourceFileService(
++      Func<FilePickerOpenOptions, CancellationToken, Task<IReadOnlyList<ImportSourceFileSelection>>> pickFilesDirectly)
++  {
++    _pickFilesDirectly = pickFilesDirectly ?? throw new ArgumentNullException(nameof(pickFilesDirectly));
++  }
++
++  public async Task<ImportSourceDocument?> ChooseTextFileAsync(
++      CancellationToken cancellationToken = default)
++  {
++    var options = CreateFilePickerOptions();
++    if (_pickFilesDirectly is not null)
++    {
++      var selections = await _pickFilesDirectly(options, cancellationToken);
++      cancellationToken.ThrowIfCancellationRequested();
++      if (selections.Count == 0)
++      {
++        return null;
++      }
++
++      var selection = selections[0];
++      if (selection.Content.Length > MaxFileSizeBytes)
++      {
++        throw new ImportTextDecodingException(
++            "import.source.size.exceeded",
++            "Import source exceeds the accepted size limit.");
++      }
++
++      var text = ImportTextDecoder.Decode(selection.Content.Span);
++      return new ImportSourceDocument(Path.GetFileName(selection.Name), text);
++    }
++
++    var storageProvider = _storageProviderProvider!();
++    if (storageProvider is null)
++    {
++      return null;
++    }
++
++    cancellationToken.ThrowIfCancellationRequested();
++    var files = await storageProvider.OpenFilePickerAsync(options);
++    cancellationToken.ThrowIfCancellationRequested();
++    if (files.Count == 0)
++    {
++      return null;
++    }
++
++    var storageFile = files[0];
++    await using var stream = await storageFile.OpenReadAsync();
++    var bytes = await ReadBoundedBytesAsync(stream, cancellationToken);
++    var decodedText = ImportTextDecoder.Decode(bytes);
++    var fileName = Path.GetFileName(storageFile.Name);
++    return new ImportSourceDocument(fileName, decodedText);
++  }
++
++  internal static FilePickerOpenOptions CreateFilePickerOptions() =>
++      new()
++      {
++        Title = "Import source file",
++        AllowMultiple = false,
++        FileTypeFilter = [MarkdownFileType, TextFileType]
++      };
++
++  internal static async Task<byte[]> ReadBoundedBytesAsync(Stream stream, CancellationToken cancellationToken)
++  {
++    if (stream.CanSeek)
++    {
++      if (stream.Length > MaxFileSizeBytes)
++      {
++        throw new ImportTextDecodingException(
++            "import.source.size.exceeded",
++            "Import source exceeds the accepted size limit.");
++      }
++
++      var buffer = new byte[(int)stream.Length];
++      await stream.ReadExactlyAsync(buffer, cancellationToken);
++      return buffer;
++    }
++
++    using var memoryStream = new MemoryStream();
++    var chunk = new byte[81920];
++    while (true)
++    {
++      var read = await stream.ReadAsync(chunk, cancellationToken);
++      if (read == 0)
++      {
++        break;
++      }
++
++      if (memoryStream.Length + read > MaxFileSizeBytes)
++      {
++        throw new ImportTextDecodingException(
++            "import.source.size.exceeded",
++            "Import source exceeds the accepted size limit.");
++      }
++
++      memoryStream.Write(chunk, 0, read);
++    }
++
++    return memoryStream.ToArray();
++  }
++
++  internal readonly record struct ImportSourceFileSelection(string Name, ReadOnlyMemory<byte> Content);
++}
+diff --git a/src/Tww3Companion.Desktop/Services/ImportTaskCoordinator.cs b/src/Tww3Companion.Desktop/Services/ImportTaskCoordinator.cs
+new file mode 100644
+index 0000000..4501047
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/Services/ImportTaskCoordinator.cs
+@@ -0,0 +1,237 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.ViewModels;
++
++namespace Tww3Companion.Desktop.Services;
++
++public sealed class ImportTaskCoordinator(
++    IImportEngine engine,
++    ISteamMetadataClient metadataClient) : IImportTaskCoordinator
++{
++  private readonly IImportEngine _engine = engine ?? throw new ArgumentNullException(nameof(engine));
++  private readonly ISteamMetadataClient _metadataClient =
++      metadataClient ?? throw new ArgumentNullException(nameof(metadataClient));
++
++  public async Task<ImportSourceLoadResult> LoadSourceAsync(
++      ImportSourceRequest request,
++      CancellationToken cancellationToken = default)
++  {
++    ArgumentNullException.ThrowIfNull(request);
++    cancellationToken.ThrowIfCancellationRequested();
++
++    return request.Kind switch
++    {
++      ImportSourceKind.Markdown => await LoadMarkdownAsync(request, cancellationToken),
++      ImportSourceKind.SteamCollection => await LoadSteamCollectionAsync(request, cancellationToken),
++      ImportSourceKind.SteamItems => await LoadSteamItemsAsync(request, cancellationToken),
++      _ => throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unsupported import source kind.")
++    };
++  }
++
++  public Task<ImportPreview> BuildPreviewAsync(
++      ImportTargetContext targetContext,
++      IReadOnlyList<object> candidates,
++      CancellationToken cancellationToken = default) =>
++      _engine.BuildPreviewAsync(targetContext, candidates, cancellationToken);
++
++  public Task<ImportPreview> ResolveAsync(
++      ImportPreview preview,
++      ImportCandidate resolvedCandidate,
++      CancellationToken cancellationToken = default) =>
++      _engine.ResolveAsync(preview, resolvedCandidate, cancellationToken);
++
++  public Task<ImportOutcome> ApplyAsync(
++      ImportPreview preview,
++      CancellationToken cancellationToken = default) =>
++      _engine.ApplyAsync(preview, confirm: true, cancellationToken);
++
++  private async Task<ImportSourceLoadResult> LoadMarkdownAsync(
++      ImportSourceRequest request,
++      CancellationToken cancellationToken)
++  {
++    var parsed = MarkdownImportAdapter.Parse(request.InputText);
++    var disclosedWorkshopIds = parsed.Candidates
++        .Where(candidate => candidate.SourceReference is not null)
++        .Select(candidate => candidate.SourceReference!.WorkshopId)
++        .Distinct(StringComparer.Ordinal)
++        .ToArray();
++
++    var diagnostics = parsed.Diagnostics
++        .Select(diagnostic => new ImportTaskDiagnostic(
++            "import.source.markdown.read",
++            diagnostic.Message,
++            IsBlocking: false,
++            SafeNextAction: "Continue or correct the source input."))
++        .ToList();
++
++    if (!request.RequestMetadata)
++    {
++      return new ImportSourceLoadResult(parsed.Candidates, diagnostics, disclosedWorkshopIds);
++    }
++
++    var enrichedCandidates = new List<object>();
++    foreach (var candidate in parsed.Candidates)
++    {
++      cancellationToken.ThrowIfCancellationRequested();
++      if (candidate.SourceReference is null || candidate.Kind != ImportCandidateKind.Candidate)
++      {
++        enrichedCandidates.Add(candidate);
++        continue;
++      }
++
++      var workshopItemId = candidate.SourceReference.WorkshopId;
++      try
++      {
++        var metadata = await _metadataClient.GetWorkshopItemAsync(workshopItemId, cancellationToken);
++        enrichedCandidates.Add(candidate with { Value = metadata.DisplayName });
++      }
++      catch (Exception exception) when (exception is not OperationCanceledException)
++      {
++        enrichedCandidates.Add(ImportCandidate.Unresolved(
++            $"markdown:{candidate.SourceLine}",
++            ImportSourceReference.SteamWorkshop(workshopItemId)));
++        diagnostics.Add(CreateLookupDiagnostic());
++      }
++    }
++
++    return new ImportSourceLoadResult(enrichedCandidates, diagnostics, disclosedWorkshopIds);
++  }
++
++  private async Task<ImportSourceLoadResult> LoadSteamCollectionAsync(
++      ImportSourceRequest request,
++      CancellationToken cancellationToken)
++  {
++    var tokens = TokenizeInput(request.InputText);
++    if (tokens.Count != 1 || !IsNumericWorkshopId(tokens[0]))
++    {
++      return new ImportSourceLoadResult(
++          [],
++          [CreateCollectionValidationDiagnostic()],
++          []);
++    }
++
++    var collectionId = tokens[0];
++    if (!request.RequestMetadata)
++    {
++      return new ImportSourceLoadResult(
++          [new SteamImportCandidate(collectionId)],
++          [],
++          [collectionId]);
++    }
++
++    var result = await SteamCollectionImportAdapter.ParseAsync(
++        collectionId,
++        _metadataClient,
++        cancellationToken);
++
++    return new ImportSourceLoadResult(
++        result.Candidates,
++        MapSteamDiagnostics(result.Diagnostics),
++        [collectionId]);
++  }
++
++  private async Task<ImportSourceLoadResult> LoadSteamItemsAsync(
++      ImportSourceRequest request,
++      CancellationToken cancellationToken)
++  {
++    var tokens = TokenizeInput(request.InputText);
++    var disclosedWorkshopIds = new List<string>();
++    var diagnostics = new List<ImportTaskDiagnostic>();
++
++    foreach (var token in tokens)
++    {
++      if (TryGetWorkshopItemId(token, out var workshopItemId))
++      {
++        disclosedWorkshopIds.Add(workshopItemId);
++      }
++      else
++      {
++        diagnostics.Add(new ImportTaskDiagnostic(
++            "import.source.steam.item.invalid",
++            "Steam item input must be a numeric Workshop ID or Workshop URL.",
++            IsBlocking: true,
++            SafeNextAction: "Remove or correct invalid tokens and try again."));
++      }
++    }
++
++    if (!request.RequestMetadata)
++    {
++      var candidates = disclosedWorkshopIds
++          .Select(workshopItemId => new SteamImportCandidate(workshopItemId))
++          .Cast<object>()
++          .ToArray();
++      return new ImportSourceLoadResult(candidates, diagnostics, disclosedWorkshopIds);
++    }
++
++    var result = await SteamSingleItemImportAdapter.ParseAsync(
++        request.InputText,
++        _metadataClient,
++        cancellationToken);
++
++    return new ImportSourceLoadResult(
++        result.Candidates,
++        diagnostics.Concat(MapSteamDiagnostics(result.Diagnostics)).ToArray(),
++        disclosedWorkshopIds);
++  }
++
++  private static List<string> TokenizeInput(string input) =>
++      input.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
++          .ToList();
++
++  private static bool IsNumericWorkshopId(string value) =>
++      value.Length > 0 && value.All(char.IsAsciiDigit);
++
++  private static bool TryGetWorkshopItemId(string sourceReference, out string workshopItemId)
++  {
++    if (sourceReference.All(char.IsAsciiDigit))
++    {
++      workshopItemId = sourceReference;
++      return true;
++    }
++
++    if (Uri.TryCreate(sourceReference, UriKind.Absolute, out var uri) &&
++        (uri.Host.Equals("steamcommunity.com", StringComparison.OrdinalIgnoreCase) ||
++         uri.Host.Equals("www.steamcommunity.com", StringComparison.OrdinalIgnoreCase)) &&
++        (uri.AbsolutePath.Equals("/sharedfiles/filedetails/", StringComparison.OrdinalIgnoreCase) ||
++         uri.AbsolutePath.Equals("/sharedfiles/filedetails", StringComparison.OrdinalIgnoreCase)))
++    {
++      var id = uri.Query.TrimStart('?').Split('&')
++          .Select(parameter => parameter.Split('=', 2))
++          .FirstOrDefault(parameter => parameter.Length == 2 && parameter[0].Equals("id", StringComparison.OrdinalIgnoreCase))?[1];
++      if (!string.IsNullOrWhiteSpace(id) && id.All(char.IsAsciiDigit))
++      {
++        workshopItemId = id;
++        return true;
++      }
++    }
++
++    workshopItemId = string.Empty;
++    return false;
++  }
++
++  private static ImportTaskDiagnostic CreateCollectionValidationDiagnostic() =>
++      new(
++          "import.source.steam.collection.invalid",
++          "Steam collection input must contain exactly one numeric collection ID.",
++          IsBlocking: true,
++          SafeNextAction: "Enter one numeric collection ID and try again.");
++
++  private static ImportTaskDiagnostic CreateLookupDiagnostic() =>
++      new(
++          "import.source.steam.lookup.failed",
++          "Workshop metadata lookup failed.",
++          IsBlocking: false,
++          SafeNextAction: "Retry metadata lookup or resolve the item manually.");
++
++  private static IReadOnlyList<ImportTaskDiagnostic> MapSteamDiagnostics(
++      IReadOnlyList<SteamImportDiagnostic> diagnostics) =>
++      diagnostics.Select(diagnostic => new ImportTaskDiagnostic(
++          diagnostic.IsLookupFailure
++              ? "import.source.steam.lookup.failed"
++              : "import.source.steam.item.invalid",
++          diagnostic.Message,
++          IsBlocking: !diagnostic.IsLookupFailure,
++          SafeNextAction: diagnostic.IsLookupFailure
++              ? "Retry metadata lookup or resolve the item manually."
++              : "Correct the source input and try again."))
++          .ToArray();
++}
+diff --git a/src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj b/src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj
+index 723f51d..a495073 100644
+--- a/src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj
++++ b/src/Tww3Companion.Desktop/Tww3Companion.Desktop.csproj
+@@ -1,16 +1,19 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+   <PropertyGroup>
+     <OutputType>WinExe</OutputType>
+     <ApplicationManifest>app.manifest</ApplicationManifest>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+   </PropertyGroup>
++  <ItemGroup>
++    <InternalsVisibleTo Include="Tww3Companion.Desktop.Tests" />
++  </ItemGroup>
+   <ItemGroup>
+     <ProjectReference Include="..\Tww3Companion.Application\Tww3Companion.Application.csproj" />
+     <ProjectReference Include="..\Tww3Companion.Domain\Tww3Companion.Domain.csproj" />
+     <ProjectReference Include="..\Tww3Companion.Infrastructure\Tww3Companion.Infrastructure.csproj" />
+     <PackageReference Include="Avalonia" />
+     <PackageReference Include="Avalonia.Desktop" />
+     <PackageReference Include="Avalonia.Themes.Fluent" />
+     <PackageReference Include="Microsoft.Extensions.Logging" />
+   </ItemGroup>
+ </Project>
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportTaskModels.cs b/src/Tww3Companion.Desktop/ViewModels/ImportTaskModels.cs
+new file mode 100644
+index 0000000..8114886
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportTaskModels.cs
+@@ -0,0 +1,27 @@
++namespace Tww3Companion.Desktop.ViewModels;
++
++public enum ImportSourceKind
++{
++  Markdown,
++  SteamCollection,
++  SteamItems
++}
++
++public sealed record ImportSourceDocument(string Name, string Text);
++
++public sealed record ImportSourceRequest(
++    ImportSourceKind Kind,
++    string InputText,
++    string? DocumentName,
++    bool RequestMetadata);
++
++public sealed record ImportTaskDiagnostic(
++    string Code,
++    string Message,
++    bool IsBlocking,
++    string SafeNextAction);
++
++public sealed record ImportSourceLoadResult(
++    IReadOnlyList<object> Candidates,
++    IReadOnlyList<ImportTaskDiagnostic> Diagnostics,
++    IReadOnlyList<string> DisclosedWorkshopIds);
+diff --git a/tests/Tww3Companion.Desktop.Tests/Services/ImportSourceFileServiceTests.cs b/tests/Tww3Companion.Desktop.Tests/Services/ImportSourceFileServiceTests.cs
+new file mode 100644
+index 0000000..5044e63
+--- /dev/null
++++ b/tests/Tww3Companion.Desktop.Tests/Services/ImportSourceFileServiceTests.cs
+@@ -0,0 +1,102 @@
++using System.Text;
++using Avalonia.Platform.Storage;
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++using Xunit;
++using static Tww3Companion.Desktop.Services.ImportSourceFileService;
++
++namespace Tww3Companion.Desktop.Tests.Services;
++
++public sealed class ImportSourceFileServiceTests
++{
++  [Fact]
++  public async Task ChooseTextFileAsync_returns_null_when_no_file_is_selected()
++  {
++    var service = CreateService([]);
++
++    var result = await service.ChooseTextFileAsync(TestContext.Current.CancellationToken);
++
++    Assert.Null(result);
++  }
++
++  [Fact]
++  public async Task ChooseTextFileAsync_returns_filename_only_and_decoded_text()
++  {
++    var service = CreateService([
++        new ImportSourceFileSelection("folder/notes.md", Encoding.UTF8.GetBytes("- item"))
++    ]);
++
++    var result = await service.ChooseTextFileAsync(TestContext.Current.CancellationToken);
++
++    Assert.NotNull(result);
++    Assert.Equal("notes.md", result.Name);
++    Assert.Equal("- item", result.Text);
++    Assert.DoesNotContain("folder", result.Name, StringComparison.Ordinal);
++  }
++
++  [Fact]
++  public async Task ChooseTextFileAsync_limits_picker_to_markdown_and_text_files()
++  {
++    FilePickerOpenOptions? capturedOptions = null;
++    var service = new ImportSourceFileService((options, _) =>
++    {
++      capturedOptions = options;
++      return Task.FromResult<IReadOnlyList<ImportSourceFileSelection>>([]);
++    });
++
++    await service.ChooseTextFileAsync(TestContext.Current.CancellationToken);
++
++    var patterns = capturedOptions!.FileTypeFilter!
++        .SelectMany(type => type.Patterns ?? [])
++        .ToArray();
++    Assert.Contains("*.md", patterns);
++    Assert.Contains("*.txt", patterns);
++    Assert.False(capturedOptions.AllowMultiple);
++  }
++
++  [Fact]
++  public async Task ChooseTextFileAsync_rejects_files_larger_than_four_mebibytes()
++  {
++    var oversized = new byte[(4 * 1024 * 1024) + 1];
++    var service = CreateService([new ImportSourceFileSelection("large.md", oversized)]);
++
++    await Assert.ThrowsAsync<ImportTextDecodingException>(() =>
++        service.ChooseTextFileAsync(TestContext.Current.CancellationToken));
++  }
++
++  [Fact]
++  public async Task ChooseTextFileAsync_honors_cancellation()
++  {
++    using var cancellationSource = new CancellationTokenSource();
++    await cancellationSource.CancelAsync();
++    var service = new ImportSourceFileService((_, token) =>
++    {
++      token.ThrowIfCancellationRequested();
++      return Task.FromResult<IReadOnlyList<ImportSourceFileSelection>>([]);
++    });
++
++    await Assert.ThrowsAsync<OperationCanceledException>(() =>
++        service.ChooseTextFileAsync(cancellationSource.Token));
++  }
++
++  [Fact]
++  public void CreateFilePickerOptions_uses_expected_filters()
++  {
++    var options = CreateFilePickerOptions();
++
++    Assert.Equal("Import source file", options.Title);
++    Assert.False(options.AllowMultiple);
++  }
++
++  [Fact]
++  public async Task ReadBoundedBytesAsync_rejects_oversized_seekable_streams()
++  {
++    await using var stream = new MemoryStream(new byte[(4 * 1024 * 1024) + 1]);
++
++    await Assert.ThrowsAsync<ImportTextDecodingException>(() =>
++        ReadBoundedBytesAsync(stream, TestContext.Current.CancellationToken));
++  }
++
++  private static ImportSourceFileService CreateService(IReadOnlyList<ImportSourceFileSelection> files) =>
++      new((_, _) => Task.FromResult(files));
++}
+diff --git a/tests/Tww3Companion.Desktop.Tests/Services/ImportTaskCoordinatorTests.cs b/tests/Tww3Companion.Desktop.Tests/Services/ImportTaskCoordinatorTests.cs
+new file mode 100644
+index 0000000..e22c8a3
+--- /dev/null
++++ b/tests/Tww3Companion.Desktop.Tests/Services/ImportTaskCoordinatorTests.cs
+@@ -0,0 +1,325 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++using Tww3Companion.Desktop.ViewModels;
++using Xunit;
++
++namespace Tww3Companion.Desktop.Tests.Services;
++
++public sealed class ImportTaskCoordinatorTests
++{
++  [Fact]
++  public async Task LoadSourceAsync_does_not_contact_Steam_until_requestMetadata_is_true()
++  {
++    var metadata = new RecordingSteamMetadataClient();
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.Markdown,
++        "- 123456789",
++        "notes.md",
++        RequestMetadata: false);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["123456789"], result.DisclosedWorkshopIds);
++    Assert.Empty(metadata.RequestedItemIds);
++  }
++
++  [Fact]
++  public async Task LoadSourceAsync_enriches_markdown_workshop_ids_when_metadata_is_requested()
++  {
++    var metadata = new RecordingSteamMetadataClient();
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.Markdown,
++        "- 123456789",
++        "notes.md",
++        RequestMetadata: true);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["123456789"], metadata.RequestedItemIds);
++    var candidate = Assert.Single(result.Candidates);
++    var markdownCandidate = Assert.IsType<MarkdownImportCandidate>(candidate);
++    Assert.Equal("Mod 123456789", markdownCandidate.Value);
++  }
++
++  [Fact]
++  public async Task LoadSourceAsync_retains_unresolved_identity_when_markdown_metadata_lookup_fails()
++  {
++    var metadata = new RecordingSteamMetadataClient(failingItemIds: ["123456789"]);
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.Markdown,
++        "- 123456789",
++        "notes.md",
++        RequestMetadata: true);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(result.Candidates));
++    Assert.Equal(ImportSourceReference.SteamWorkshop("123456789"), candidate.SourceReference);
++    Assert.Null(candidate.DisplayName);
++    var diagnostic = Assert.Single(result.Diagnostics, diagnostic => diagnostic.Code == "import.source.steam.lookup.failed");
++    Assert.False(diagnostic.IsBlocking);
++  }
++
++  [Fact]
++  public async Task LoadSourceAsync_rejects_steam_collection_input_with_multiple_ids()
++  {
++    var metadata = new RecordingSteamMetadataClient();
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.SteamCollection,
++        "123456789 987654321",
++        DocumentName: null,
++        RequestMetadata: false);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    Assert.Empty(result.Candidates);
++    Assert.Empty(result.DisclosedWorkshopIds);
++    Assert.Contains(result.Diagnostics, diagnostic =>
++        diagnostic.IsBlocking &&
++        diagnostic.Code == "import.source.steam.collection.invalid");
++    Assert.Empty(metadata.RequestedCollectionIds);
++  }
++
++  [Fact]
++  public async Task LoadSourceAsync_discloses_single_steam_collection_without_calling_metadata()
++  {
++    var metadata = new RecordingSteamMetadataClient();
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.SteamCollection,
++        "123456789",
++        DocumentName: null,
++        RequestMetadata: false);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["123456789"], result.DisclosedWorkshopIds);
++    Assert.Empty(metadata.RequestedCollectionIds);
++    var candidate = Assert.IsType<SteamImportCandidate>(Assert.Single(result.Candidates));
++    Assert.Equal("123456789", candidate.SourceReference);
++    Assert.Null(candidate.DisplayName);
++  }
++
++  [Fact]
++  public async Task LoadSourceAsync_expands_steam_collection_when_metadata_is_requested()
++  {
++    var metadata = new RecordingSteamMetadataClient();
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.SteamCollection,
++        "123456789",
++        DocumentName: null,
++        RequestMetadata: true);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["123456789"], metadata.RequestedCollectionIds);
++    Assert.Equal(2, result.Candidates.Count);
++    Assert.All(result.Candidates, candidate => Assert.IsType<SteamImportCandidate>(candidate));
++  }
++
++  [Fact]
++  public async Task LoadSourceAsync_discloses_multiple_steam_items_and_preserves_invalid_tokens()
++  {
++    var metadata = new RecordingSteamMetadataClient();
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.SteamItems,
++        """
++        123456789
++        bad input
++        987654321
++        """,
++        DocumentName: null,
++        RequestMetadata: false);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["123456789", "987654321"], result.DisclosedWorkshopIds);
++    Assert.Empty(metadata.RequestedItemIds);
++    Assert.Equal(2, result.Candidates.Count);
++    Assert.Contains(result.Diagnostics, diagnostic =>
++        diagnostic.IsBlocking &&
++        diagnostic.Code == "import.source.steam.item.invalid");
++  }
++
++  [Fact]
++  public async Task LoadSourceAsync_requests_metadata_for_multiple_steam_items()
++  {
++    var metadata = new RecordingSteamMetadataClient();
++    var coordinator = CreateCoordinator(metadata);
++    var request = new ImportSourceRequest(
++        ImportSourceKind.SteamItems,
++        """
++        123456789
++        987654321
++        """,
++        DocumentName: null,
++        RequestMetadata: true);
++
++    var result = await coordinator.LoadSourceAsync(
++        request,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["123456789", "987654321"], metadata.RequestedItemIds);
++    Assert.Equal(2, result.Candidates.Count);
++    Assert.All(result.Candidates, candidate =>
++    {
++      var steamCandidate = Assert.IsType<SteamImportCandidate>(candidate);
++      Assert.NotNull(steamCandidate.DisplayName);
++    });
++  }
++
++  [Fact]
++  public async Task ApplyAsync_delegates_to_engine_with_confirm_true()
++  {
++    var engine = new RecordingImportEngine();
++    var coordinator = new ImportTaskCoordinator(engine, new RecordingSteamMetadataClient());
++    var preview = new ImportPreview(
++        ImportTargetContext.ForCurrentWorkspace(
++            "workspace-1",
++            @"C:\Data\workspace.tww3c",
++            ImportMembershipDestination.ForLibraryOnly()),
++        [],
++        Applied: false);
++
++    var outcome = await coordinator.ApplyAsync(preview, TestContext.Current.CancellationToken);
++
++    Assert.True(engine.LastConfirm);
++    Assert.Same(preview, engine.LastPreview);
++    Assert.True(outcome.Applied);
++  }
++
++  [Fact]
++  public async Task BuildPreviewAsync_and_ResolveAsync_delegate_to_engine()
++  {
++    var engine = new RecordingImportEngine();
++    var coordinator = new ImportTaskCoordinator(engine, new RecordingSteamMetadataClient());
++    var targetContext = ImportTargetContext.ForCurrentWorkspace(
++        "workspace-1",
++        @"C:\Data\workspace.tww3c",
++        ImportMembershipDestination.ForLibraryOnly());
++    var candidates = new object[] { new SteamImportCandidate("123456789", "Example") };
++
++    var preview = await coordinator.BuildPreviewAsync(
++        targetContext,
++        candidates,
++        TestContext.Current.CancellationToken);
++    var resolvedCandidate = ImportCandidate.CreateWithDisplayName(
++        "candidate-1",
++        "Resolved",
++        ImportSourceReference.SteamWorkshop("123"));
++    var resolved = await coordinator.ResolveAsync(
++        preview,
++        resolvedCandidate,
++        TestContext.Current.CancellationToken);
++
++    Assert.Same(targetContext, engine.LastTargetContext);
++    Assert.Same(candidates, engine.LastCandidates);
++    Assert.Same(preview, engine.LastResolvePreview);
++    Assert.Same(resolvedCandidate, engine.LastResolvedCandidate);
++    Assert.Same(engine.ResolveResult, resolved);
++  }
++
++  private static ImportTaskCoordinator CreateCoordinator(RecordingSteamMetadataClient metadata) =>
++      new(new RecordingImportEngine(), metadata);
++
++  private sealed class RecordingImportEngine : IImportEngine
++  {
++    public ImportTargetContext? LastTargetContext { get; private set; }
++    public IReadOnlyList<object>? LastCandidates { get; private set; }
++    public ImportPreview? LastResolvePreview { get; private set; }
++    public ImportCandidate? LastResolvedCandidate { get; private set; }
++    public ImportPreview? LastPreview { get; private set; }
++    public bool? LastConfirm { get; private set; }
++    public ImportPreview ResolveResult { get; } = new(
++        ImportTargetContext.ForCurrentWorkspace(
++            "workspace-1",
++            @"C:\Data\workspace.tww3c",
++            ImportMembershipDestination.ForLibraryOnly()),
++        [],
++        Applied: false);
++
++    public Task<ImportPreview> BuildPreviewAsync(
++        ImportTargetContext targetContext,
++        IReadOnlyList<object> candidates,
++        CancellationToken cancellationToken = default)
++    {
++      LastTargetContext = targetContext;
++      LastCandidates = candidates;
++      return Task.FromResult(new ImportPreview(targetContext, [], Applied: false));
++    }
++
++    public Task<ImportPreview> ResolveAsync(
++        ImportPreview preview,
++        ImportCandidate resolvedCandidate,
++        CancellationToken cancellationToken = default)
++    {
++      LastResolvePreview = preview;
++      LastResolvedCandidate = resolvedCandidate;
++      return Task.FromResult(ResolveResult);
++    }
++
++    public Task<ImportOutcome> ApplyAsync(
++        ImportPreview preview,
++        bool confirm,
++        CancellationToken cancellationToken = default)
++    {
++      LastPreview = preview;
++      LastConfirm = confirm;
++      return Task.FromResult(new ImportOutcome(preview.TargetContext, [], Applied: confirm));
++    }
++  }
++
++  private sealed class RecordingSteamMetadataClient : ISteamMetadataClient
++  {
++    private readonly HashSet<string> failingItemIds;
++
++    public RecordingSteamMetadataClient(IEnumerable<string>? failingItemIds = null)
++    {
++      this.failingItemIds = failingItemIds?.ToHashSet(StringComparer.Ordinal) ?? [];
++    }
++
++    public List<string> RequestedCollectionIds { get; } = [];
++    public List<string> RequestedItemIds { get; } = [];
++
++    public Task<SteamCollectionMetadata> GetCollectionAsync(string collectionId, CancellationToken cancellationToken = default)
++    {
++      RequestedCollectionIds.Add(collectionId);
++      return Task.FromResult(new SteamCollectionMetadata(collectionId, [
++          new SteamWorkshopItemReference("111"),
++          new SteamWorkshopItemReference("222")
++      ]));
++    }
++
++    public Task<SteamWorkshopItemMetadata> GetWorkshopItemAsync(string workshopItemId, CancellationToken cancellationToken = default)
++    {
++      RequestedItemIds.Add(workshopItemId);
++      if (failingItemIds.Contains(workshopItemId))
++      {
++        return Task.FromException<SteamWorkshopItemMetadata>(
++            new SteamMetadataException("lookup unavailable"));
++      }
++
++      return Task.FromResult(new SteamWorkshopItemMetadata(workshopItemId, $"Mod {workshopItemId}"));
++    }
++  }
++}

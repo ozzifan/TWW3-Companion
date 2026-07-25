@@ -1,6 +1,6 @@
 namespace Tww3Companion.Application.Importing;
 
-internal static class SteamImportAdapter
+public static class SteamImportAdapter
 {
   internal static async Task<SteamImportResult> ParseSingleItemInputAsync(
       string pastedIdsAndUrls,
@@ -35,11 +35,17 @@ internal static class SteamImportAdapter
     return new SteamImportResult(candidates, diagnostics);
   }
 
-  internal static bool TryGetWorkshopItemId(string sourceReference, out string workshopItemId)
+  public static bool TryGetWorkshopItemId(string sourceReference, out string workshopItemId) =>
+      TryGetWorkshopIdentity(sourceReference, out workshopItemId);
+
+  public static bool TryGetCollectionId(string sourceReference, out string collectionId) =>
+      TryGetWorkshopIdentity(sourceReference, out collectionId);
+
+  private static bool TryGetWorkshopIdentity(string sourceReference, out string workshopIdentity)
   {
     if (sourceReference.All(char.IsAsciiDigit))
     {
-      workshopItemId = sourceReference;
+      workshopIdentity = sourceReference;
       return true;
     }
 
@@ -54,12 +60,12 @@ internal static class SteamImportAdapter
           .FirstOrDefault(parameter => parameter.Length == 2 && parameter[0].Equals("id", StringComparison.OrdinalIgnoreCase))?[1];
       if (!string.IsNullOrWhiteSpace(id) && id.All(char.IsAsciiDigit))
       {
-        workshopItemId = id;
+        workshopIdentity = id;
         return true;
       }
     }
 
-    workshopItemId = string.Empty;
+    workshopIdentity = string.Empty;
     return false;
   }
 }

@@ -88,3 +88,44 @@ Copy a completed `.tww3c` file only after closing TWW3 Companion on every machin
 ## Known Limitation
 
 There is one instance per Windows user. Installed and portable copies for the same Windows user share the single-instance guard.
+
+## Manual Import Workspace Verification
+
+Use a disposable `.tww3c` Workspace outside the repository. Do not commit test Workspaces. After each run, inspect the application log and confirm no import source text, clipboard content, display names, or full local paths appear.
+
+### Source and destination matrix
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Markdown paste | Home → Import into a new Workspace → Markdown → paste a short mod list → Continue | Source loads locally; disclosed Workshop IDs shown if present |
+| Markdown file | Choose file with a Markdown mod list → Continue | Document name shown; content parsed locally |
+| Steam Collection | Select Steam Collection → paste one public collection ID or URL → review disclosure on Source → Continue → Destination → Continue | Collection ID disclosed on Source Continue (no network); member Workshop IDs after Destination Continue |
+| Steam items paste | Select Steam items → paste multiple IDs or URLs → Source Continue → Destination Continue | Each ID disclosed on Source Continue; metadata requested on Destination Continue |
+| Steam items file | Choose file with Workshop IDs → Source Continue | Same disclosure behaviour as paste |
+| Library-only new Workspace | Destination → Library only → name/path → preview → Apply | Mods in library; no Collection created |
+| Library-only current Workspace | Open Workspace → Import → Library only → Apply | Mods added to library only |
+| Existing Collection | Import → select existing Collection → Apply | New Memberships appended; existing Memberships unchanged |
+| New Collection | Import → New Collection → name → Apply | Collection created with new Memberships |
+| Metadata partial failure | Steam source where one item metadata fails on Destination Continue | Diagnostic shown; item importable with manual display name |
+| Back unchanged | Reach Preview → Back to Destination without changing destination → Continue | Preview and resolutions preserved/reused without reload |
+| Back changed destination | Change destination after preview → Continue | Preview and confirmation reset for new target |
+| Blocking resolution | Preview with unmatched identity → resolve or Skip each blocking item | Apply disabled until resolved; Skip removes candidate from commit |
+| Failed Apply | Force persistence failure if possible, or use invalid path for new Workspace | Preview and resolutions retained; banner states no commit |
+| Successful reload | Complete Apply on current Workspace | Library reloads; shell shows imported Mods/Memberships |
+
+### Layout and accessibility
+
+Run on Windows 10 or later x64 with the window at **1024 × 640** logical pixels:
+
+- Primary actions remain reachable without horizontal scrolling.
+- Preview and Needs Attention panels remain usable (stacked layout).
+
+Repeat representative checks with Windows text scaling at **125%** and **150%**.
+
+Enable **Windows High Contrast** and confirm controls remain readable and focus-visible.
+
+Complete the import workflow using keyboard only (Tab, Shift+Tab, arrows, Enter, Escape).
+
+With **Windows Narrator** enabled, confirm stage changes, blocking counts, and Apply result are announced without stealing focus from the active control.
+
+Record Windows version, display scale, and any skipped accessibility check in the Task 7 report.

@@ -31,6 +31,25 @@ public sealed class ApplicationCompositionTests
   }
 
   [Fact]
+  public void ProductionComposition_WiresImportCoordinatorAndSteamMetadataClient()
+  {
+    var desktopDirectory = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory,
+        "..", "..", "..", "..", "..",
+        "src", "Tww3Companion.Desktop"));
+    var source = File.ReadAllText(Path.Combine(
+        desktopDirectory,
+        "Composition",
+        "ApplicationComposition.cs"));
+
+    Assert.Contains("new SteamWebApiMetadataClient(", source);
+    Assert.Contains("new ImportTaskCoordinator(", source);
+    Assert.Contains("new ImportSourceFileService(", source);
+    Assert.Contains("steamHttpClient.Dispose()", source);
+    Assert.DoesNotContain("EngineShellImportService", source);
+  }
+
+  [Fact]
   public void CompositionUsesTheApprovedStartupOrder()
   {
     var composition = ApplicationComposition.CreateForTest();

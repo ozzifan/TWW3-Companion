@@ -1,0 +1,742 @@
+BASE: 45bb9afb221884a50234069b541c700eca0cb824
+HEAD: 594d5739eac763287f9b978ef6c6352293fd1201
+
+## Commits
+
+594d573 feat: add import text decoding and Steam metadata transport
+
+## Stat
+
+ .../Importing/ImportTextDecoder.cs                 |  65 ++++++++
+ .../Importing/ImportTextDecodingException.cs       |   6 +
+ .../Importing/SteamCollectionImportAdapter.cs      |   1 +
+ .../Importing/SteamImportDiagnostic.cs             |   5 +-
+ .../Importing/SteamMetadataClient.cs               |  14 --
+ .../Importing/SteamMetadataException.cs            |  14 ++
+ .../Importing/SteamWebApiMetadataClient.cs         | 155 ++++++++++++++++++
+ .../Architecture/DependencyRulesTests.cs           |  31 ++++
+ .../Importing/ImportTextDecoderTests.cs            |  49 ++++++
+ .../Importing/SteamCollectionImportAdapterTests.cs |  57 ++++++-
+ .../Importing/SteamWebApiMetadataClientTests.cs    | 174 +++++++++++++++++++++
+ 11 files changed, 555 insertions(+), 16 deletions(-)
+
+## Diff
+
+diff --git a/src/Tww3Companion.Application/Importing/ImportTextDecoder.cs b/src/Tww3Companion.Application/Importing/ImportTextDecoder.cs
+new file mode 100644
+index 0000000..9034399
+--- /dev/null
++++ b/src/Tww3Companion.Application/Importing/ImportTextDecoder.cs
+@@ -0,0 +1,65 @@
++using System.Text;
++
++namespace Tww3Companion.Application.Importing;
++
++public static class ImportTextDecoder
++{
++  private const string UnsupportedEncodingCode = "import.source.encoding.unsupported";
++
++  private static readonly UTF8Encoding Utf8 = new(
++      encoderShouldEmitUTF8Identifier: false,
++      throwOnInvalidBytes: true);
++  private static readonly UnicodeEncoding Utf16LittleEndian = new(
++      bigEndian: false,
++      byteOrderMark: true,
++      throwOnInvalidBytes: true);
++  private static readonly UnicodeEncoding Utf16BigEndian = new(
++      bigEndian: true,
++      byteOrderMark: true,
++      throwOnInvalidBytes: true);
++
++  public static string Decode(ReadOnlySpan<byte> bytes)
++  {
++    if (bytes.IsEmpty)
++    {
++      throw new ImportTextDecodingException(
++          UnsupportedEncodingCode,
++          "Import source is empty.");
++    }
++
++    try
++    {
++      var decoded = DecodeRecognizedEncoding(bytes);
++      return NormalizeLineEndings(decoded);
++    }
++    catch (DecoderFallbackException)
++    {
++      throw new ImportTextDecodingException(
++          UnsupportedEncodingCode,
++          "Import source uses an unsupported encoding.");
++    }
++  }
++
++  private static string DecodeRecognizedEncoding(ReadOnlySpan<byte> bytes)
++  {
++    if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
++    {
++      return Utf8.GetString(bytes[3..]);
++    }
++
++    if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
++    {
++      return Utf16LittleEndian.GetString(bytes[2..]);
++    }
++
++    if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
++    {
++      return Utf16BigEndian.GetString(bytes[2..]);
++    }
++
++    return Utf8.GetString(bytes);
++  }
++
++  private static string NormalizeLineEndings(string text) =>
++      text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal);
++}
+diff --git a/src/Tww3Companion.Application/Importing/ImportTextDecodingException.cs b/src/Tww3Companion.Application/Importing/ImportTextDecodingException.cs
+new file mode 100644
+index 0000000..2e5b140
+--- /dev/null
++++ b/src/Tww3Companion.Application/Importing/ImportTextDecodingException.cs
+@@ -0,0 +1,6 @@
++namespace Tww3Companion.Application.Importing;
++
++public sealed class ImportTextDecodingException(string code, string message) : Exception(message)
++{
++  public string Code { get; } = code;
++}
+diff --git a/src/Tww3Companion.Application/Importing/SteamCollectionImportAdapter.cs b/src/Tww3Companion.Application/Importing/SteamCollectionImportAdapter.cs
+index bfb472c..4237c78 100644
+--- a/src/Tww3Companion.Application/Importing/SteamCollectionImportAdapter.cs
++++ b/src/Tww3Companion.Application/Importing/SteamCollectionImportAdapter.cs
+@@ -34,20 +34,21 @@ public static class SteamCollectionImportAdapter
+       cancellationToken.ThrowIfCancellationRequested();
+       var memberSourceReference = member.SourceReference ?? member.WorkshopItemId;
+ 
+       try
+       {
+         var metadata = await metadataClient.GetWorkshopItemAsync(member.WorkshopItemId, cancellationToken);
+         candidates.Add(new SteamImportCandidate(memberSourceReference, metadata.DisplayName));
+       }
+       catch (Exception exception) when (exception is not OperationCanceledException)
+       {
++        candidates.Add(new SteamImportCandidate(memberSourceReference));
+         diagnostics.Add(new SteamImportDiagnostic(memberSourceReference, exception.Message, true));
+       }
+     }
+ 
+     return new SteamImportResult(candidates, diagnostics);
+   }
+ 
+   private static bool IsCollectionId(string collectionId) =>
+       collectionId.Length > 0 && collectionId.All(char.IsAsciiDigit);
+ }
+diff --git a/src/Tww3Companion.Application/Importing/SteamImportDiagnostic.cs b/src/Tww3Companion.Application/Importing/SteamImportDiagnostic.cs
+index 37db81a..2f431f9 100644
+--- a/src/Tww3Companion.Application/Importing/SteamImportDiagnostic.cs
++++ b/src/Tww3Companion.Application/Importing/SteamImportDiagnostic.cs
+@@ -1,3 +1,6 @@
+ namespace Tww3Companion.Application.Importing;
+ 
+-public sealed record SteamImportDiagnostic(string SourceReference, string Message, bool IsLookupFailure = false);
++public sealed record SteamImportDiagnostic(string SourceReference, string Message, bool IsLookupFailure = false)
++{
++  public bool IsWarning => IsLookupFailure;
++}
+diff --git a/src/Tww3Companion.Application/Importing/SteamMetadataClient.cs b/src/Tww3Companion.Application/Importing/SteamMetadataClient.cs
+deleted file mode 100644
+index 5f038e3..0000000
+--- a/src/Tww3Companion.Application/Importing/SteamMetadataClient.cs
++++ /dev/null
+@@ -1,14 +0,0 @@
+-namespace Tww3Companion.Application.Importing;
+-
+-public sealed class SteamMetadataClient : ISteamMetadataClient
+-{
+-  public Task<SteamCollectionMetadata> GetCollectionAsync(string collectionId, CancellationToken cancellationToken = default)
+-  {
+-    throw new NotSupportedException("Steam metadata lookup has not been configured.");
+-  }
+-
+-  public Task<SteamWorkshopItemMetadata> GetWorkshopItemAsync(string workshopItemId, CancellationToken cancellationToken = default)
+-  {
+-    throw new NotSupportedException("Steam metadata lookup has not been configured.");
+-  }
+-}
+diff --git a/src/Tww3Companion.Application/Importing/SteamMetadataException.cs b/src/Tww3Companion.Application/Importing/SteamMetadataException.cs
+new file mode 100644
+index 0000000..c31f6f0
+--- /dev/null
++++ b/src/Tww3Companion.Application/Importing/SteamMetadataException.cs
+@@ -0,0 +1,14 @@
++namespace Tww3Companion.Application.Importing;
++
++public sealed class SteamMetadataException : Exception
++{
++  public SteamMetadataException(string message)
++      : base(message)
++  {
++  }
++
++  public SteamMetadataException(string message, Exception innerException)
++      : base(message, innerException)
++  {
++  }
++}
+diff --git a/src/Tww3Companion.Infrastructure/Importing/SteamWebApiMetadataClient.cs b/src/Tww3Companion.Infrastructure/Importing/SteamWebApiMetadataClient.cs
+new file mode 100644
+index 0000000..4cec340
+--- /dev/null
++++ b/src/Tww3Companion.Infrastructure/Importing/SteamWebApiMetadataClient.cs
+@@ -0,0 +1,155 @@
++using System.Net;
++using System.Text.Json;
++using System.Text.Json.Serialization;
++using Tww3Companion.Application.Importing;
++
++namespace Tww3Companion.Infrastructure.Importing;
++
++public sealed class SteamWebApiMetadataClient(HttpClient httpClient) : ISteamMetadataClient
++{
++  private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
++
++  public async Task<SteamCollectionMetadata> GetCollectionAsync(
++      string collectionId,
++      CancellationToken cancellationToken = default)
++  {
++    ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
++    cancellationToken.ThrowIfCancellationRequested();
++
++    using var content = CreatePublishedFileIdsForm("collectioncount", collectionId);
++    using var response = await httpClient.PostAsync(
++        "ISteamRemoteStorage/GetCollectionDetails/v1/",
++        content,
++        cancellationToken).ConfigureAwait(false);
++
++    EnsureSuccessStatusCode(response.StatusCode);
++
++    var payload = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
++    CollectionDetailsEnvelope envelope;
++    try
++    {
++      envelope = JsonSerializer.Deserialize<CollectionDetailsEnvelope>(payload, JsonOptions)
++          ?? throw CreateMetadataException("Steam collection metadata response was incomplete.");
++    }
++    catch (JsonException exception)
++    {
++      throw CreateMetadataException("Steam collection metadata response was malformed.", exception);
++    }
++
++    var detail = envelope.Response?.CollectionDetails?.FirstOrDefault()
++        ?? throw CreateMetadataException("Steam collection metadata response was incomplete.");
++
++    if (detail.Result != 1)
++    {
++      throw CreateMetadataException("Steam collection metadata response was incomplete.");
++    }
++
++    var members = detail.Children?
++        .Select(child => child.PublishedFileId)
++        .Where(id => !string.IsNullOrWhiteSpace(id))
++        .Select(id => new SteamWorkshopItemReference(id!))
++        .ToArray()
++        ?? [];
++
++    if (members.Length == 0)
++    {
++      throw CreateMetadataException("Steam collection metadata response contained no members.");
++    }
++
++    return new SteamCollectionMetadata(collectionId, members);
++  }
++
++  public async Task<SteamWorkshopItemMetadata> GetWorkshopItemAsync(
++      string workshopItemId,
++      CancellationToken cancellationToken = default)
++  {
++    ArgumentException.ThrowIfNullOrWhiteSpace(workshopItemId);
++    cancellationToken.ThrowIfCancellationRequested();
++
++    using var content = CreatePublishedFileIdsForm("itemcount", workshopItemId);
++    using var response = await httpClient.PostAsync(
++        "ISteamRemoteStorage/GetPublishedFileDetails/v1/",
++        content,
++        cancellationToken).ConfigureAwait(false);
++
++    EnsureSuccessStatusCode(response.StatusCode);
++
++    var payload = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
++    PublishedFileDetailsEnvelope envelope;
++    try
++    {
++      envelope = JsonSerializer.Deserialize<PublishedFileDetailsEnvelope>(payload, JsonOptions)
++          ?? throw CreateMetadataException("Steam workshop item metadata response was incomplete.");
++    }
++    catch (JsonException exception)
++    {
++      throw CreateMetadataException("Steam workshop item metadata response was malformed.", exception);
++    }
++
++    var detail = envelope.Response?.PublishedFileDetails?.FirstOrDefault()
++        ?? throw CreateMetadataException("Steam workshop item metadata response was incomplete.");
++
++    if (detail.Result != 1 || string.IsNullOrWhiteSpace(detail.Title))
++    {
++      throw CreateMetadataException("Steam workshop item metadata response was incomplete.");
++    }
++
++    return new SteamWorkshopItemMetadata(workshopItemId, detail.Title);
++  }
++
++  private static FormUrlEncodedContent CreatePublishedFileIdsForm(string countFieldName, string publishedFileId) =>
++      new([
++          new KeyValuePair<string, string>(countFieldName, "1"),
++          new KeyValuePair<string, string>("publishedfileids[0]", publishedFileId)
++      ]);
++
++  private static async Task<string> ReadResponseBodyAsync(
++      HttpResponseMessage response,
++      CancellationToken cancellationToken)
++  {
++    try
++    {
++      return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
++    }
++    catch (Exception exception) when (exception is not OperationCanceledException)
++    {
++      throw CreateMetadataException("Steam metadata response could not be read.", exception);
++    }
++  }
++
++  private static void EnsureSuccessStatusCode(HttpStatusCode statusCode)
++  {
++    if ((int)statusCode >= 200 && (int)statusCode <= 299)
++    {
++      return;
++    }
++
++    throw CreateMetadataException("Steam metadata request failed.");
++  }
++
++  private static SteamMetadataException CreateMetadataException(string message, Exception? innerException = null) =>
++      innerException is null
++          ? new SteamMetadataException(message)
++          : new SteamMetadataException(message, innerException);
++
++  private sealed record CollectionDetailsEnvelope(CollectionDetailsResponse? Response);
++
++  private sealed record CollectionDetailsResponse(CollectionDetail[]? CollectionDetails);
++
++  private sealed record CollectionDetail(
++      [property: JsonPropertyName("publishedfileid")] string? PublishedFileId,
++      [property: JsonPropertyName("result")] int? Result,
++      [property: JsonPropertyName("children")] CollectionChild[]? Children);
++
++  private sealed record CollectionChild(
++      [property: JsonPropertyName("publishedfileid")] string? PublishedFileId);
++
++  private sealed record PublishedFileDetailsEnvelope(PublishedFileDetailsResponse? Response);
++
++  private sealed record PublishedFileDetailsResponse(PublishedFileDetail[]? PublishedFileDetails);
++
++  private sealed record PublishedFileDetail(
++      [property: JsonPropertyName("publishedfileid")] string? PublishedFileId,
++      [property: JsonPropertyName("result")] int? Result,
++      [property: JsonPropertyName("title")] string? Title);
++}
+diff --git a/tests/Tww3Companion.Application.Tests/Architecture/DependencyRulesTests.cs b/tests/Tww3Companion.Application.Tests/Architecture/DependencyRulesTests.cs
+index b9c2143..1992bf6 100644
+--- a/tests/Tww3Companion.Application.Tests/Architecture/DependencyRulesTests.cs
++++ b/tests/Tww3Companion.Application.Tests/Architecture/DependencyRulesTests.cs
+@@ -46,20 +46,51 @@ public sealed class DependencyRulesTests
+       foreach (var packageReference in packageReferences)
+       {
+         Assert.DoesNotContain(
+             forbiddenPrefixes,
+             prefix => packageReference.Equals(prefix, StringComparison.Ordinal)
+                 || packageReference.StartsWith($"{prefix}.", StringComparison.Ordinal));
+       }
+     }
+   }
+ 
++  [Fact]
++  public void Production_source_avoids_forbidden_namespaces()
++  {
++    var repositoryRoot = FindRepositoryRoot();
++    var forbiddenByProject = new Dictionary<string, string[]>
++    {
++      ["Tww3Companion.Domain"] = ["System.Net.Http"],
++      ["Tww3Companion.Application"] = ["Serilog"],
++      ["Tww3Companion.Desktop/Services"] = ["Serilog"]
++    };
++
++    foreach (var (projectPath, forbiddenNamespaces) in forbiddenByProject)
++    {
++      var sourceDirectory = Path.Combine(repositoryRoot.FullName, "src", projectPath);
++      foreach (var sourceFile in Directory.EnumerateFiles(sourceDirectory, "*.cs", SearchOption.AllDirectories))
++      {
++        if (sourceFile.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
++            || sourceFile.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
++        {
++          continue;
++        }
++
++        var source = File.ReadAllText(sourceFile);
++        foreach (var forbiddenNamespace in forbiddenNamespaces)
++        {
++          Assert.DoesNotContain($"using {forbiddenNamespace};", source, StringComparison.Ordinal);
++        }
++      }
++    }
++  }
++
+   private static DirectoryInfo FindRepositoryRoot()
+   {
+     for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+     {
+       if (File.Exists(Path.Combine(directory.FullName, "Directory.Packages.props")))
+       {
+         return directory;
+       }
+     }
+ 
+diff --git a/tests/Tww3Companion.Application.Tests/Importing/ImportTextDecoderTests.cs b/tests/Tww3Companion.Application.Tests/Importing/ImportTextDecoderTests.cs
+new file mode 100644
+index 0000000..7b838c5
+--- /dev/null
++++ b/tests/Tww3Companion.Application.Tests/Importing/ImportTextDecoderTests.cs
+@@ -0,0 +1,49 @@
++using System.Text;
++using Tww3Companion.Application.Importing;
++using Xunit;
++
++namespace Tww3Companion.Application.Tests.Importing;
++
++public sealed class ImportTextDecoderTests
++{
++  public static TheoryData<byte[], string> SupportedDocuments => new()
++  {
++    { Encoding.UTF8.GetBytes("hello"), "hello" },
++    { [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("hello")], "hello" },
++    {
++      [0xFF, 0xFE, .. Encoding.Unicode.GetBytes("wide")],
++      "wide"
++    },
++    {
++      [0xFE, 0xFF, .. new UnicodeEncoding(true, true).GetBytes("big")],
++      "big"
++    },
++    { Encoding.UTF8.GetBytes("a\r\nb"), "a\nb" },
++    { Encoding.UTF8.GetBytes("a\rb"), "a\nb" },
++  };
++
++  [Theory]
++  [MemberData(nameof(SupportedDocuments))]
++  public void Decode_accepts_supported_encodings(byte[] bytes, string expected)
++  {
++    Assert.Equal(expected, ImportTextDecoder.Decode(bytes));
++  }
++
++  [Fact]
++  public void Decode_rejects_invalid_utf8_without_replacement_characters()
++  {
++    var exception = Assert.Throws<ImportTextDecodingException>(
++        () => ImportTextDecoder.Decode([0xC3, 0x28]));
++
++    Assert.Equal("import.source.encoding.unsupported", exception.Code);
++  }
++
++  [Fact]
++  public void Decode_rejects_empty_input()
++  {
++    var exception = Assert.Throws<ImportTextDecodingException>(
++        () => ImportTextDecoder.Decode(ReadOnlySpan<byte>.Empty));
++
++    Assert.Equal("import.source.encoding.unsupported", exception.Code);
++  }
++}
+diff --git a/tests/Tww3Companion.Application.Tests/Importing/SteamCollectionImportAdapterTests.cs b/tests/Tww3Companion.Application.Tests/Importing/SteamCollectionImportAdapterTests.cs
+index 9ede482..7724de5 100644
+--- a/tests/Tww3Companion.Application.Tests/Importing/SteamCollectionImportAdapterTests.cs
++++ b/tests/Tww3Companion.Application.Tests/Importing/SteamCollectionImportAdapterTests.cs
+@@ -9,44 +9,99 @@ public sealed class SteamCollectionImportAdapterTests
+   public async Task ParseSteamCollection_expands_collection_into_member_candidates()
+   {
+     var result = await SteamCollectionImportAdapter.ParseAsync("123456789", new FakeSteamMetadataClient(), TestContext.Current.CancellationToken);
+ 
+     Assert.Collection(
+         result.Candidates,
+         candidate =>
+         {
+           Assert.Equal("https://steamcommunity.com/sharedfiles/filedetails/?id=111", candidate.SourceReference);
+           Assert.Equal("First mod", candidate.DisplayName);
++        },
++        candidate =>
++        {
++          Assert.Equal("222", candidate.SourceReference);
++          Assert.Null(candidate.DisplayName);
+         });
+   }
+ 
+   [Fact]
+   public async Task ParseSteamCollection_reports_failed_member_lookups_without_blocking_successful_items()
+   {
+     var result = await SteamCollectionImportAdapter.ParseAsync("123456789", new FakeSteamMetadataClient(), TestContext.Current.CancellationToken);
+ 
++    Assert.Equal(2, result.Candidates.Count);
+     Assert.Contains(result.Diagnostics, diagnostic => diagnostic.SourceReference == "222" && diagnostic.IsLookupFailure);
+-    Assert.Single(result.Candidates);
++    Assert.Null(result.Candidates.Single(candidate => candidate.SourceReference == "222").DisplayName);
++  }
++
++  [Fact]
++  public async Task ParseAsync_retains_member_identity_when_title_lookup_fails()
++  {
++    var client = new StubSteamMetadataClient(
++        collectionMembers: ["111", "222"],
++        itemResults: new Dictionary<string, object>
++        {
++          ["111"] = new SteamWorkshopItemMetadata("111", "Resolved title"),
++          ["222"] = new SteamMetadataException("lookup unavailable")
++        });
++
++    var result = await SteamCollectionImportAdapter.ParseAsync(
++        "900",
++        client,
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["111", "222"], result.Candidates.Select(x => x.SourceReference));
++    Assert.Null(result.Candidates.Single(x => x.SourceReference == "222").DisplayName);
++    Assert.Contains(result.Diagnostics, x =>
++        x.SourceReference == "222" && x.IsWarning);
+   }
+ 
+   [Fact]
+   public async Task ParseSteamCollection_uses_injected_metadata_client()
+   {
+     var client = new FakeSteamMetadataClient();
+ 
+     var result = await SteamCollectionImportAdapter.ParseAsync("123456789", client, TestContext.Current.CancellationToken);
+ 
+     Assert.True(client.CollectionWasRequested);
+     Assert.Contains("111", client.RequestedMemberIds);
+     Assert.NotEmpty(result.Candidates);
+   }
+ 
++  private sealed class StubSteamMetadataClient(
++      IReadOnlyList<string> collectionMembers,
++      IReadOnlyDictionary<string, object> itemResults) : ISteamMetadataClient
++  {
++    public Task<SteamCollectionMetadata> GetCollectionAsync(string collectionId, CancellationToken cancellationToken = default)
++    {
++      return Task.FromResult(new SteamCollectionMetadata(
++          collectionId,
++          collectionMembers.Select(id => new SteamWorkshopItemReference(id)).ToArray()));
++    }
++
++    public Task<SteamWorkshopItemMetadata> GetWorkshopItemAsync(string workshopItemId, CancellationToken cancellationToken = default)
++    {
++      if (!itemResults.TryGetValue(workshopItemId, out var result))
++      {
++        throw new InvalidOperationException($"No fixture result for workshop item {workshopItemId}.");
++      }
++
++      return result switch
++      {
++        SteamWorkshopItemMetadata metadata => Task.FromResult(metadata),
++        SteamMetadataException exception => Task.FromException<SteamWorkshopItemMetadata>(exception),
++        _ => throw new InvalidOperationException($"Unsupported fixture result type for workshop item {workshopItemId}.")
++      };
++    }
++  }
++
+   private sealed class FakeSteamMetadataClient : ISteamMetadataClient
+   {
+     public bool CollectionWasRequested { get; private set; }
+     public List<string> RequestedMemberIds { get; } = [];
+ 
+     public Task<SteamCollectionMetadata> GetCollectionAsync(string collectionId, CancellationToken cancellationToken = default)
+     {
+       CollectionWasRequested = true;
+       return Task.FromResult(new SteamCollectionMetadata(collectionId, [
+           new SteamWorkshopItemReference("111", "https://steamcommunity.com/sharedfiles/filedetails/?id=111"),
+diff --git a/tests/Tww3Companion.Infrastructure.Tests/Importing/SteamWebApiMetadataClientTests.cs b/tests/Tww3Companion.Infrastructure.Tests/Importing/SteamWebApiMetadataClientTests.cs
+new file mode 100644
+index 0000000..edaeb6f
+--- /dev/null
++++ b/tests/Tww3Companion.Infrastructure.Tests/Importing/SteamWebApiMetadataClientTests.cs
+@@ -0,0 +1,174 @@
++using System.Net;
++using System.Text;
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Infrastructure.Importing;
++using Xunit;
++
++namespace Tww3Companion.Infrastructure.Tests.Importing;
++
++public sealed class SteamWebApiMetadataClientTests
++{
++  [Fact]
++  public async Task GetCollectionAsync_posts_documented_form_and_returns_members()
++  {
++    var handler = new RecordingHandler("""
++        {"response":{"collectiondetails":[{"publishedfileid":"900","result":1,
++        "children":[{"publishedfileid":"111"},{"publishedfileid":"222"}]}]}}
++        """);
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    var result = await client.GetCollectionAsync(
++        "900",
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal(["111", "222"], result.Members.Select(x => x.WorkshopItemId));
++    Assert.Equal(
++        "/ISteamRemoteStorage/GetCollectionDetails/v1/",
++        handler.LastRequest!.RequestUri!.AbsolutePath);
++    Assert.Contains("collectioncount=1", handler.LastBody);
++    Assert.Contains("publishedfileids%5B0%5D=900", handler.LastBody);
++  }
++
++  [Fact]
++  public async Task GetWorkshopItemAsync_posts_documented_form_and_returns_title()
++  {
++    var handler = new RecordingHandler("""
++        {"response":{"publishedfiledetails":[{"publishedfileid":"111","result":1,"title":"Resolved title"}]}}
++        """);
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    var result = await client.GetWorkshopItemAsync(
++        "111",
++        TestContext.Current.CancellationToken);
++
++    Assert.Equal("111", result.WorkshopItemId);
++    Assert.Equal("Resolved title", result.DisplayName);
++    Assert.Equal(
++        "/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
++        handler.LastRequest!.RequestUri!.AbsolutePath);
++    Assert.Contains("itemcount=1", handler.LastBody);
++    Assert.Contains("publishedfileids%5B0%5D=111", handler.LastBody);
++  }
++
++  [Fact]
++  public async Task GetCollectionAsync_throws_when_http_request_fails()
++  {
++    var handler = new RecordingHandler("", HttpStatusCode.InternalServerError);
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    await Assert.ThrowsAsync<SteamMetadataException>(() =>
++        client.GetCollectionAsync("900", TestContext.Current.CancellationToken));
++  }
++
++  [Fact]
++  public async Task GetWorkshopItemAsync_throws_when_response_is_malformed_json()
++  {
++    var handler = new RecordingHandler("{not-json");
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    await Assert.ThrowsAsync<SteamMetadataException>(() =>
++        client.GetWorkshopItemAsync("111", TestContext.Current.CancellationToken));
++  }
++
++  [Fact]
++  public async Task GetCollectionAsync_throws_when_result_code_is_not_success()
++  {
++    var handler = new RecordingHandler("""
++        {"response":{"collectiondetails":[{"publishedfileid":"900","result":0}]}}
++        """);
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    await Assert.ThrowsAsync<SteamMetadataException>(() =>
++        client.GetCollectionAsync("900", TestContext.Current.CancellationToken));
++  }
++
++  [Fact]
++  public async Task GetWorkshopItemAsync_throws_when_title_is_missing()
++  {
++    var handler = new RecordingHandler("""
++        {"response":{"publishedfiledetails":[{"publishedfileid":"111","result":1,"title":""}]}}
++        """);
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    await Assert.ThrowsAsync<SteamMetadataException>(() =>
++        client.GetWorkshopItemAsync("111", TestContext.Current.CancellationToken));
++  }
++
++  [Fact]
++  public async Task GetCollectionAsync_honors_cancellation()
++  {
++    using var source = new CancellationTokenSource();
++    source.Cancel();
++    var handler = new RecordingHandler("""
++        {"response":{"collectiondetails":[{"publishedfileid":"900","result":1,
++        "children":[{"publishedfileid":"111"}]}]}}
++        """);
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
++        client.GetCollectionAsync("900", source.Token));
++  }
++
++  [Fact]
++  public async Task GetCollectionAsync_does_not_send_api_key()
++  {
++    var handler = new RecordingHandler("""
++        {"response":{"collectiondetails":[{"publishedfileid":"900","result":1,
++        "children":[{"publishedfileid":"111"}]}]}}
++        """);
++    var client = new SteamWebApiMetadataClient(new HttpClient(handler)
++    {
++      BaseAddress = new Uri("https://api.steampowered.com/")
++    });
++
++    await client.GetCollectionAsync("900", TestContext.Current.CancellationToken);
++
++    var query = handler.LastRequest!.RequestUri!.Query;
++    Assert.DoesNotContain("key=", query, StringComparison.OrdinalIgnoreCase);
++    Assert.DoesNotContain("api_key", handler.LastBody ?? string.Empty, StringComparison.OrdinalIgnoreCase);
++  }
++
++  private sealed class RecordingHandler(string responseBody, HttpStatusCode statusCode = HttpStatusCode.OK)
++      : HttpMessageHandler
++  {
++    public HttpRequestMessage? LastRequest { get; private set; }
++
++    public string? LastBody { get; private set; }
++
++    protected override async Task<HttpResponseMessage> SendAsync(
++        HttpRequestMessage request,
++        CancellationToken cancellationToken)
++    {
++      cancellationToken.ThrowIfCancellationRequested();
++      LastRequest = request;
++      LastBody = request.Content is null
++          ? null
++          : await request.Content.ReadAsStringAsync(cancellationToken);
++      return new HttpResponseMessage(statusCode)
++      {
++        Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
++      };
++    }
++  }
++}

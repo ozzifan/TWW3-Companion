@@ -37,4 +37,14 @@ public sealed record ImportCandidate(
           LinkedModId: null,
           DisplayName: null,
           IsSkipped: true);
+
+  public static ImportCandidate Unresolved(
+      string candidateId,
+      ImportSourceReference sourceReference) =>
+      new(
+          candidateId,
+          sourceReference,
+          LinkedModId: null,
+          DisplayName: null,
+          IsSkipped: false);
 }

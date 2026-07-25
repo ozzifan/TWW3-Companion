@@ -13,6 +13,204 @@ namespace Tww3Companion.Infrastructure.Tests.Storage;
 public sealed class SqliteWorkspaceCatalogStoreTests
 {
   [Fact]
+  public async Task CurrentWorkspace_LibraryOnly_persists_mod_without_collection_or_membership()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination.ForLibraryOnly(),
+        ImportCandidate.CreateWithDisplayName(
+            "candidate-1",
+            "Library Mod",
+            ImportSourceReference.SteamWorkshop("123")));
+
+    var outcome = await fixture.Store.CommitAtomicallyAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.Applied);
+    Assert.Equal(1L, await fixture.CountAsync("mods"));
+    Assert.Equal(2L, await fixture.CountAsync("collections"));
+    Assert.Equal(0L, await fixture.CountAsync("collection_memberships"));
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_NewCollection_creates_collection_and_membership_atomically()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination.ForNewCollection("Imported Collection"),
+        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
+
+    await fixture.Store.CommitAtomicallyAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+
+    Assert.Equal(3L, await fixture.CountAsync("collections"));
+    Assert.Equal(1L, await fixture.CountAsync("collection_memberships"));
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_NewCollection_outcome_remaps_to_created_collection()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination.ForNewCollection("Imported Collection"),
+        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
+
+    var outcome = await fixture.Store.CommitAtomicallyAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+    var current = Assert.IsType<ImportTargetContext.CurrentWorkspace>(outcome.TargetContext);
+    var existingCollection = Assert.IsType<ImportMembershipDestination.ExistingCollection>(
+        current.MembershipDestination);
+    var snapshot = await fixture.Store.ReadLibrarySnapshotAsync(
+        fixture.WorkspacePath,
+        TestContext.Current.CancellationToken);
+    var created = Assert.Single(
+        snapshot.Collections,
+        collection => collection.DisplayName == "Imported Collection");
+
+    Assert.Equal(created.CollectionId, existingCollection.CollectionId);
+  }
+
+  [Fact]
+  public async Task NewWorkspace_LibraryOnly_creates_workspace_and_mod_without_collection_or_membership()
+  {
+    using var directory = new TemporaryDirectory();
+    var destination = Path.Combine(directory.Path, "library-only.tww3c");
+    var store = CreateDeterministicStore();
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForLibraryOnly()),
+        [ImportCandidate.CreateWithDisplayName("candidate-1", "Library Mod")],
+        [],
+        TestContext.Current.CancellationToken);
+
+    var outcome = await store.CommitNewWorkspaceAtomicallyAsync(
+        preview,
+        TestContext.Current.CancellationToken);
+    var current = Assert.IsType<ImportTargetContext.CurrentWorkspace>(outcome.TargetContext);
+    var snapshot = await store.ReadLibrarySnapshotAsync(
+        destination,
+        TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.Applied);
+    Assert.IsType<ImportMembershipDestination.LibraryOnly>(current.MembershipDestination);
+    Assert.Empty(snapshot.Collections);
+    Assert.Single(snapshot.Mods);
+    Assert.Empty(snapshot.Memberships);
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_ExistingCollection_verifies_collection_before_persisting()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId),
+        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
+
+    await fixture.Store.CommitAtomicallyAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+
+    Assert.Equal(1L, await fixture.CountAsync("collection_memberships"));
+    Assert.Equal(new[] { 0 }, await fixture.ReadMembershipPositionsAsync(fixture.FirstCollectionId));
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_NewCollection_with_duplicate_display_name_creates_separate_collection()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var preview = await fixture.PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination.ForNewCollection("First Collection"),
+        ImportCandidate.CreateWithDisplayName("candidate-1", "Member Mod"));
+
+    await fixture.Store.CommitAtomicallyAsync(
+        preview,
+        confirm: true,
+        TestContext.Current.CancellationToken);
+
+    Assert.Equal(3L, await fixture.CountAsync("collections"));
+    Assert.Equal(2L, await fixture.CountRowsNamedAsync("collections", "First Collection"));
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_LibraryOnly_then_add_to_two_collections_without_mod_duplication()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var candidate = ImportCandidate.CreateWithDisplayName(
+        "candidate-111",
+        "Shared Mod",
+        ImportSourceReference.SteamWorkshop("111"));
+
+    var libraryPreview = await fixture.PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination.ForLibraryOnly(),
+        candidate);
+    Assert.True((await fixture.Store.CommitAtomicallyAsync(
+        libraryPreview,
+        confirm: true,
+        TestContext.Current.CancellationToken)).Applied);
+
+    foreach (var collectionId in new[] { fixture.FirstCollectionId, fixture.SecondCollectionId })
+    {
+      var collectionPreview = await fixture.PreviewForCurrentWorkspaceAsync(
+          ImportMembershipDestination.ForExistingCollection(collectionId),
+          candidate with { CandidateId = $"candidate:{collectionId}" });
+      Assert.True((await fixture.Store.CommitAtomicallyAsync(
+          collectionPreview,
+          confirm: true,
+          TestContext.Current.CancellationToken)).Applied);
+    }
+
+    Assert.Equal(1L, await fixture.CountAsync("mods"));
+    Assert.Equal(2L, await fixture.CountAsync("collection_memberships"));
+  }
+
+  [Fact]
+  public async Task CurrentWorkspace_LibraryOnly_failure_after_first_candidate_rolls_back_all_rows()
+  {
+    await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
+    var store = new SqliteWorkspaceCatalogStore(
+        fixture.ConnectionFactory,
+        fixture.UuidGenerator,
+        fixture.Clock,
+        afterCandidatePersisted: count =>
+        {
+          if (count == 1)
+          {
+            throw new InvalidOperationException("Injected failure after first candidate.");
+          }
+        });
+    var preview = await store.SavePreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            fixture.WorkspaceId,
+            fixture.WorkspacePath,
+            ImportMembershipDestination.ForLibraryOnly()),
+        [
+          ImportCandidate.CreateWithDisplayName("candidate:1", "First Mod"),
+          ImportCandidate.CreateWithDisplayName("candidate:2", "Second Mod")
+        ],
+        [],
+        TestContext.Current.CancellationToken);
+
+    await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        store.CommitAtomicallyAsync(
+            preview,
+            confirm: true,
+            TestContext.Current.CancellationToken));
+
+    Assert.Equal(0L, await fixture.CountAsync("mods"));
+    Assert.Equal(0L, await fixture.CountAsync("source_references"));
+    Assert.Equal(0L, await fixture.CountAsync("collection_memberships"));
+  }
+
+  [Fact]
   public async Task CurrentImport_PersistsAndReloadsCatalog()
   {
     await using var fixture = await CatalogWorkspaceFixture.CreateAsync();
@@ -20,7 +218,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var target = ImportTargetContext.ForCurrentWorkspace(
         fixture.WorkspaceId,
         fixture.WorkspacePath,
-        fixture.FirstCollectionId);
+        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
     var preview = await store.SavePreviewAsync(
         target,
         [
@@ -63,7 +261,10 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var store = CreateStore();
 
     var preview = await store.SavePreviewAsync(
-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -81,7 +282,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         ImportTargetContext.ForCurrentWorkspace(
             "87654321-4321-4abc-8def-1234567890ab",
             fixture.WorkspacePath,
-            fixture.FirstCollectionId),
+            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -104,7 +305,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         ImportTargetContext.ForCurrentWorkspace(
             fixture.WorkspaceId,
             fixture.WorkspacePath,
-            "99999999-9999-4999-8999-999999999999"),
+            ImportMembershipDestination.ForExistingCollection("99999999-9999-4999-8999-999999999999")),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -126,11 +327,11 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var firstTarget = ImportTargetContext.ForCurrentWorkspace(
         fixture.WorkspaceId,
         fixture.WorkspacePath,
-        fixture.FirstCollectionId);
+        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
     var secondTarget = ImportTargetContext.ForCurrentWorkspace(
         fixture.WorkspaceId,
         fixture.WorkspacePath,
-        fixture.SecondCollectionId);
+        ImportMembershipDestination.ForExistingCollection(fixture.SecondCollectionId));
     var candidate = ImportCandidate.CreateWithDisplayName(
         "candidate:111",
         "Shared Mod",
@@ -173,7 +374,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var target = ImportTargetContext.ForCurrentWorkspace(
         fixture.WorkspaceId,
         fixture.WorkspacePath,
-        fixture.FirstCollectionId);
+        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
     var candidate = ImportCandidate.CreateWithDisplayName(
         "candidate:111",
         "Shared Mod",
@@ -217,7 +418,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var target = ImportTargetContext.ForCurrentWorkspace(
         fixture.WorkspaceId,
         fixture.WorkspacePath,
-        fixture.FirstCollectionId);
+        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
     var preview = await fixture.Store.SavePreviewAsync(
         target,
         [
@@ -242,7 +443,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var target = ImportTargetContext.ForCurrentWorkspace(
         fixture.WorkspaceId,
         fixture.WorkspacePath,
-        fixture.FirstCollectionId);
+        ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId));
     var preview = await fixture.Store.SavePreviewAsync(
         target,
         [ImportCandidate.CreateWithDisplayName("candidate:local", "Local Mod")],
@@ -272,7 +473,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         ImportTargetContext.ForCurrentWorkspace(
             fixture.WorkspaceId,
             fixture.WorkspacePath,
-            fixture.FirstCollectionId),
+            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
         [ImportCandidate.Linked(
             "candidate:111",
             "other-mod",
@@ -310,7 +511,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         ImportTargetContext.ForCurrentWorkspace(
             fixture.WorkspaceId,
             fixture.WorkspacePath,
-            fixture.FirstCollectionId),
+            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
         [
           ImportCandidate.CreateWithDisplayName("candidate:1", "First Mod"),
           ImportCandidate.CreateWithDisplayName("candidate:2", "Second Mod")
@@ -337,7 +538,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         ImportTargetContext.ForCurrentWorkspace(
             fixture.WorkspaceId,
             fixture.WorkspacePath,
-            fixture.FirstCollectionId),
+            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -365,7 +566,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         ImportTargetContext.ForNewWorkspace(
             "New Workspace",
             destination,
-            "Imported Collection"),
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [
           ImportCandidate.CreateWithDisplayName(
               "candidate:111",
@@ -389,7 +590,9 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     Assert.Equal("Imported Collection", Assert.Single(snapshot.Collections).DisplayName);
     Assert.Equal("First Mod", Assert.Single(snapshot.Mods).DisplayName);
     Assert.Single(snapshot.Memberships);
-    Assert.Equal(current.CollectionId, snapshot.Memberships[0].CollectionId);
+    var existingCollection = Assert.IsType<ImportMembershipDestination.ExistingCollection>(
+        current.MembershipDestination);
+    Assert.Equal(existingCollection.CollectionId, snapshot.Memberships[0].CollectionId);
   }
 
   [Fact]
@@ -400,7 +603,10 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     await File.WriteAllTextAsync(destination, "original", TestContext.Current.CancellationToken);
     var store = CreateDeterministicStore();
     var preview = await store.SavePreviewAsync(
-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -423,7 +629,10 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var destination = Path.Combine(directory.Path, "cancelled.tww3c");
     var store = CreateDeterministicStore();
     var preview = await store.SavePreviewAsync(
-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -459,7 +668,10 @@ public sealed class SqliteWorkspaceCatalogStoreTests
           }
         });
     var preview = await store.SavePreviewAsync(
-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [
           ImportCandidate.CreateWithDisplayName("candidate:1", "First Mod"),
           ImportCandidate.CreateWithDisplayName("candidate:2", "Second Mod")
@@ -494,7 +706,10 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         });
 
     var preview = await store.SavePreviewAsync(
-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -517,7 +732,10 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var destination = Path.Combine(directory.Path, "uuids.tww3c");
     var store = CreateDeterministicStore();
     var preview = await store.SavePreviewAsync(
-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -531,10 +749,12 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         TestContext.Current.CancellationToken);
 
     Assert.Equal("22345678-1234-4abc-8def-1234567890ab", current.WorkspaceId);
-    Assert.Equal("32345678-1234-4abc-8def-1234567890ab", current.CollectionId);
+    var existingCollection = Assert.IsType<ImportMembershipDestination.ExistingCollection>(
+        current.MembershipDestination);
+    Assert.Equal("32345678-1234-4abc-8def-1234567890ab", existingCollection.CollectionId);
     Assert.Equal("42345678-1234-4abc-8def-1234567890ab", Assert.Single(snapshot.Mods).ModId);
     Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(current.WorkspaceId));
-    Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(current.CollectionId));
+    Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(existingCollection.CollectionId));
     Assert.IsType<ValidationResult<WorkspaceId>.Success>(WorkspaceId.Parse(snapshot.Mods[0].ModId));
   }
 
@@ -545,7 +765,10 @@ public sealed class SqliteWorkspaceCatalogStoreTests
     var destination = Path.Combine(directory.Path, "validated.tww3c");
     var store = CreateDeterministicStore();
     var preview = await store.SavePreviewAsync(
-        ImportTargetContext.ForNewWorkspace("New Workspace", destination, "Imported Collection"),
+        ImportTargetContext.ForNewWorkspace(
+            "New Workspace",
+            destination,
+            ImportMembershipDestination.ForNewCollection("Imported Collection")),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -569,7 +792,7 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         ImportTargetContext.ForCurrentWorkspace(
             fixture.WorkspaceId,
             fixture.WorkspacePath,
-            fixture.FirstCollectionId),
+            ImportMembershipDestination.ForExistingCollection(fixture.FirstCollectionId)),
         [ImportCandidate.CreateWithDisplayName("candidate:1", "Mod")],
         [],
         TestContext.Current.CancellationToken);
@@ -669,6 +892,23 @@ public sealed class SqliteWorkspaceCatalogStoreTests
         Store = store
       };
     }
+
+    public Task<long> CountAsync(string tableName) => CountRowsAsync(tableName);
+
+    public Task<long> CountRowsNamedAsync(string tableName, string displayName) =>
+        ScalarAsync(
+            WorkspacePath,
+            $"SELECT COUNT(*) FROM {tableName} WHERE display_name = $displayName;",
+            ("$displayName", displayName));
+
+    public Task<ImportPreview> PreviewForCurrentWorkspaceAsync(
+        ImportMembershipDestination destination,
+        params ImportCandidate[] candidates) =>
+        Store.SavePreviewAsync(
+            ImportTargetContext.ForCurrentWorkspace(WorkspaceId, WorkspacePath, destination),
+            candidates,
+            [],
+            CancellationToken.None);
 
     public async Task<int[]> ReadMembershipPositionsAsync(string collectionId)
     {
@@ -809,6 +1049,22 @@ public sealed class SqliteWorkspaceCatalogStoreTests
 
     public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token) =>
         throw new NotSupportedException();
+  }
+
+  private static async Task<long> ScalarAsync(
+      string path,
+      string sql,
+      params (string Name, object Value)[] parameters)
+  {
+    await using var connection = await new SqliteConnectionFactory().OpenAsync(path, CancellationToken.None);
+    await using var command = connection.CreateCommand();
+    command.CommandText = sql;
+    foreach (var (name, value) in parameters)
+    {
+      command.Parameters.AddWithValue(name, value);
+    }
+
+    return (long)(await command.ExecuteScalarAsync(CancellationToken.None))!;
   }
 
   private static async Task<long> ScalarAsync(string path, string sql)

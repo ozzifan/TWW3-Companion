@@ -12,19 +12,19 @@ public static class SteamCollectionImportAdapter
     cancellationToken.ThrowIfCancellationRequested();
 
     var sourceReference = collectionId.Trim();
-    if (!IsCollectionId(sourceReference))
+    if (!SteamImportAdapter.TryGetCollectionId(sourceReference, out var normalizedCollectionId))
     {
-      return new SteamImportResult([], [new SteamImportDiagnostic(collectionId, "Steam collection input must contain exactly one numeric collection ID.")]);
+      return new SteamImportResult([], [new SteamImportDiagnostic(collectionId, "Steam collection input must contain exactly one numeric collection ID or supported URL.")]);
     }
 
     SteamCollectionMetadata collection;
     try
     {
-      collection = await metadataClient.GetCollectionAsync(sourceReference, cancellationToken);
+      collection = await metadataClient.GetCollectionAsync(normalizedCollectionId, cancellationToken);
     }
     catch (Exception exception) when (exception is not OperationCanceledException)
     {
-      return new SteamImportResult([], [new SteamImportDiagnostic(sourceReference, exception.Message, true)]);
+      return new SteamImportResult([], [new SteamImportDiagnostic(normalizedCollectionId, exception.Message, true)]);
     }
 
     var candidates = new List<SteamImportCandidate>();
@@ -41,13 +41,11 @@ public static class SteamCollectionImportAdapter
       }
       catch (Exception exception) when (exception is not OperationCanceledException)
       {
+        candidates.Add(new SteamImportCandidate(memberSourceReference));
         diagnostics.Add(new SteamImportDiagnostic(memberSourceReference, exception.Message, true));
       }
     }
 
     return new SteamImportResult(candidates, diagnostics);
   }
-
-  private static bool IsCollectionId(string collectionId) =>
-      collectionId.Length > 0 && collectionId.All(char.IsAsciiDigit);
 }

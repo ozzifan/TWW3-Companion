@@ -1,0 +1,1050 @@
+BASE: 6358529ab79e85b019a6e973f93b3cba26064e47
+HEAD: 2c526a0c6c8df0b943d15519569b0f2bc0172d4d
+
+## Commits
+
+2c526a0 test: cover ResolveAsync and CurrentWorkspace destination validation
+d6d5c78 feat: support explicit import membership destinations
+
+## Stat
+
+ .../Importing/CurrentWorkspaceImportSession.cs     |  59 +++++-
+ .../Importing/IImportEngine.cs                     |   5 +
+ .../Importing/ImportCandidate.cs                   |  10 +
+ .../Importing/ImportEngine.cs                      | 191 ++++++++++++++++--
+ .../Importing/ImportMembershipDestination.cs       |  24 +++
+ .../Importing/ImportPreview.cs                     |   6 +-
+ .../Importing/ImportPreviewOperation.cs            |  26 +++
+ .../Importing/ImportTargetContext.cs               |  12 +-
+ .../Importing/NewWorkspaceImportSession.cs         |  30 ++-
+ .../Importing/ImportEngineTests.cs                 | 221 ++++++++++++++++++---
+ 10 files changed, 517 insertions(+), 67 deletions(-)
+
+## Diff
+
+diff --git a/src/Tww3Companion.Application/Importing/CurrentWorkspaceImportSession.cs b/src/Tww3Companion.Application/Importing/CurrentWorkspaceImportSession.cs
+index 2c2ed81..0736283 100644
+--- a/src/Tww3Companion.Application/Importing/CurrentWorkspaceImportSession.cs
++++ b/src/Tww3Companion.Application/Importing/CurrentWorkspaceImportSession.cs
+@@ -1,27 +1,72 @@
+ namespace Tww3Companion.Application.Importing;
+ 
+ internal sealed class CurrentWorkspaceImportSession(
+     ImportPreview preview,
+     IWorkspaceImportStore store)
+ {
+   private readonly ImportTargetContext.CurrentWorkspace _targetContext = preview.TargetContext as ImportTargetContext.CurrentWorkspace
+       ?? throw new ArgumentException("The preview must target the current Workspace.", nameof(preview));
+ 
++  public static void ValidateDestination(ImportTargetContext.CurrentWorkspace targetContext)
++  {
++    if (string.IsNullOrWhiteSpace(targetContext.WorkspaceId))
++    {
++      throw new ArgumentException("A current Workspace import requires a Workspace UUID.", nameof(targetContext));
++    }
++
++    if (string.IsNullOrWhiteSpace(targetContext.WorkspacePath))
++    {
++      throw new ArgumentException("A current Workspace import requires a Workspace path.", nameof(targetContext));
++    }
++
++    switch (targetContext.MembershipDestination)
++    {
++      case ImportMembershipDestination.LibraryOnly:
++        break;
++
++      case ImportMembershipDestination.ExistingCollection { CollectionId: var collectionId }
++          when !string.IsNullOrWhiteSpace(collectionId):
++        break;
++
++      case ImportMembershipDestination.ExistingCollection:
++        throw new ArgumentException(
++            "A current Workspace import requires a Collection UUID when targeting an existing Collection.",
++            nameof(targetContext));
++
++      case ImportMembershipDestination.NewCollection { DisplayName: var displayName }
++          when !string.IsNullOrWhiteSpace(displayName):
++        break;
++
++      case ImportMembershipDestination.NewCollection:
++        throw new ArgumentException(
++            "A current Workspace import requires a Collection display name when targeting a new Collection.",
++            nameof(targetContext));
++
++      default:
++        throw new ArgumentException("Unsupported membership destination.", nameof(targetContext));
++    }
++  }
++
+   public async Task<ImportOutcome> ApplyAsync(bool confirm, CancellationToken cancellationToken = default)
+   {
+-    if (!confirm) return new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false);
++    if (!confirm)
++    {
++      return new ImportOutcome(
++          preview.TargetContext,
++          preview.Candidates.Cast<object>().ToArray(),
++          Applied: false);
++    }
+ 
+     ImportPreviewValidation.Validate(preview);
+ 
+     foreach (var linkedModId in preview.Candidates
+-        .OfType<ImportCandidate>()
+         .Where(candidate => !candidate.IsSkipped && !string.IsNullOrWhiteSpace(candidate.LinkedModId))
+         .Select(candidate => candidate.LinkedModId!))
+     {
+       if (!await store.ModExistsAsync(_targetContext, linkedModId, cancellationToken))
+       {
+         throw new InvalidOperationException("All linked import candidates must resolve existing Mods before applying.");
+       }
+     }
+ 
+     return await store.CommitAtomicallyAsync(preview, confirm: true, cancellationToken);
+@@ -30,20 +75,20 @@ internal sealed class CurrentWorkspaceImportSession(
+ 
+ internal static class ImportPreviewValidation
+ {
+   public static void Validate(ImportPreview preview)
+   {
+     if (preview.ValidationIssues?.Count > 0)
+     {
+       throw new InvalidOperationException("The import preview contains validation issues.");
+     }
+ 
+-    if (preview.Candidates.Any(candidate => candidate is not ImportCandidate importCandidate ||
+-        (importCandidate.IsSkipped && preview.Resolutions?.Any(resolution =>
+-            resolution.CandidateId == importCandidate.CandidateId && resolution.CanSkip) != true) ||
+-        (!importCandidate.IsSkipped && string.IsNullOrWhiteSpace(importCandidate.LinkedModId) &&
+-            string.IsNullOrWhiteSpace(importCandidate.DisplayName))))
++    if (preview.Candidates.Any(candidate =>
++        (candidate.IsSkipped && preview.Resolutions?.Any(resolution =>
++            resolution.CandidateId == candidate.CandidateId && resolution.CanSkip) != true) ||
++        (!candidate.IsSkipped && string.IsNullOrWhiteSpace(candidate.LinkedModId) &&
++            string.IsNullOrWhiteSpace(candidate.DisplayName))))
+     {
+       throw new InvalidOperationException("All required import candidates must be resolved before applying.");
+     }
+   }
+ }
+diff --git a/src/Tww3Companion.Application/Importing/IImportEngine.cs b/src/Tww3Companion.Application/Importing/IImportEngine.cs
+index a4a07ab..ec48bec 100644
+--- a/src/Tww3Companion.Application/Importing/IImportEngine.cs
++++ b/src/Tww3Companion.Application/Importing/IImportEngine.cs
+@@ -1,15 +1,20 @@
+ namespace Tww3Companion.Application.Importing;
+ 
+ public interface IImportEngine
+ {
+   // Candidates remain source-neutral; ImportCandidate is one shared pipeline shape.
+   Task<ImportPreview> BuildPreviewAsync(
+       ImportTargetContext targetContext,
+       IReadOnlyList<object> candidates,
+       CancellationToken cancellationToken = default);
+ 
++  Task<ImportPreview> ResolveAsync(
++      ImportPreview preview,
++      ImportCandidate resolvedCandidate,
++      CancellationToken cancellationToken = default);
++
+   Task<ImportOutcome> ApplyAsync(
+       ImportPreview preview,
+       bool confirm,
+       CancellationToken cancellationToken = default);
+ }
+diff --git a/src/Tww3Companion.Application/Importing/ImportCandidate.cs b/src/Tww3Companion.Application/Importing/ImportCandidate.cs
+index f90afc2..2ab9b8d 100644
+--- a/src/Tww3Companion.Application/Importing/ImportCandidate.cs
++++ b/src/Tww3Companion.Application/Importing/ImportCandidate.cs
+@@ -30,11 +30,21 @@ public sealed record ImportCandidate(
+           displayName,
+           IsSkipped: false);
+ 
+   public static ImportCandidate Skipped(string candidateId) =>
+       new(
+           candidateId,
+           SourceReference: null,
+           LinkedModId: null,
+           DisplayName: null,
+           IsSkipped: true);
++
++  public static ImportCandidate Unresolved(
++      string candidateId,
++      ImportSourceReference sourceReference) =>
++      new(
++          candidateId,
++          sourceReference,
++          LinkedModId: null,
++          DisplayName: null,
++          IsSkipped: false);
+ }
+diff --git a/src/Tww3Companion.Application/Importing/ImportEngine.cs b/src/Tww3Companion.Application/Importing/ImportEngine.cs
+index be83fe8..d799130 100644
+--- a/src/Tww3Companion.Application/Importing/ImportEngine.cs
++++ b/src/Tww3Companion.Application/Importing/ImportEngine.cs
+@@ -2,64 +2,133 @@ namespace Tww3Companion.Application.Importing;
+ 
+ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
+ {
+   private readonly IWorkspaceImportStore _store = store ?? throw new ArgumentNullException(nameof(store));
+ 
+   public async Task<ImportPreview> BuildPreviewAsync(
+       ImportTargetContext targetContext,
+       IReadOnlyList<object> candidates,
+       CancellationToken cancellationToken = default)
+   {
+-    if (targetContext is ImportTargetContext.NewWorkspace newWorkspace)
+-    {
+-      NewWorkspaceImportSession.ValidateDestination(newWorkspace);
+-    }
+-
+     var importCandidates = NormalizeCandidates(candidates);
+     var existingCandidates = targetContext is ImportTargetContext.NewWorkspace
+         ? []
+         : await _store.ReadCandidatesAsync(targetContext, cancellationToken);
+-    var matchedCandidates = MatchExactSourceReferences(importCandidates, existingCandidates);
+-    var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
+-    var validationIssues = DetectSourceOwnerConflicts(suggestedCandidates, existingCandidates);
+-    var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
+-        candidate.CandidateId,
+-        candidate.LinkedModId,
+-        candidate.DisplayName,
+-        CanSkip: string.IsNullOrWhiteSpace(candidate.LinkedModId))).ToArray();
+ 
+-    var preview = await _store.SavePreviewAsync(
++    return await BuildNormalizedPreviewAsync(
+         targetContext,
+-        suggestedCandidates,
+-        resolutions,
++        importCandidates,
++        existingCandidates,
++        cancellationToken);
++  }
++
++  public async Task<ImportPreview> ResolveAsync(
++      ImportPreview preview,
++      ImportCandidate resolvedCandidate,
++      CancellationToken cancellationToken = default)
++  {
++    ArgumentNullException.ThrowIfNull(preview);
++    ArgumentNullException.ThrowIfNull(resolvedCandidate);
++
++    var matchingIndices = preview.Candidates
++        .Select((candidate, index) => (candidate, index))
++        .Where(entry => string.Equals(entry.candidate.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
++        .Select(entry => entry.index)
++        .ToArray();
++
++    if (matchingIndices.Length == 0)
++    {
++      throw new ArgumentException(
++          $"The preview does not contain candidate '{resolvedCandidate.CandidateId}'.",
++          nameof(resolvedCandidate));
++    }
++
++    if (matchingIndices.Length > 1)
++    {
++      throw new ArgumentException(
++          $"The preview contains duplicate candidate '{resolvedCandidate.CandidateId}'.",
++          nameof(resolvedCandidate));
++    }
++
++    var updatedCandidates = preview.Candidates.ToArray();
++    updatedCandidates[matchingIndices[0]] = resolvedCandidate;
++
++    var existingCandidates = preview.TargetContext is ImportTargetContext.NewWorkspace
++        ? []
++        : await _store.ReadCandidatesAsync(preview.TargetContext, cancellationToken);
++
++    return await BuildNormalizedPreviewAsync(
++        preview.TargetContext,
++        updatedCandidates,
++        existingCandidates,
+         cancellationToken);
+-    return preview with { Resolutions = resolutions, ValidationIssues = validationIssues };
+   }
+ 
+   public Task<ImportOutcome> ApplyAsync(
+       ImportPreview preview,
+       bool confirm,
+       CancellationToken cancellationToken = default)
+   {
+     if (preview.TargetContext is ImportTargetContext.CurrentWorkspace)
+     {
+       return new CurrentWorkspaceImportSession(preview, _store).ApplyAsync(confirm, cancellationToken);
+     }
+ 
+     if (preview.TargetContext is ImportTargetContext.NewWorkspace)
+     {
+       return new NewWorkspaceImportSession(preview, _store).ApplyAsync(confirm, cancellationToken);
+     }
+ 
+     throw new ArgumentException("Unsupported import target context.", nameof(preview));
+   }
+ 
++  private async Task<ImportPreview> BuildNormalizedPreviewAsync(
++      ImportTargetContext targetContext,
++      IReadOnlyList<ImportCandidate> candidates,
++      IReadOnlyList<ImportCandidate> existingCandidates,
++      CancellationToken cancellationToken)
++  {
++    if (targetContext is ImportTargetContext.NewWorkspace newWorkspace)
++    {
++      NewWorkspaceImportSession.ValidateDestination(newWorkspace);
++    }
++    else if (targetContext is ImportTargetContext.CurrentWorkspace currentWorkspace)
++    {
++      CurrentWorkspaceImportSession.ValidateDestination(currentWorkspace);
++    }
++
++    var matchedCandidates = MatchExactSourceReferences(candidates, existingCandidates);
++    var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
++    var validationIssues = DetectSourceOwnerConflicts(suggestedCandidates, existingCandidates);
++    var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
++        candidate.CandidateId,
++        candidate.LinkedModId,
++        candidate.DisplayName,
++        CanSkip: string.IsNullOrWhiteSpace(candidate.LinkedModId))).ToArray();
++    var operations = BuildOperations(suggestedCandidates, validationIssues, targetContext);
++    var warningCount = CountWarnings(suggestedCandidates, validationIssues);
++
++    var preview = await _store.SavePreviewAsync(
++        targetContext,
++        suggestedCandidates,
++        resolutions,
++        cancellationToken);
++
++    return preview with
++    {
++      Resolutions = resolutions,
++      ValidationIssues = validationIssues,
++      Operations = operations,
++      WarningCount = warningCount
++    };
++  }
++
+   private static IReadOnlyList<ImportCandidate> NormalizeCandidates(
+       IReadOnlyList<object> candidates) =>
+       candidates.Select((candidate, index) => candidate switch
+       {
+         SteamImportCandidate steamCandidate =>
+             CreateSteamCandidate(steamCandidate, index),
+ 
+         MarkdownImportCandidate
+         {
+           Kind: ImportCandidateKind.Candidate,
+@@ -161,18 +230,106 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
+                 ? new ImportValidationIssue(
+                     candidate.CandidateId,
+                     "import.source.owner.conflict",
+                     $"The source identity is already owned by Mod {existing.LinkedModId}.")
+                 : null;
+           })
+           .Where(issue => issue is not null)
+           .Cast<ImportValidationIssue>()
+           .ToArray();
+ 
++  private static IReadOnlyList<ImportPreviewOperation> BuildOperations(
++      IReadOnlyList<ImportCandidate> candidates,
++      IReadOnlyList<ImportValidationIssue> validationIssues,
++      ImportTargetContext targetContext) =>
++      candidates.Select(candidate =>
++      {
++        var candidateIssues = validationIssues
++            .Where(issue => string.Equals(issue.CandidateId, candidate.CandidateId, StringComparison.Ordinal))
++            .ToArray();
++
++        return new ImportPreviewOperation(
++            candidate.CandidateId,
++            DetermineLibraryAction(candidate, candidateIssues),
++            DetermineMembershipAction(candidate, candidateIssues, targetContext),
++            candidateIssues);
++      }).ToArray();
++
++  private static ImportLibraryAction DetermineLibraryAction(
++      ImportCandidate candidate,
++      IReadOnlyList<ImportValidationIssue> candidateIssues)
++  {
++    if (candidate.IsSkipped)
++    {
++      return ImportLibraryAction.Skip;
++    }
++
++    if (candidateIssues.Any(issue => issue.Code == "import.source.owner.conflict"))
++    {
++      return ImportLibraryAction.Conflict;
++    }
++
++    if (!string.IsNullOrWhiteSpace(candidate.LinkedModId))
++    {
++      return ImportLibraryAction.Existing;
++    }
++
++    if (!string.IsNullOrWhiteSpace(candidate.SuggestedModId))
++    {
++      return ImportLibraryAction.SuggestedMatch;
++    }
++
++    if (!string.IsNullOrWhiteSpace(candidate.DisplayName))
++    {
++      return ImportLibraryAction.Create;
++    }
++
++    return ImportLibraryAction.Create;
++  }
++
++  private static ImportMembershipAction DetermineMembershipAction(
++      ImportCandidate candidate,
++      IReadOnlyList<ImportValidationIssue> candidateIssues,
++      ImportTargetContext targetContext)
++  {
++    if (candidate.IsSkipped)
++    {
++      return ImportMembershipAction.Skip;
++    }
++
++    if (candidateIssues.Any(issue => issue.Code == "import.source.owner.conflict"))
++    {
++      return ImportMembershipAction.Blocked;
++    }
++
++    return targetContext switch
++    {
++      ImportTargetContext.NewWorkspace { MembershipDestination: ImportMembershipDestination.LibraryOnly } =>
++          ImportMembershipAction.None,
++      ImportTargetContext.CurrentWorkspace { MembershipDestination: ImportMembershipDestination.LibraryOnly } =>
++          ImportMembershipAction.None,
++      _ => ImportMembershipAction.Add
++    };
++  }
++
++  private static int CountWarnings(
++      IReadOnlyList<ImportCandidate> candidates,
++      IReadOnlyList<ImportValidationIssue> validationIssues)
++  {
++    var nonSkippedCandidateIds = candidates
++        .Where(candidate => !candidate.IsSkipped)
++        .Select(candidate => candidate.CandidateId)
++        .ToHashSet(StringComparer.Ordinal);
++
++    return validationIssues.Count(issue =>
++        nonSkippedCandidateIds.Contains(issue.CandidateId) &&
++        issue.Code.Contains("warning", StringComparison.OrdinalIgnoreCase));
++  }
++
+   private static bool SourceReferencesMatch(
+       ImportSourceReference? left,
+       ImportSourceReference? right) =>
+       left is not null &&
+       right is not null &&
+       left.SourceType == right.SourceType &&
+       left.ExternalId == right.ExternalId;
+ }
+diff --git a/src/Tww3Companion.Application/Importing/ImportMembershipDestination.cs b/src/Tww3Companion.Application/Importing/ImportMembershipDestination.cs
+new file mode 100644
+index 0000000..9e8c89f
+--- /dev/null
++++ b/src/Tww3Companion.Application/Importing/ImportMembershipDestination.cs
+@@ -0,0 +1,24 @@
++namespace Tww3Companion.Application.Importing;
++
++public abstract record ImportMembershipDestination
++{
++  private ImportMembershipDestination()
++  {
++  }
++
++  public sealed record LibraryOnly : ImportMembershipDestination;
++
++  public sealed record ExistingCollection(string CollectionId)
++      : ImportMembershipDestination;
++
++  public sealed record NewCollection(string DisplayName)
++      : ImportMembershipDestination;
++
++  public static ImportMembershipDestination ForLibraryOnly() => new LibraryOnly();
++
++  public static ImportMembershipDestination ForExistingCollection(string collectionId) =>
++      new ExistingCollection(collectionId);
++
++  public static ImportMembershipDestination ForNewCollection(string displayName) =>
++      new NewCollection(displayName);
++}
+diff --git a/src/Tww3Companion.Application/Importing/ImportPreview.cs b/src/Tww3Companion.Application/Importing/ImportPreview.cs
+index df736d8..09e803f 100644
+--- a/src/Tww3Companion.Application/Importing/ImportPreview.cs
++++ b/src/Tww3Companion.Application/Importing/ImportPreview.cs
+@@ -1,8 +1,10 @@
+ namespace Tww3Companion.Application.Importing;
+ 
+ public sealed record ImportPreview(
+     ImportTargetContext TargetContext,
+-    IReadOnlyList<object> Candidates,
++    IReadOnlyList<ImportCandidate> Candidates,
+     bool Applied,
+     IReadOnlyList<ImportResolution>? Resolutions = null,
+-    IReadOnlyList<ImportValidationIssue>? ValidationIssues = null);
++    IReadOnlyList<ImportValidationIssue>? ValidationIssues = null,
++    IReadOnlyList<ImportPreviewOperation>? Operations = null,
++    int WarningCount = 0);
+diff --git a/src/Tww3Companion.Application/Importing/ImportPreviewOperation.cs b/src/Tww3Companion.Application/Importing/ImportPreviewOperation.cs
+new file mode 100644
+index 0000000..6bba768
+--- /dev/null
++++ b/src/Tww3Companion.Application/Importing/ImportPreviewOperation.cs
+@@ -0,0 +1,26 @@
++namespace Tww3Companion.Application.Importing;
++
++public enum ImportLibraryAction
++{
++  Create,
++  Enrich,
++  Existing,
++  SuggestedMatch,
++  Conflict,
++  Skip
++}
++
++public enum ImportMembershipAction
++{
++  None,
++  Add,
++  Existing,
++  Blocked,
++  Skip
++}
++
++public sealed record ImportPreviewOperation(
++    string CandidateId,
++    ImportLibraryAction LibraryAction,
++    ImportMembershipAction MembershipAction,
++    IReadOnlyList<ImportValidationIssue> Issues);
+diff --git a/src/Tww3Companion.Application/Importing/ImportTargetContext.cs b/src/Tww3Companion.Application/Importing/ImportTargetContext.cs
+index a34f0d9..affab39 100644
+--- a/src/Tww3Companion.Application/Importing/ImportTargetContext.cs
++++ b/src/Tww3Companion.Application/Importing/ImportTargetContext.cs
+@@ -2,29 +2,29 @@ namespace Tww3Companion.Application.Importing;
+ 
+ public abstract record ImportTargetContext
+ {
+   private ImportTargetContext()
+   {
+   }
+ 
+   public sealed record NewWorkspace(
+       string DisplayName,
+       string DestinationPath,
+-      string CollectionDisplayName) : ImportTargetContext;
++      ImportMembershipDestination MembershipDestination) : ImportTargetContext;
+ 
+   public sealed record CurrentWorkspace(
+       string WorkspaceId,
+       string WorkspacePath,
+-      string CollectionId) : ImportTargetContext;
++      ImportMembershipDestination MembershipDestination) : ImportTargetContext;
+ 
+   public static ImportTargetContext ForNewWorkspace(
+       string displayName,
+       string destinationPath,
+-      string collectionDisplayName) =>
+-      new NewWorkspace(displayName, destinationPath, collectionDisplayName);
++      ImportMembershipDestination membershipDestination) =>
++      new NewWorkspace(displayName, destinationPath, membershipDestination);
+ 
+   public static ImportTargetContext ForCurrentWorkspace(
+       string workspaceId,
+       string workspacePath,
+-      string collectionId) =>
+-      new CurrentWorkspace(workspaceId, workspacePath, collectionId);
++      ImportMembershipDestination membershipDestination) =>
++      new CurrentWorkspace(workspaceId, workspacePath, membershipDestination);
+ }
+diff --git a/src/Tww3Companion.Application/Importing/NewWorkspaceImportSession.cs b/src/Tww3Companion.Application/Importing/NewWorkspaceImportSession.cs
+index 982e271..88b387a 100644
+--- a/src/Tww3Companion.Application/Importing/NewWorkspaceImportSession.cs
++++ b/src/Tww3Companion.Application/Importing/NewWorkspaceImportSession.cs
+@@ -12,26 +12,50 @@ internal sealed class NewWorkspaceImportSession(
+     if (string.IsNullOrWhiteSpace(targetContext.DisplayName))
+     {
+       throw new ArgumentException("A new Workspace import requires a display name.", nameof(targetContext));
+     }
+ 
+     if (string.IsNullOrWhiteSpace(targetContext.DestinationPath))
+     {
+       throw new ArgumentException("A new Workspace import requires a destination path.", nameof(targetContext));
+     }
+ 
+-    if (string.IsNullOrWhiteSpace(targetContext.CollectionDisplayName))
++    switch (targetContext.MembershipDestination)
+     {
+-      throw new ArgumentException("A new Workspace import requires a Collection display name.", nameof(targetContext));
++      case ImportMembershipDestination.LibraryOnly:
++        break;
++
++      case ImportMembershipDestination.NewCollection { DisplayName: var displayName }
++          when !string.IsNullOrWhiteSpace(displayName):
++        break;
++
++      case ImportMembershipDestination.NewCollection:
++        throw new ArgumentException(
++            "A new Workspace import requires a Collection display name when targeting a new Collection.",
++            nameof(targetContext));
++
++      case ImportMembershipDestination.ExistingCollection:
++        throw new ArgumentException(
++            "A new Workspace import cannot target an existing Collection.",
++            nameof(targetContext));
++
++      default:
++        throw new ArgumentException("Unsupported membership destination.", nameof(targetContext));
+     }
+   }
+ 
+   public async Task<ImportOutcome> ApplyAsync(bool confirm, CancellationToken cancellationToken = default)
+   {
+-    if (!confirm) return new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false);
++    if (!confirm)
++    {
++      return new ImportOutcome(
++          preview.TargetContext,
++          preview.Candidates.Cast<object>().ToArray(),
++          Applied: false);
++    }
+ 
+     ValidateDestination(_targetContext);
+     ImportPreviewValidation.Validate(preview);
+ 
+     return await store.CommitNewWorkspaceAtomicallyAsync(preview, cancellationToken);
+   }
+ }
+diff --git a/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs b/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs
+index 070765b..c8cd4b9 100644
+--- a/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs
++++ b/tests/Tww3Companion.Application.Tests/Importing/ImportEngineTests.cs
+@@ -1,54 +1,192 @@
+ using Tww3Companion.Application.Importing;
+ using Xunit;
+ 
+ namespace Tww3Companion.Application.Tests.Importing;
+ 
+ public sealed class ImportEngineTests
+ {
+   private const string NewWorkspaceDisplayName = "My New Workspace";
+   private const string NewWorkspacePath = "C:\\Workspaces\\my-new.tww3c";
+-  private const string NewWorkspaceCollection = "Imported Collection";
+-  private const string CurrentWorkspaceId = "workspace-id-123";
+-  private const string CurrentWorkspacePath = "C:\\Workspaces\\current.tww3c";
+-  private const string CurrentCollectionId = "collection-id-123";
++  private static ImportMembershipDestination NewWorkspaceMembership =>
++      ImportMembershipDestination.ForNewCollection("Imported Collection");
++
++  private static ImportMembershipDestination CurrentWorkspaceMembership =>
++      ImportMembershipDestination.ForExistingCollection("collection-id-123");
+ 
+   private static ImportTargetContext NewWorkspaceTarget =>
+       ImportTargetContext.ForNewWorkspace(
+           NewWorkspaceDisplayName,
+           NewWorkspacePath,
+-          NewWorkspaceCollection);
++          NewWorkspaceMembership);
+ 
+   private static ImportTargetContext CurrentWorkspaceTarget =>
+       ImportTargetContext.ForCurrentWorkspace(
+           CurrentWorkspaceId,
+           CurrentWorkspacePath,
+-          CurrentCollectionId);
++          CurrentWorkspaceMembership);
++
++  private const string CurrentWorkspaceId = "workspace-id-123";
++  private const string CurrentWorkspacePath = "C:\\Workspaces\\current.tww3c";
+ 
+   [Fact]
+-  public void ImportTargetContext_can_represent_new_workspace_and_current_workspace()
++  public void Import_targets_separate_workspace_from_membership_destination()
+   {
+-    var newWorkspace = NewWorkspaceTarget;
+-    var currentWorkspace = CurrentWorkspaceTarget;
++    var libraryOnly = ImportMembershipDestination.ForLibraryOnly();
++    var existing = ImportMembershipDestination.ForExistingCollection("collection-1");
++    var created = ImportMembershipDestination.ForNewCollection("My Collection");
++
++    Assert.Equal(
++        new ImportTargetContext.NewWorkspace("Workspace", @"C:\Data\workspace.tww3c", libraryOnly),
++        ImportTargetContext.ForNewWorkspace("Workspace", @"C:\Data\workspace.tww3c", libraryOnly));
++    Assert.Equal(
++        new ImportTargetContext.CurrentWorkspace("workspace-1", @"C:\Data\workspace.tww3c", existing),
++        ImportTargetContext.ForCurrentWorkspace("workspace-1", @"C:\Data\workspace.tww3c", existing));
++    Assert.IsType<ImportMembershipDestination.NewCollection>(created);
++  }
+ 
+-    Assert.IsType<ImportTargetContext.NewWorkspace>(newWorkspace);
+-    Assert.IsType<ImportTargetContext.CurrentWorkspace>(currentWorkspace);
++  [Fact]
++  public async Task ResolveAsync_replaces_one_candidate_without_persisting()
++  {
++    var store = new FakeWorkspaceImportStore();
++    var engine = new ImportEngine(store);
++    var preview = await engine.BuildPreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            "workspace-1",
++            @"C:\Data\workspace.tww3c",
++            ImportMembershipDestination.ForLibraryOnly()),
++        [ImportCandidate.Unresolved(
++            "candidate-1",
++            ImportSourceReference.SteamWorkshop("123"))],
++        TestContext.Current.CancellationToken);
+ 
+-    var typedNewWorkspace = Assert.IsType<ImportTargetContext.NewWorkspace>(newWorkspace);
+-    var typedCurrentWorkspace = Assert.IsType<ImportTargetContext.CurrentWorkspace>(currentWorkspace);
++    var resolved = await engine.ResolveAsync(
++        preview,
++        ImportCandidate.CreateWithDisplayName(
++            "candidate-1",
++            "Resolved Mod",
++            ImportSourceReference.SteamWorkshop("123")),
++        TestContext.Current.CancellationToken);
+ 
+-    Assert.Equal(NewWorkspaceDisplayName, typedNewWorkspace.DisplayName);
+-    Assert.Equal(NewWorkspacePath, typedNewWorkspace.DestinationPath);
+-    Assert.Equal(NewWorkspaceCollection, typedNewWorkspace.CollectionDisplayName);
+-    Assert.Equal(CurrentWorkspaceId, typedCurrentWorkspace.WorkspaceId);
+-    Assert.Equal(CurrentWorkspacePath, typedCurrentWorkspace.WorkspacePath);
+-    Assert.Equal(CurrentCollectionId, typedCurrentWorkspace.CollectionId);
++    Assert.Equal("Resolved Mod", Assert.Single(resolved.Candidates).DisplayName);
++    Assert.Equal(0, store.CommitCalls);
++  }
++
++  [Fact]
++  public async Task ResolveAsync_rejects_missing_candidate_id()
++  {
++    var engine = new ImportEngine(new FakeWorkspaceImportStore());
++    var preview = await engine.BuildPreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            "workspace-1",
++            @"C:\Data\workspace.tww3c",
++            ImportMembershipDestination.ForLibraryOnly()),
++        [ImportCandidate.Unresolved(
++            "candidate-1",
++            ImportSourceReference.SteamWorkshop("123"))],
++        TestContext.Current.CancellationToken);
++
++    var exception = await Assert.ThrowsAsync<ArgumentException>(() => engine.ResolveAsync(
++        preview,
++        ImportCandidate.CreateWithDisplayName(
++            "missing-id",
++            "Resolved Mod",
++            ImportSourceReference.SteamWorkshop("123")),
++        TestContext.Current.CancellationToken));
++
++    Assert.Equal("resolvedCandidate", exception.ParamName);
++  }
++
++  [Fact]
++  public async Task ResolveAsync_rejects_duplicate_candidate_id()
++  {
++    var engine = new ImportEngine(new FakeWorkspaceImportStore());
++    var target = ImportTargetContext.ForCurrentWorkspace(
++        "workspace-1",
++        @"C:\Data\workspace.tww3c",
++        ImportMembershipDestination.ForLibraryOnly());
++    var duplicateCandidate = ImportCandidate.Unresolved(
++        "duplicate-id",
++        ImportSourceReference.SteamWorkshop("123"));
++    var preview = new ImportPreview(
++        target,
++        [duplicateCandidate, duplicateCandidate with { DisplayName = "Other" }],
++        Applied: false);
++
++    var exception = await Assert.ThrowsAsync<ArgumentException>(() => engine.ResolveAsync(
++        preview,
++        ImportCandidate.CreateWithDisplayName(
++            "duplicate-id",
++            "Resolved Mod",
++            ImportSourceReference.SteamWorkshop("123")),
++        TestContext.Current.CancellationToken));
++
++    Assert.Equal("resolvedCandidate", exception.ParamName);
++  }
++
++  [Fact]
++  public async Task CurrentWorkspace_import_accepts_all_membership_destination_variants()
++  {
++    var engine = new ImportEngine(new FakeWorkspaceImportStore());
++    var candidates = new object[] { ImportCandidate.Linked("source-1", "mod-1") };
++
++    var libraryOnly = await engine.BuildPreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            CurrentWorkspaceId,
++            CurrentWorkspacePath,
++            ImportMembershipDestination.ForLibraryOnly()),
++        candidates,
++        TestContext.Current.CancellationToken);
++    Assert.NotNull(libraryOnly);
++
++    var existingCollection = await engine.BuildPreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            CurrentWorkspaceId,
++            CurrentWorkspacePath,
++            ImportMembershipDestination.ForExistingCollection("collection-id-123")),
++        candidates,
++        TestContext.Current.CancellationToken);
++    Assert.NotNull(existingCollection);
++
++    var newCollection = await engine.BuildPreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            CurrentWorkspaceId,
++            CurrentWorkspacePath,
++            ImportMembershipDestination.ForNewCollection("Imported Collection")),
++        candidates,
++        TestContext.Current.CancellationToken);
++    Assert.NotNull(newCollection);
++  }
++
++  [Fact]
++  public async Task CurrentWorkspace_import_rejects_blank_collection_uuid_and_display_name()
++  {
++    var engine = new ImportEngine(new FakeWorkspaceImportStore());
++    var candidates = new object[] { ImportCandidate.Linked("source-1", "mod-1") };
++
++    var blankUuid = await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            CurrentWorkspaceId,
++            CurrentWorkspacePath,
++            ImportMembershipDestination.ForExistingCollection("")),
++        candidates,
++        TestContext.Current.CancellationToken));
++    Assert.Equal("targetContext", blankUuid.ParamName);
++
++    var blankDisplayName = await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
++        ImportTargetContext.ForCurrentWorkspace(
++            CurrentWorkspaceId,
++            CurrentWorkspacePath,
++            ImportMembershipDestination.ForNewCollection("")),
++        candidates,
++        TestContext.Current.CancellationToken));
++    Assert.Equal("targetContext", blankDisplayName.ParamName);
+   }
+ 
+   [Fact]
+   public async Task ImportEngine_builds_preview_from_candidates_and_target_context()
+   {
+     var engine = new ImportEngine(new FakeWorkspaceImportStore());
+     var preview = await engine.BuildPreviewAsync(
+         CurrentWorkspaceTarget,
+         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+         TestContext.Current.CancellationToken);
+@@ -80,48 +218,48 @@ public sealed class ImportEngineTests
+   }
+ 
+   [Fact]
+   public async Task Steam_url_normalizes_to_canonical_workshop_identity()
+   {
+     var preview = await new ImportEngine(new FakeWorkspaceImportStore())
+         .BuildPreviewAsync(
+             ImportTargetContext.ForNewWorkspace(
+                 "Workspace",
+                 "C:\\Workspaces\\workspace.tww3c",
+-                "Imported Collection"),
++                ImportMembershipDestination.ForNewCollection("Imported Collection")),
+             [new SteamImportCandidate(
+                 "https://steamcommunity.com/sharedfiles/filedetails/?id=123456789",
+                 "Example Mod")],
+             TestContext.Current.CancellationToken);
+ 
+-    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
++    var candidate = Assert.Single(preview.Candidates);
+     Assert.Equal("123456789", candidate.SourceReference!.ExternalId);
+     Assert.Equal(ImportSourceType.SteamWorkshop, candidate.SourceReference.SourceType);
+   }
+ 
+   [Fact]
+   public async Task Source_neutral_markdown_has_preview_identity_but_no_source_reference()
+   {
+     var preview = await new ImportEngine(new FakeWorkspaceImportStore())
+         .BuildPreviewAsync(
+             ImportTargetContext.ForNewWorkspace(
+                 "Workspace",
+                 "C:\\Workspaces\\workspace.tww3c",
+-                "Imported Collection"),
++                ImportMembershipDestination.ForNewCollection("Imported Collection")),
+             [new MarkdownImportCandidate(
+                 ImportCandidateKind.Candidate,
+                 "Local Mod",
+                 "Local Mod",
+                 SourceLine: 7)],
+             TestContext.Current.CancellationToken);
+ 
+-    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
++    var candidate = Assert.Single(preview.Candidates);
+     Assert.Equal("markdown:7", candidate.CandidateId);
+     Assert.Null(candidate.SourceReference);
+   }
+ 
+   [Fact]
+   public async Task Conflicting_source_owner_blocks_apply_in_preview()
+   {
+     var store = new FakeWorkspaceImportStore
+     {
+       ExistingCandidates =
+@@ -131,21 +269,21 @@ public sealed class ImportEngineTests
+             "existing-mod",
+             ImportSourceReference.SteamWorkshop("123"))
+       ]
+     };
+     var engine = new ImportEngine(store);
+ 
+     var preview = await engine.BuildPreviewAsync(
+         ImportTargetContext.ForCurrentWorkspace(
+             "12345678-1234-4abc-8def-1234567890ab",
+             "C:\\Workspaces\\workspace.tww3c",
+-            "22345678-1234-4abc-8def-1234567890ab"),
++            ImportMembershipDestination.ForExistingCollection("22345678-1234-4abc-8def-1234567890ab")),
+         [ImportCandidate.Linked(
+             "incoming:123",
+             "different-mod",
+             ImportSourceReference.SteamWorkshop("123"))],
+         TestContext.Current.CancellationToken);
+ 
+     Assert.Contains(
+         preview.ValidationIssues!,
+         issue => issue.Code == "import.source.owner.conflict");
+     await Assert.ThrowsAsync<InvalidOperationException>(
+@@ -176,29 +314,39 @@ public sealed class ImportEngineTests
+     var engine = new ImportEngine(store);
+     var target = NewWorkspaceTarget;
+ 
+     var preview = await engine.BuildPreviewAsync(
+         target,
+         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+         TestContext.Current.CancellationToken);
+ 
+     Assert.Equal(NewWorkspaceDisplayName, preview.TargetContext is ImportTargetContext.NewWorkspace newTarget ? newTarget.DisplayName : "");
+     await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
+-        ImportTargetContext.ForNewWorkspace("", NewWorkspacePath, NewWorkspaceCollection),
++        ImportTargetContext.ForNewWorkspace("", NewWorkspacePath, NewWorkspaceMembership),
+         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+         TestContext.Current.CancellationToken));
+     await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
+-        ImportTargetContext.ForNewWorkspace(NewWorkspaceDisplayName, "", NewWorkspaceCollection),
++        ImportTargetContext.ForNewWorkspace(NewWorkspaceDisplayName, "", NewWorkspaceMembership),
+         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+         TestContext.Current.CancellationToken));
+     await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
+-        ImportTargetContext.ForNewWorkspace(NewWorkspaceDisplayName, NewWorkspacePath, ""),
++        ImportTargetContext.ForNewWorkspace(
++            NewWorkspaceDisplayName,
++            NewWorkspacePath,
++            ImportMembershipDestination.ForNewCollection("")),
++        new object[] { ImportCandidate.Linked("source-1", "mod-1") },
++        TestContext.Current.CancellationToken));
++    await Assert.ThrowsAsync<ArgumentException>(() => engine.BuildPreviewAsync(
++        ImportTargetContext.ForNewWorkspace(
++            NewWorkspaceDisplayName,
++            NewWorkspacePath,
++            ImportMembershipDestination.ForExistingCollection("collection-1")),
+         new object[] { ImportCandidate.Linked("source-1", "mod-1") },
+         TestContext.Current.CancellationToken));
+   }
+ 
+   [Fact]
+   public async Task NewWorkspace_import_applies_into_the_new_workspace()
+   {
+     var store = new FakeWorkspaceImportStore();
+     var engine = new ImportEngine(store);
+     var target = NewWorkspaceTarget;
+@@ -276,39 +424,39 @@ public sealed class ImportEngineTests
+             ImportSourceReference.SteamWorkshop("123"))
+       ]
+     };
+     var engine = new ImportEngine(store);
+ 
+     var preview = await engine.BuildPreviewAsync(
+         CurrentWorkspaceTarget,
+         new object[] { new SteamImportCandidate("123", "Imported mod") },
+         TestContext.Current.CancellationToken);
+ 
+-    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
++    var candidate = Assert.Single(preview.Candidates);
+     Assert.Equal("matched-mod-1", candidate.LinkedModId);
+   }
+ 
+   [Fact]
+   public async Task ImportEngine_suggests_a_unique_display_name_match_without_linking_it()
+   {
+     var store = new FakeWorkspaceImportStore
+     {
+       ExistingCandidates = [ImportCandidate.Linked("existing-source-1", "existing-mod-1") with { DisplayName = "Existing Mod" }]
+     };
+     var engine = new ImportEngine(store);
+ 
+     var preview = await engine.BuildPreviewAsync(
+         CurrentWorkspaceTarget,
+         new object[] { ImportCandidate.CreateWithDisplayName("source-1", "existing mod") },
+         TestContext.Current.CancellationToken);
+ 
+-    var candidate = Assert.IsType<ImportCandidate>(Assert.Single(preview.Candidates));
++    var candidate = Assert.Single(preview.Candidates);
+     Assert.Null(candidate.LinkedModId);
+     Assert.Equal("existing-mod-1", candidate.SuggestedModId);
+   }
+ 
+   [Fact]
+   public async Task CurrentWorkspace_import_requires_all_required_resolutions()
+   {
+     var store = new FakeWorkspaceImportStore();
+     var engine = new ImportEngine(store);
+     var target = CurrentWorkspaceTarget;
+@@ -411,41 +559,50 @@ public sealed class ImportEngineTests
+             targetContext,
+             candidates,
+             Applied: false,
+             Resolutions: resolutions,
+             ValidationIssues: []));
+ 
+     public bool CommitAtomicallyCalled { get; private set; }
+ 
+     public bool CommitNewWorkspaceAtomicallyCalled { get; private set; }
+ 
++    public int CommitCalls =>
++        (CommitAtomicallyCalled ? 1 : 0) + (CommitNewWorkspaceAtomicallyCalled ? 1 : 0);
++
+     public Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
+         ImportPreview preview,
+         CancellationToken cancellationToken = default)
+     {
+       CommitNewWorkspaceAtomicallyCalled = true;
+       if (CommitFailure is not null)
+       {
+         AtomicRollbackCalled = true;
+         throw CommitFailure;
+       }
+ 
+       CommittedPreview = preview;
+       var newWorkspace = (ImportTargetContext.CurrentWorkspace)ImportTargetContext.ForCurrentWorkspace(
+           "new-workspace-id",
+           "C:\\Workspaces\\new.tww3c",
+-          "new-collection-id");
+-      return Task.FromResult(new ImportOutcome(newWorkspace, preview.Candidates, Applied: true));
++          ImportMembershipDestination.ForExistingCollection("new-collection-id"));
++      return Task.FromResult(new ImportOutcome(
++          newWorkspace,
++          preview.Candidates.Cast<object>().ToArray(),
++          Applied: true));
+     }
+ 
+     public Task<ImportOutcome> CommitAtomicallyAsync(
+         ImportPreview preview,
+         bool confirm,
+         CancellationToken cancellationToken = default)
+     {
+       CommitAtomicallyCalled = true;
+       if (CommitFailure is not null) throw CommitFailure;
+       CommittedPreview = preview;
+-      return Task.FromResult(new ImportOutcome(preview.TargetContext, preview.Candidates, confirm));
++      return Task.FromResult(new ImportOutcome(
++          preview.TargetContext,
++          preview.Candidates.Cast<object>().ToArray(),
++          confirm));
+     }
+   }
+ }

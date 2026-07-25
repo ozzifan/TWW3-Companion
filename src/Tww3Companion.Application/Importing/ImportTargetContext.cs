@@ -9,22 +9,22 @@ public abstract record ImportTargetContext
   public sealed record NewWorkspace(
       string DisplayName,
       string DestinationPath,
-      string CollectionDisplayName) : ImportTargetContext;
+      ImportMembershipDestination MembershipDestination) : ImportTargetContext;
 
   public sealed record CurrentWorkspace(
       string WorkspaceId,
       string WorkspacePath,
-      string CollectionId) : ImportTargetContext;
+      ImportMembershipDestination MembershipDestination) : ImportTargetContext;
 
   public static ImportTargetContext ForNewWorkspace(
       string displayName,
       string destinationPath,
-      string collectionDisplayName) =>
-      new NewWorkspace(displayName, destinationPath, collectionDisplayName);
+      ImportMembershipDestination membershipDestination) =>
+      new NewWorkspace(displayName, destinationPath, membershipDestination);
 
   public static ImportTargetContext ForCurrentWorkspace(
       string workspaceId,
       string workspacePath,
-      string collectionId) =>
-      new CurrentWorkspace(workspaceId, workspacePath, collectionId);
+      ImportMembershipDestination membershipDestination) =>
+      new CurrentWorkspace(workspaceId, workspacePath, membershipDestination);
 }

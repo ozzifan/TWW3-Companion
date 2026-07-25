@@ -10,12 +10,15 @@ Import/export adapters translate external representations into the internal doma
 
 ---
 
-## Import Sources (Planned)
+## Import Sources (v0.1)
 
-| Source | Milestone | Description |
-|--------|-----------|-------------|
-| Informal Markdown notes | v0.1 | Headings, lists, Workshop links/IDs, names, and attached prose without a mandatory template |
-| Steam Workshop IDs | v0.1 | Pasted or file-based IDs and supported Workshop URLs |
+| Source | Description |
+|--------|-------------|
+| Informal Markdown notes | Headings, lists, Workshop links/IDs, names, and attached prose without a mandatory template; paste or file |
+| Steam Collection | One numeric collection ID or supported URL; expands to member Workshop IDs after explicit metadata request |
+| Steam items | One or more Workshop IDs or URLs; paste or file |
+
+Import source and import destination are independent. A Steam Collection source does not require a Collection destination.
 
 Optional future sources (workshop metadata API, other tools' exports) belong in [future.md](future.md) until RFC-approved.
 
@@ -43,7 +46,18 @@ Live SQLite Workspace files are not a supported cross-machine synchronisation fo
 
 ## Import Pipeline
 
+Desktop import task:
+
+```text
+Source
+→ Destination
+→ Preview and resolve
+→ Confirm and Apply
 ```
+
+Engine pipeline (no persistence before Apply):
+
+```text
 Input
 → source adapter
 → candidates
@@ -55,6 +69,20 @@ Input
 → domain validation
 → one atomic transaction
 ```
+
+### Import destinations
+
+Every confirmed import targets a Workspace and an explicit membership destination:
+
+| Destination | New Workspace | Current Workspace |
+|-------------|---------------|-------------------|
+| Mod Library only | Yes | Yes |
+| Existing Collection | No | Yes |
+| New Collection | Yes | Yes |
+
+The prior mandatory-Collection import rule is superseded. `ImportTargetContext` carries `LibraryOnly`, `ExistingCollection(collectionId)`, or `NewCollection(displayName)` instead of an unconditional target Collection.
+
+Library-only commits create or enrich Mods and Source References only. Collection-targeted commits perform the same library work and additionally create or verify the target Collection and append new Memberships in source order without removing, reordering, replacing, or synchronising existing Memberships.
 
 Each adapter:
 
@@ -69,7 +97,9 @@ Imports are additive-only: omission never removes a Membership or Mod. Headings 
 
 Blank fields may be enriched after preview. Distinct imported notes append with source document name, date, and source lines. Scalar conflicts require an explicit choice. Failed validation or persistence rolls back the entire confirmed import.
 
-Workshop metadata enrichment is optional and user-initiated. Network failure never prevents importing a valid identity, although every new Mod still requires a user-entered or explicitly accepted display name.
+Workshop metadata enrichment is optional and user-initiated. The UI discloses which Workshop IDs will be requested when the user continues from Source (local parse only, no network). Metadata is fetched when the user continues from Destination. Partial metadata failure surfaces as diagnostics; valid identities remain importable and every new Mod still requires a user-entered or explicitly accepted display name.
+
+Preview construction and user resolution perform no persistence. Warnings are counted as warnings remaining, not as accepted outcomes. Failed Apply retains the preview and resolution state; successful Apply reloads the Workspace library.
 
 ---
 

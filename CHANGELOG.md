@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Complete import workspace UI: Source, Destination, Preview/Resolve, and Confirm/Apply stages with library-only, existing-Collection, and new-Collection destinations; Steam metadata disclosure before network requests; and successful Workspace reload after Apply
 - Markdown import slice: adapter, parser, preview, and apply flow
 - Workshop ID import slice: collection and single-item import support with metadata enrichment
 - Shared import engine: normalisation, matching, preview, validation, and atomic persistence

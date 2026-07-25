@@ -11,6 +11,11 @@ public interface IWorkspaceImportStore
       string modId,
       CancellationToken cancellationToken = default);
 
+  Task<IReadOnlySet<string>> ReadCollectionMemberModIdsAsync(
+      ImportTargetContext.CurrentWorkspace targetContext,
+      string collectionId,
+      CancellationToken cancellationToken = default);
+
   // The implementation owns rollback and must not let caller cancellation prevent cleanup.
   Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
       ImportPreview preview,

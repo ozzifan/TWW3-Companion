@@ -1,0 +1,2461 @@
+BASE: 370477f0cffd520098b1f4367fec7dee2767fe62
+HEAD: c7ba0550216ef493990a4c232ca0a62b18f7eb12
+
+## Commits
+
+c7ba055 fix: retain import resolutions across fingerprint rebuilds
+463f77a feat: add staged import task view models
+
+## Stat
+
+ .../ViewModels/ImportConfirmationViewModel.cs      |  62 ++++
+ .../ViewModels/ImportDestinationViewModel.cs       | 279 +++++++++++++++
+ .../ViewModels/ImportPreviewResolutionRetention.cs | 250 +++++++++++++
+ .../ViewModels/ImportPreviewViewModel.cs           | 265 ++++++++++++++
+ .../ViewModels/ImportResolutionViewModel.cs        | 202 +++++++++++
+ .../ViewModels/ImportSourceViewModel.cs            | 175 ++++++++++
+ .../ViewModels/ImportTaskModels.cs                 |  48 +++
+ .../ViewModels/ImportWorkspaceViewModel.cs         | 266 ++++++++++++++
+ .../ViewModels/ViewModelCommand.cs                 |  28 ++
+ .../ViewModels/ImportPreviewViewModelTests.cs      | 132 +++++++
+ .../ViewModels/ImportResolutionViewModelTests.cs   | 257 ++++++++++++++
+ .../ViewModels/ImportWorkspaceViewModelTests.cs    | 388 +++++++++++++++++++++
+ 12 files changed, 2352 insertions(+)
+
+## Diff
+
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportConfirmationViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportConfirmationViewModel.cs
+new file mode 100644
+index 0000000..72a2662
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportConfirmationViewModel.cs
+@@ -0,0 +1,62 @@
++namespace Tww3Companion.Desktop.ViewModels;
++
++public sealed class ImportConfirmationViewModel : ViewModelBase
++{
++  private ImportConfirmationSummary? summary;
++  private bool isFinalizing;
++  private Func<Task>? applyHandler;
++
++  public ImportConfirmationSummary? Summary
++  {
++    get => summary;
++    private set
++    {
++      summary = value;
++      OnPropertyChanged();
++    }
++  }
++
++  public bool IsFinalizing
++  {
++    get => isFinalizing;
++    internal set
++    {
++      if (isFinalizing == value)
++      {
++        return;
++      }
++
++      isFinalizing = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanApply));
++      ApplyCommand.RaiseCanExecuteChanged();
++    }
++  }
++
++  public bool CanApply => Summary is not null && !IsFinalizing;
++
++  public ViewModelCommand ApplyCommand { get; }
++
++  public ImportConfirmationViewModel()
++  {
++    ApplyCommand = new ViewModelCommand(
++        () => _ = ApplyAsync(),
++        () => CanApply);
++  }
++
++  internal void SetSummary(ImportConfirmationSummary value) => Summary = value;
++
++  internal void ClearSummary() => Summary = null;
++
++  internal void SetApplyHandler(Func<Task> handler) => applyHandler = handler;
++
++  private async Task ApplyAsync()
++  {
++    if (!CanApply || applyHandler is null)
++    {
++      return;
++    }
++
++    await applyHandler();
++  }
++}
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportDestinationViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportDestinationViewModel.cs
+new file mode 100644
+index 0000000..72b53b3
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportDestinationViewModel.cs
+@@ -0,0 +1,279 @@
++using Tww3Companion.Application.Importing;
++
++namespace Tww3Companion.Desktop.ViewModels;
++
++public sealed class ImportDestinationViewModel : ViewModelBase
++{
++  private readonly ImportLaunchContext launchContext;
++  private string workspaceDisplayName = "Imported Workspace";
++  private string workspacePath = string.Empty;
++  private string? selectedCollectionId;
++  private string newCollectionName = "Imported Collection";
++  private bool isLibraryOnly;
++  private bool isExistingCollection;
++  private bool isNewCollection;
++  private bool destinationInitialized;
++  private bool userSelectedDestination;
++
++  public ImportDestinationViewModel(ImportLaunchContext launchContext)
++  {
++    this.launchContext = launchContext ?? throw new ArgumentNullException(nameof(launchContext));
++    workspacePath = launchContext.WorkspacePath ?? string.Empty;
++  }
++
++  public bool ShowsWorkspaceDetails => launchContext.IsNewWorkspace;
++
++  public bool HasExistingCollectionOption => !launchContext.IsNewWorkspace;
++
++  public IReadOnlyList<CollectionSummary> Collections => launchContext.Collections;
++
++  public string WorkspaceDisplayName
++  {
++    get => workspaceDisplayName;
++    set
++    {
++      if (string.Equals(workspaceDisplayName, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      workspaceDisplayName = value ?? string.Empty;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++    }
++  }
++
++  public string WorkspacePath
++  {
++    get => workspacePath;
++    set
++    {
++      if (string.Equals(workspacePath, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      workspacePath = value ?? string.Empty;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++    }
++  }
++
++  public string? SelectedCollectionId
++  {
++    get => selectedCollectionId;
++    private set
++    {
++      if (string.Equals(selectedCollectionId, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      selectedCollectionId = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++    }
++  }
++
++  public string NewCollectionName
++  {
++    get => newCollectionName;
++    set
++    {
++      if (string.Equals(newCollectionName, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      newCollectionName = value ?? string.Empty;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++    }
++  }
++
++  public bool IsLibraryOnly
++  {
++    get => isLibraryOnly;
++    private set
++    {
++      if (isLibraryOnly == value)
++      {
++        return;
++      }
++
++      isLibraryOnly = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++    }
++  }
++
++  public bool IsExistingCollection
++  {
++    get => isExistingCollection;
++    private set
++    {
++      if (isExistingCollection == value)
++      {
++        return;
++      }
++
++      isExistingCollection = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++    }
++  }
++
++  public bool IsNewCollection
++  {
++    get => isNewCollection;
++    private set
++    {
++      if (isNewCollection == value)
++      {
++        return;
++      }
++
++      isNewCollection = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++    }
++  }
++
++  public bool CanContinue =>
++      launchContext.IsNewWorkspace
++          ? !string.IsNullOrWhiteSpace(WorkspaceDisplayName) &&
++            !string.IsNullOrWhiteSpace(WorkspacePath) &&
++            HasValidMembershipSelection()
++          : HasValidMembershipSelection();
++
++  internal void InitializeSuggestion(ImportSourceKind sourceKind)
++  {
++    if (destinationInitialized)
++    {
++      return;
++    }
++
++    destinationInitialized = true;
++
++    if (!string.IsNullOrWhiteSpace(launchContext.SelectedCollectionId) && HasExistingCollectionOption)
++    {
++      SelectExistingCollection(launchContext.SelectedCollectionId, isSuggestion: true);
++      return;
++    }
++
++    if (sourceKind == ImportSourceKind.SteamCollection)
++    {
++      SelectNewCollection(NewCollectionName, isSuggestion: true);
++    }
++  }
++
++  internal void SelectLibraryOnly()
++  {
++    userSelectedDestination = true;
++    IsLibraryOnly = true;
++    IsExistingCollection = false;
++    IsNewCollection = false;
++    SelectedCollectionId = null;
++  }
++
++  internal void SelectExistingCollection(string collectionId, bool isSuggestion = false)
++  {
++    if (!HasExistingCollectionOption)
++    {
++      return;
++    }
++
++    if (!isSuggestion)
++    {
++      userSelectedDestination = true;
++    }
++
++    IsLibraryOnly = false;
++    IsExistingCollection = true;
++    IsNewCollection = false;
++    SelectedCollectionId = collectionId;
++  }
++
++  internal void SelectNewCollection(string? displayName = null, bool isSuggestion = false)
++  {
++    if (!isSuggestion)
++    {
++      userSelectedDestination = true;
++    }
++
++    if (!string.IsNullOrWhiteSpace(displayName))
++    {
++      NewCollectionName = displayName;
++    }
++
++    IsLibraryOnly = false;
++    IsExistingCollection = false;
++    IsNewCollection = true;
++    SelectedCollectionId = null;
++  }
++
++  internal void ApplySuggestionIfNeeded(ImportSourceKind sourceKind)
++  {
++    if (userSelectedDestination)
++    {
++      return;
++    }
++
++    InitializeSuggestion(sourceKind);
++  }
++
++  public ImportMembershipDestination BuildMembershipDestination()
++  {
++    if (IsLibraryOnly)
++    {
++      return ImportMembershipDestination.ForLibraryOnly();
++    }
++
++    if (IsExistingCollection)
++    {
++      return ImportMembershipDestination.ForExistingCollection(SelectedCollectionId ?? string.Empty);
++    }
++
++    if (IsNewCollection)
++    {
++      return ImportMembershipDestination.ForNewCollection(NewCollectionName);
++    }
++
++    throw new InvalidOperationException("A destination membership choice is required.");
++  }
++
++  public ImportTargetContext BuildTargetContext()
++  {
++    var membershipDestination = BuildMembershipDestination();
++    return launchContext.IsNewWorkspace
++        ? ImportTargetContext.ForNewWorkspace(
++            WorkspaceDisplayName,
++            WorkspacePath,
++            membershipDestination)
++        : ImportTargetContext.ForCurrentWorkspace(
++            launchContext.WorkspaceId ?? string.Empty,
++            launchContext.WorkspacePath ?? string.Empty,
++            membershipDestination);
++  }
++
++  private bool HasValidMembershipSelection()
++  {
++    if (IsLibraryOnly)
++    {
++      return true;
++    }
++
++    if (IsExistingCollection)
++    {
++      return HasExistingCollectionOption &&
++             !string.IsNullOrWhiteSpace(SelectedCollectionId);
++    }
++
++    if (IsNewCollection)
++    {
++      return !string.IsNullOrWhiteSpace(NewCollectionName);
++    }
++
++    return false;
++  }
++}
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportPreviewResolutionRetention.cs b/src/Tww3Companion.Desktop/ViewModels/ImportPreviewResolutionRetention.cs
+new file mode 100644
+index 0000000..cf547d1
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportPreviewResolutionRetention.cs
+@@ -0,0 +1,250 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++
++namespace Tww3Companion.Desktop.ViewModels;
++
++internal static class ImportPreviewResolutionRetention
++{
++  public static async Task<ImportPreview> MergeAsync(
++      ImportPreview freshPreview,
++      ImportPreview priorPreview,
++      IReadOnlyList<object> priorSourceCandidates,
++      IReadOnlyList<object> freshSourceCandidates,
++      IImportTaskCoordinator coordinator,
++      CancellationToken cancellationToken)
++  {
++    ArgumentNullException.ThrowIfNull(freshPreview);
++    ArgumentNullException.ThrowIfNull(priorPreview);
++    ArgumentNullException.ThrowIfNull(priorSourceCandidates);
++    ArgumentNullException.ThrowIfNull(freshSourceCandidates);
++    ArgumentNullException.ThrowIfNull(coordinator);
++
++    var preview = freshPreview;
++    var freshIssues = preview.ValidationIssues ?? [];
++
++    foreach (var priorCandidate in priorPreview.Candidates)
++    {
++      var freshCandidate = preview.Candidates.FirstOrDefault(candidate =>
++          CandidateIdentityMatches(candidate, priorCandidate));
++      if (freshCandidate is null)
++      {
++        continue;
++      }
++
++      if (!SourceCandidateIdentityUnchanged(
++              priorCandidate,
++              priorSourceCandidates,
++              freshSourceCandidates))
++      {
++        continue;
++      }
++
++      var freshOperation = GetOperation(preview, freshCandidate.CandidateId);
++      if (freshOperation is null ||
++          !IsMoreResolved(priorCandidate, freshCandidate, freshOperation, freshIssues) ||
++          !AvailableChoicesUnchanged(priorCandidate, freshOperation))
++      {
++        continue;
++      }
++
++      var retained = priorCandidate with { CandidateId = freshCandidate.CandidateId };
++      preview = await coordinator.ResolveAsync(preview, retained, cancellationToken);
++      freshIssues = preview.ValidationIssues ?? [];
++    }
++
++    return preview;
++  }
++
++  private static bool IsMoreResolved(
++      ImportCandidate prior,
++      ImportCandidate fresh,
++      ImportPreviewOperation freshOperation,
++      IReadOnlyList<ImportValidationIssue> freshIssues)
++  {
++    if (prior.IsSkipped && !fresh.IsSkipped)
++    {
++      return true;
++    }
++
++    if (!string.IsNullOrWhiteSpace(prior.LinkedModId) &&
++        string.IsNullOrWhiteSpace(fresh.LinkedModId) &&
++        ImportPreviewRules.IsBlocking(fresh, freshOperation, freshIssues))
++    {
++      return true;
++    }
++
++    if (!string.IsNullOrWhiteSpace(prior.DisplayName) &&
++        string.IsNullOrWhiteSpace(fresh.LinkedModId) &&
++        ImportPreviewRules.IsBlocking(fresh, freshOperation, freshIssues) &&
++        (string.IsNullOrWhiteSpace(fresh.DisplayName) ||
++         !string.Equals(prior.DisplayName, fresh.DisplayName, StringComparison.Ordinal)))
++    {
++      return true;
++    }
++
++    return false;
++  }
++
++  private static bool AvailableChoicesUnchanged(
++      ImportCandidate retainedResolution,
++      ImportPreviewOperation freshOperation)
++  {
++    if (retainedResolution.IsSkipped)
++    {
++      return true;
++    }
++
++    if (!string.IsNullOrWhiteSpace(retainedResolution.LinkedModId))
++    {
++      if (freshOperation.Issues.Any(issue =>
++              string.Equals(issue.Code, "import.source.owner.conflict", StringComparison.Ordinal)))
++      {
++        return string.Equals(
++            ExtractOwnerModId(freshOperation.Issues),
++            retainedResolution.LinkedModId,
++            StringComparison.Ordinal);
++      }
++
++      if (freshOperation.LibraryAction == ImportLibraryAction.SuggestedMatch)
++      {
++        return string.Equals(
++            retainedResolution.LinkedModId,
++            retainedResolution.SuggestedModId,
++            StringComparison.Ordinal);
++      }
++
++      return false;
++    }
++
++    if (!string.IsNullOrWhiteSpace(retainedResolution.DisplayName))
++    {
++      if (freshOperation.Issues.Any(issue =>
++              string.Equals(issue.Code, "import.scalar.conflict", StringComparison.Ordinal)))
++      {
++        return ParseCompetingValues(freshOperation.Issues)
++            .Contains(retainedResolution.DisplayName, StringComparer.Ordinal);
++      }
++
++      return freshOperation.LibraryAction is ImportLibraryAction.Create or ImportLibraryAction.Conflict;
++    }
++
++    return false;
++  }
++
++  private static bool CandidateIdentityMatches(ImportCandidate left, ImportCandidate right) =>
++      string.Equals(left.CandidateId, right.CandidateId, StringComparison.Ordinal) &&
++      SourceReferenceEquals(left.SourceReference, right.SourceReference);
++
++  private static bool SourceCandidateIdentityUnchanged(
++      ImportCandidate previewCandidate,
++      IReadOnlyList<object> priorSourceCandidates,
++      IReadOnlyList<object> freshSourceCandidates)
++  {
++    if (previewCandidate.SourceReference is null)
++    {
++      return false;
++    }
++
++    var key = SourceReferenceKey(previewCandidate.SourceReference);
++    return priorSourceCandidates.Any(candidate => SourceCandidateKey(candidate) == key) &&
++        freshSourceCandidates.Any(candidate => SourceCandidateKey(candidate) == key);
++  }
++
++  private static bool SourceReferenceEquals(
++      ImportSourceReference? left,
++      ImportSourceReference? right)
++  {
++    if (left is null || right is null)
++    {
++      return left is null && right is null;
++    }
++
++    return left.SourceType == right.SourceType &&
++        string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
++  }
++
++  private static string SourceReferenceKey(ImportSourceReference sourceReference) =>
++      $"{sourceReference.SourceType}:{sourceReference.ExternalId}";
++
++  private static string SourceCandidateKey(object candidate) =>
++      candidate switch
++      {
++        SteamImportCandidate steamCandidate when TryGetWorkshopItemId(
++            steamCandidate.SourceReference,
++            out var workshopItemId) =>
++            $"{ImportSourceType.SteamWorkshop}:{workshopItemId}",
++        ImportCandidate importCandidate when importCandidate.SourceReference is not null =>
++            SourceReferenceKey(importCandidate.SourceReference),
++        MarkdownImportCandidate
++        {
++          SourceReference: { } sourceReference
++        } markdownCandidate =>
++            $"{ImportSourceType.SteamWorkshop}:{sourceReference.WorkshopId}:markdown:{markdownCandidate.SourceLine}",
++        _ => candidate.GetType().FullName ?? candidate.ToString() ?? string.Empty
++      };
++
++  private static bool TryGetWorkshopItemId(string sourceReference, out string workshopItemId)
++  {
++    if (sourceReference.Length > 0 && sourceReference.All(char.IsAsciiDigit))
++    {
++      workshopItemId = sourceReference;
++      return true;
++    }
++
++    if (Uri.TryCreate(sourceReference, UriKind.Absolute, out var uri) &&
++        (uri.Host.Equals("steamcommunity.com", StringComparison.OrdinalIgnoreCase) ||
++         uri.Host.Equals("www.steamcommunity.com", StringComparison.OrdinalIgnoreCase)) &&
++        (uri.AbsolutePath.Equals("/sharedfiles/filedetails/", StringComparison.OrdinalIgnoreCase) ||
++         uri.AbsolutePath.Equals("/sharedfiles/filedetails", StringComparison.OrdinalIgnoreCase)))
++    {
++      var id = uri.Query.TrimStart('?').Split('&')
++          .Select(parameter => parameter.Split('=', 2))
++          .FirstOrDefault(parameter => parameter.Length == 2 && parameter[0].Equals("id", StringComparison.OrdinalIgnoreCase))?[1];
++      if (!string.IsNullOrWhiteSpace(id) && id.All(char.IsAsciiDigit))
++      {
++        workshopItemId = id;
++        return true;
++      }
++    }
++
++    workshopItemId = string.Empty;
++    return false;
++  }
++
++  private static ImportPreviewOperation? GetOperation(ImportPreview preview, string candidateId) =>
++      (preview.Operations ?? []).FirstOrDefault(operation =>
++          string.Equals(operation.CandidateId, candidateId, StringComparison.Ordinal));
++
++  private static string? ExtractOwnerModId(IReadOnlyList<ImportValidationIssue> issues)
++  {
++    var issue = issues.FirstOrDefault(candidateIssue =>
++        string.Equals(candidateIssue.Code, "import.source.owner.conflict", StringComparison.Ordinal));
++    if (issue is null)
++    {
++      return null;
++    }
++
++    const string marker = "Mod ";
++    var index = issue.Message.LastIndexOf(marker, StringComparison.Ordinal);
++    if (index < 0)
++    {
++      return null;
++    }
++
++    var ownerModId = issue.Message[(index + marker.Length)..].Trim().TrimEnd('.');
++    return string.IsNullOrWhiteSpace(ownerModId) ? null : ownerModId;
++  }
++
++  private static IReadOnlyList<string> ParseCompetingValues(IReadOnlyList<ImportValidationIssue> issues)
++  {
++    var issue = issues.FirstOrDefault(candidateIssue =>
++        string.Equals(candidateIssue.Code, "import.scalar.conflict", StringComparison.Ordinal));
++    if (issue is null || string.IsNullOrWhiteSpace(issue.Message))
++    {
++      return [];
++    }
++
++    return issue.Message
++        .Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
++  }
++}
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportPreviewViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportPreviewViewModel.cs
+new file mode 100644
+index 0000000..070476c
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportPreviewViewModel.cs
+@@ -0,0 +1,265 @@
++using System.Collections.ObjectModel;
++using System.Security.Cryptography;
++using System.Text;
++using Tww3Companion.Application.Importing;
++
++namespace Tww3Companion.Desktop.ViewModels;
++
++public sealed class ImportPreviewRowViewModel
++{
++  internal ImportPreviewRowViewModel(
++      ImportCandidate candidate,
++      ImportPreviewOperation operation,
++      IReadOnlyList<ImportValidationIssue> validationIssues)
++  {
++    Candidate = candidate;
++    Operation = operation;
++    CandidateId = candidate.CandidateId;
++    DisplayName = candidate.DisplayName
++        ?? candidate.LinkedModId
++        ?? candidate.CandidateId;
++    LibraryAction = operation.LibraryAction;
++    MembershipAction = operation.MembershipAction;
++    HasWarning = validationIssues.Any(issue =>
++        string.Equals(issue.CandidateId, candidate.CandidateId, StringComparison.Ordinal) &&
++        issue.Code.Contains("warning", StringComparison.OrdinalIgnoreCase));
++    IsBlocking = ImportPreviewRules.IsBlocking(candidate, operation, validationIssues);
++    IsSkipped = candidate.IsSkipped || operation.LibraryAction == ImportLibraryAction.Skip;
++  }
++
++  internal ImportCandidate Candidate { get; }
++
++  internal ImportPreviewOperation Operation { get; }
++
++  public string CandidateId { get; }
++
++  public string DisplayName { get; }
++
++  public ImportLibraryAction LibraryAction { get; }
++
++  public ImportMembershipAction MembershipAction { get; }
++
++  public bool HasWarning { get; }
++
++  public bool IsBlocking { get; }
++
++  public bool IsSkipped { get; }
++}
++
++public sealed class ImportPreviewViewModel : ViewModelBase
++{
++  private ImportPreview? preview;
++  private ImportPreviewFilter selectedFilter = ImportPreviewFilter.All;
++  private readonly ObservableCollection<ImportPreviewRowViewModel> rows = [];
++
++  public ImportPreview? Preview => preview;
++
++  public IReadOnlyList<ImportPreviewRowViewModel> Rows => rows;
++
++  public ImportPreviewFilter SelectedFilter
++  {
++    get => selectedFilter;
++    set
++    {
++      if (selectedFilter == value)
++      {
++        return;
++      }
++
++      selectedFilter = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(FilteredRows));
++    }
++  }
++
++  public IReadOnlyList<ImportPreviewRowViewModel> FilteredRows =>
++      rows.Where(MatchesSelectedFilter).ToArray();
++
++  public bool CanContinue =>
++      preview is not null &&
++      rows.All(row => !row.IsBlocking);
++
++  internal event Action<ImportPreview>? Loaded;
++
++  public void Load(ImportPreview value)
++  {
++    preview = value;
++    rows.Clear();
++
++    var operations = value.Operations ?? [];
++    var validationIssues = value.ValidationIssues ?? [];
++    var operationsById = operations.ToDictionary(
++        operation => operation.CandidateId,
++        StringComparer.Ordinal);
++
++    foreach (var candidate in value.Candidates)
++    {
++      if (!operationsById.TryGetValue(candidate.CandidateId, out var operation))
++      {
++        operation = new ImportPreviewOperation(
++            candidate.CandidateId,
++            ImportPreviewRules.InferLibraryAction(candidate),
++            ImportPreviewRules.InferMembershipAction(candidate, value.TargetContext),
++            []);
++      }
++
++      rows.Add(new ImportPreviewRowViewModel(candidate, operation, validationIssues));
++    }
++
++    OnPropertyChanged(nameof(Preview));
++    OnPropertyChanged(nameof(Rows));
++    OnPropertyChanged(nameof(FilteredRows));
++    OnPropertyChanged(nameof(CanContinue));
++    Loaded?.Invoke(value);
++  }
++
++  public ImportConfirmationSummary BuildConfirmationSummary()
++  {
++    if (preview is null)
++    {
++      return new ImportConfirmationSummary(0, 0, 0, 0, 0, 0, 0, 0);
++    }
++
++    var creates = rows.Count(row => row.LibraryAction == ImportLibraryAction.Create && !row.IsSkipped);
++    var enrichments = rows.Count(row => row.LibraryAction == ImportLibraryAction.Enrich && !row.IsSkipped);
++    var existing = rows.Count(row => row.LibraryAction == ImportLibraryAction.Existing && !row.IsSkipped);
++    var skipped = rows.Count(row => row.IsSkipped);
++    var membershipsAdded = rows.Count(row =>
++        !row.IsSkipped && row.MembershipAction == ImportMembershipAction.Add);
++    var membershipsExisting = rows.Count(row =>
++        !row.IsSkipped && row.MembershipAction == ImportMembershipAction.Existing);
++    var collectionsCreated = preview.TargetContext switch
++    {
++      ImportTargetContext.NewWorkspace { MembershipDestination: ImportMembershipDestination.NewCollection } => 1,
++      ImportTargetContext.CurrentWorkspace { MembershipDestination: ImportMembershipDestination.NewCollection } => 1,
++      _ => 0
++    };
++
++    return new ImportConfirmationSummary(
++        creates,
++        enrichments,
++        existing,
++        collectionsCreated,
++        membershipsAdded,
++        membershipsExisting,
++        skipped,
++        preview.WarningCount);
++  }
++
++  internal ImportPreviewRowViewModel? GetNextBlockingRow(string? afterCandidateId = null)
++  {
++    var blockingRows = rows.Where(row => row.IsBlocking).ToArray();
++    if (blockingRows.Length == 0)
++    {
++      return null;
++    }
++
++    if (string.IsNullOrWhiteSpace(afterCandidateId))
++    {
++      return blockingRows[0];
++    }
++
++    var index = Array.FindIndex(
++        blockingRows,
++        row => string.Equals(row.CandidateId, afterCandidateId, StringComparison.Ordinal));
++    return index >= 0 && index + 1 < blockingRows.Length
++        ? blockingRows[index + 1]
++        : null;
++  }
++
++  internal ImportPreviewRowViewModel? GetActiveBlockingRow() =>
++      rows.FirstOrDefault(row => row.IsBlocking);
++
++  private bool MatchesSelectedFilter(ImportPreviewRowViewModel row) =>
++      selectedFilter switch
++      {
++        ImportPreviewFilter.All => true,
++        ImportPreviewFilter.Additions => row.LibraryAction == ImportLibraryAction.Create,
++        ImportPreviewFilter.Enrichments => row.LibraryAction == ImportLibraryAction.Enrich,
++        ImportPreviewFilter.Existing => row.LibraryAction == ImportLibraryAction.Existing,
++        ImportPreviewFilter.SuggestedMatches => row.LibraryAction == ImportLibraryAction.SuggestedMatch,
++        ImportPreviewFilter.Conflicts =>
++            row.LibraryAction == ImportLibraryAction.Conflict || row.IsBlocking,
++        ImportPreviewFilter.Warnings => row.HasWarning,
++        ImportPreviewFilter.Skipped => row.IsSkipped,
++        _ => true
++      };
++}
++
++internal static class ImportPreviewRules
++{
++  public static bool IsBlocking(
++      ImportCandidate candidate,
++      ImportPreviewOperation operation,
++      IReadOnlyList<ImportValidationIssue> validationIssues)
++  {
++    if (candidate.IsSkipped)
++    {
++      return false;
++    }
++
++    if (validationIssues.Any(issue =>
++            string.Equals(issue.CandidateId, candidate.CandidateId, StringComparison.Ordinal) &&
++            string.Equals(issue.Code, "import.source.owner.conflict", StringComparison.Ordinal)))
++    {
++      return true;
++    }
++
++    if (operation.LibraryAction == ImportLibraryAction.Conflict)
++    {
++      return true;
++    }
++
++    return string.IsNullOrWhiteSpace(candidate.LinkedModId) &&
++        string.IsNullOrWhiteSpace(candidate.DisplayName);
++  }
++
++  public static ImportLibraryAction InferLibraryAction(ImportCandidate candidate)
++  {
++    if (candidate.IsSkipped)
++    {
++      return ImportLibraryAction.Skip;
++    }
++
++    if (!string.IsNullOrWhiteSpace(candidate.LinkedModId))
++    {
++      return ImportLibraryAction.Existing;
++    }
++
++    if (!string.IsNullOrWhiteSpace(candidate.SuggestedModId))
++    {
++      return ImportLibraryAction.SuggestedMatch;
++    }
++
++    return ImportLibraryAction.Create;
++  }
++
++  public static ImportMembershipAction InferMembershipAction(
++      ImportCandidate candidate,
++      ImportTargetContext targetContext)
++  {
++    if (candidate.IsSkipped)
++    {
++      return ImportMembershipAction.Skip;
++    }
++
++    return targetContext switch
++    {
++      ImportTargetContext.NewWorkspace { MembershipDestination: ImportMembershipDestination.LibraryOnly } =>
++          ImportMembershipAction.None,
++      ImportTargetContext.CurrentWorkspace { MembershipDestination: ImportMembershipDestination.LibraryOnly } =>
++          ImportMembershipAction.None,
++      _ => ImportMembershipAction.Add
++    };
++  }
++
++  public static string ComputeSourceDigest(
++      ImportSourceKind kind,
++      string inputText,
++      string? documentName)
++  {
++    var payload = $"{kind}\0{documentName ?? string.Empty}\0{inputText}";
++    var hash = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
++    return Convert.ToHexString(hash);
++  }
++}
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportResolutionViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportResolutionViewModel.cs
+new file mode 100644
+index 0000000..53f6a99
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportResolutionViewModel.cs
+@@ -0,0 +1,202 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++
++namespace Tww3Companion.Desktop.ViewModels;
++
++public sealed class ImportResolutionViewModel : ViewModelBase
++{
++  private readonly IImportTaskCoordinator coordinator;
++  private readonly ImportPreviewViewModel previewViewModel;
++  private ImportPreviewRowViewModel? activeRow;
++  private string? selectedScalarValue;
++
++  public ImportResolutionViewModel(
++      IImportTaskCoordinator coordinator,
++      ImportPreviewViewModel previewViewModel)
++  {
++    this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
++    this.previewViewModel = previewViewModel ?? throw new ArgumentNullException(nameof(previewViewModel));
++    SyncActiveRow();
++  }
++
++  public string? ActiveCandidateId => activeRow?.CandidateId;
++
++  public string? SourceOwnerModId =>
++      activeRow is null ? null : ExtractOwnerModId(activeRow.Operation.Issues);
++
++  public IReadOnlyList<string> CompetingScalarValues =>
++      activeRow is null ? [] : ParseCompetingValues(activeRow.Operation.Issues);
++
++  public string? SelectedScalarValue
++  {
++    get => selectedScalarValue;
++    set
++    {
++      if (string.Equals(selectedScalarValue, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      selectedScalarValue = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanApplyResolution));
++    }
++  }
++
++  public bool CanLinkToOwner =>
++      activeRow is not null &&
++      IsSourceOwnerConflict(activeRow) &&
++      !string.IsNullOrWhiteSpace(SourceOwnerModId);
++
++  public bool CanCreate =>
++      activeRow is not null &&
++      !IsSourceOwnerConflict(activeRow) &&
++      !IsScalarConflict(activeRow);
++
++  public bool CanSkip => activeRow is not null;
++
++  public bool CanChooseScalarValue =>
++      activeRow is not null && IsScalarConflict(activeRow);
++
++  public bool CanApplyResolution =>
++      CanChooseScalarValue && !string.IsNullOrWhiteSpace(SelectedScalarValue);
++
++  internal void SyncActiveRow()
++  {
++    activeRow = previewViewModel.GetActiveBlockingRow();
++    selectedScalarValue = null;
++    OnPropertyChanged(nameof(ActiveCandidateId));
++    OnPropertyChanged(nameof(SourceOwnerModId));
++    OnPropertyChanged(nameof(CompetingScalarValues));
++    OnPropertyChanged(nameof(CanLinkToOwner));
++    OnPropertyChanged(nameof(CanCreate));
++    OnPropertyChanged(nameof(CanSkip));
++    OnPropertyChanged(nameof(CanChooseScalarValue));
++    OnPropertyChanged(nameof(CanApplyResolution));
++  }
++
++  public Task LinkToModAsync(string modId, CancellationToken cancellationToken = default)
++  {
++    if (activeRow is null)
++    {
++      return Task.CompletedTask;
++    }
++
++    var resolved = ImportCandidate.Linked(
++        activeRow.CandidateId,
++        modId,
++        activeRow.Candidate.SourceReference);
++    return ResolveAndAdvanceAsync(resolved, cancellationToken);
++  }
++
++  public Task CreateWithDisplayNameAsync(string displayName, CancellationToken cancellationToken = default)
++  {
++    if (activeRow is null)
++    {
++      return Task.CompletedTask;
++    }
++
++    var resolved = ImportCandidate.CreateWithDisplayName(
++        activeRow.CandidateId,
++        displayName,
++        activeRow.Candidate.SourceReference);
++    return ResolveAndAdvanceAsync(resolved, cancellationToken);
++  }
++
++  public Task SkipAsync(CancellationToken cancellationToken = default)
++  {
++    if (activeRow is null)
++    {
++      return Task.CompletedTask;
++    }
++
++    return ResolveAndAdvanceAsync(
++        ImportCandidate.Skipped(activeRow.CandidateId),
++        cancellationToken);
++  }
++
++  public Task ApplyScalarSelectionAsync(CancellationToken cancellationToken = default)
++  {
++    if (activeRow is null || string.IsNullOrWhiteSpace(SelectedScalarValue))
++    {
++      return Task.CompletedTask;
++    }
++
++    var resolved = ImportCandidate.CreateWithDisplayName(
++        activeRow.CandidateId,
++        SelectedScalarValue,
++        activeRow.Candidate.SourceReference);
++    return ResolveAndAdvanceAsync(resolved, cancellationToken);
++  }
++
++  private async Task ResolveAndAdvanceAsync(
++      ImportCandidate resolvedCandidate,
++      CancellationToken cancellationToken)
++  {
++    if (previewViewModel.Preview is null || activeRow is null)
++    {
++      return;
++    }
++
++    var currentCandidateId = activeRow.CandidateId;
++    var updatedPreview = await coordinator.ResolveAsync(
++        previewViewModel.Preview,
++        resolvedCandidate,
++        cancellationToken);
++
++    previewViewModel.Load(updatedPreview);
++    activeRow = previewViewModel.GetNextBlockingRow(currentCandidateId)
++        ?? previewViewModel.GetActiveBlockingRow();
++    selectedScalarValue = null;
++
++    OnPropertyChanged(nameof(ActiveCandidateId));
++    OnPropertyChanged(nameof(SourceOwnerModId));
++    OnPropertyChanged(nameof(CompetingScalarValues));
++    OnPropertyChanged(nameof(CanLinkToOwner));
++    OnPropertyChanged(nameof(CanCreate));
++    OnPropertyChanged(nameof(CanSkip));
++    OnPropertyChanged(nameof(CanChooseScalarValue));
++    OnPropertyChanged(nameof(CanApplyResolution));
++  }
++
++  private static bool IsSourceOwnerConflict(ImportPreviewRowViewModel row) =>
++      row.Operation.Issues.Any(issue =>
++          string.Equals(issue.Code, "import.source.owner.conflict", StringComparison.Ordinal));
++
++  private static bool IsScalarConflict(ImportPreviewRowViewModel row) =>
++      row.Operation.Issues.Any(issue =>
++          string.Equals(issue.Code, "import.scalar.conflict", StringComparison.Ordinal));
++
++  private static string? ExtractOwnerModId(IReadOnlyList<ImportValidationIssue> issues)
++  {
++    var issue = issues.FirstOrDefault(candidateIssue =>
++        string.Equals(candidateIssue.Code, "import.source.owner.conflict", StringComparison.Ordinal));
++    if (issue is null)
++    {
++      return null;
++    }
++
++    const string marker = "Mod ";
++    var index = issue.Message.LastIndexOf(marker, StringComparison.Ordinal);
++    if (index < 0)
++    {
++      return null;
++    }
++
++    var ownerModId = issue.Message[(index + marker.Length)..].Trim().TrimEnd('.');
++    return string.IsNullOrWhiteSpace(ownerModId) ? null : ownerModId;
++  }
++
++  private static IReadOnlyList<string> ParseCompetingValues(IReadOnlyList<ImportValidationIssue> issues)
++  {
++    var issue = issues.FirstOrDefault(candidateIssue =>
++        string.Equals(candidateIssue.Code, "import.scalar.conflict", StringComparison.Ordinal));
++    if (issue is null || string.IsNullOrWhiteSpace(issue.Message))
++    {
++      return [];
++    }
++
++    return issue.Message
++        .Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
++  }
++}
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
+new file mode 100644
+index 0000000..71896f4
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportSourceViewModel.cs
+@@ -0,0 +1,175 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++
++namespace Tww3Companion.Desktop.ViewModels;
++
++public sealed class ImportSourceViewModel : ViewModelBase
++{
++  private readonly IImportSourceFileService fileService;
++  private ImportSourceKind selectedKind = ImportSourceKind.Markdown;
++  private string inputText = string.Empty;
++  private string? selectedDocumentName;
++  private IReadOnlyList<string> disclosedWorkshopIds = [];
++  private IReadOnlyList<ImportTaskDiagnostic> diagnostics = [];
++  private bool isBusy;
++  private Func<Task>? continueHandler;
++
++  public ImportSourceViewModel(IImportSourceFileService fileService)
++  {
++    this.fileService = fileService ?? throw new ArgumentNullException(nameof(fileService));
++    ChooseFileCommand = new ViewModelCommand(() => _ = ChooseFileAsync());
++    ContinueCommand = new ViewModelCommand(
++        () => _ = ContinueAsync(),
++        () => CanContinue);
++  }
++
++  public ImportSourceKind SelectedKind
++  {
++    get => selectedKind;
++    private set
++    {
++      if (selectedKind == value)
++      {
++        return;
++      }
++
++      selectedKind = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++      RaiseContinueCommandChanged();
++    }
++  }
++
++  public string InputText
++  {
++    get => inputText;
++    set
++    {
++      if (string.Equals(inputText, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      inputText = value ?? string.Empty;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++      RaiseContinueCommandChanged();
++    }
++  }
++
++  public string? SelectedDocumentName
++  {
++    get => selectedDocumentName;
++    private set
++    {
++      if (string.Equals(selectedDocumentName, value, StringComparison.Ordinal))
++      {
++        return;
++      }
++
++      selectedDocumentName = value;
++      OnPropertyChanged();
++    }
++  }
++
++  public IReadOnlyList<string> DisclosedWorkshopIds
++  {
++    get => disclosedWorkshopIds;
++    private set
++    {
++      disclosedWorkshopIds = value;
++      OnPropertyChanged();
++    }
++  }
++
++  public IReadOnlyList<ImportTaskDiagnostic> Diagnostics
++  {
++    get => diagnostics;
++    private set
++    {
++      diagnostics = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++      RaiseContinueCommandChanged();
++    }
++  }
++
++  public bool IsBusy
++  {
++    get => isBusy;
++    private set
++    {
++      if (isBusy == value)
++      {
++        return;
++      }
++
++      isBusy = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanContinue));
++      RaiseContinueCommandChanged();
++    }
++  }
++
++  public bool CanContinue =>
++      !IsBusy &&
++      !string.IsNullOrWhiteSpace(InputText) &&
++      !Diagnostics.Any(diagnostic => diagnostic.IsBlocking);
++
++  public ViewModelCommand ChooseFileCommand { get; }
++
++  public ViewModelCommand ContinueCommand { get; }
++
++  internal void Select(ImportSourceKind kind) => SelectedKind = kind;
++
++  internal void SetContinueHandler(Func<Task> handler) => continueHandler = handler;
++
++  internal void ApplyLoadResult(ImportSourceLoadResult result)
++  {
++    DisclosedWorkshopIds = result.DisclosedWorkshopIds;
++    Diagnostics = result.Diagnostics;
++  }
++
++  internal void ResetDiagnostics()
++  {
++    DisclosedWorkshopIds = [];
++    Diagnostics = [];
++  }
++
++  private async Task ChooseFileAsync()
++  {
++    if (IsBusy)
++    {
++      return;
++    }
++
++    IsBusy = true;
++    try
++    {
++      var document = await fileService.ChooseTextFileAsync(CancellationToken.None);
++      if (document is null)
++      {
++        return;
++      }
++
++      SelectedDocumentName = document.Name;
++      InputText = document.Text;
++    }
++    finally
++    {
++      IsBusy = false;
++    }
++  }
++
++  private async Task ContinueAsync()
++  {
++    if (!CanContinue || continueHandler is null)
++    {
++      return;
++    }
++
++    await continueHandler();
++  }
++
++  private void RaiseContinueCommandChanged() => ContinueCommand.RaiseCanExecuteChanged();
++}
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportTaskModels.cs b/src/Tww3Companion.Desktop/ViewModels/ImportTaskModels.cs
+index 8114886..8687934 100644
+--- a/src/Tww3Companion.Desktop/ViewModels/ImportTaskModels.cs
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportTaskModels.cs
+@@ -1,12 +1,60 @@
++using Tww3Companion.Application.Importing;
++
+ namespace Tww3Companion.Desktop.ViewModels;
+ 
++public enum ImportTaskStage
++{
++  Source,
++  Destination,
++  Preview,
++  Confirmation,
++  Finalizing,
++  Complete
++}
++
++public sealed record ImportLaunchContext(
++    bool IsNewWorkspace,
++    string? WorkspaceId,
++    string? WorkspacePath,
++    IReadOnlyList<CollectionSummary> Collections,
++    string? SelectedCollectionId);
++
++public sealed record ImportPreviewFingerprint(
++    ImportSourceKind SourceKind,
++    string SourceDigest,
++    ImportTargetContext TargetContext);
++
++public enum ImportPreviewFilter
++{
++  All,
++  Additions,
++  Enrichments,
++  Existing,
++  SuggestedMatches,
++  Conflicts,
++  Warnings,
++  Skipped
++}
++
++public sealed record ImportConfirmationSummary(
++    int ModsCreated,
++    int ModsEnriched,
++    int ExistingModsUnchanged,
++    int CollectionsCreated,
++    int MembershipsAdded,
++    int ExistingMembershipsUnchanged,
++    int CandidatesSkipped,
++    int WarningsRemaining);
++
++public sealed record ImportTaskCompletedEvent(ImportOutcome Outcome);
++
+ public enum ImportSourceKind
+ {
+   Markdown,
+   SteamCollection,
+   SteamItems
+ }
+ 
+ public sealed record ImportSourceDocument(string Name, string Text);
+ 
+ public sealed record ImportSourceRequest(
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs b/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
+new file mode 100644
+index 0000000..11a8a60
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ImportWorkspaceViewModel.cs
+@@ -0,0 +1,266 @@
++using Microsoft.Extensions.Logging;
++using Microsoft.Extensions.Logging.Abstractions;
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++
++namespace Tww3Companion.Desktop.ViewModels;
++
++public sealed class ImportWorkspaceViewModel : ViewModelBase
++{
++  private readonly IImportTaskCoordinator coordinator;
++  private readonly ILogger<ImportWorkspaceViewModel> logger;
++  private readonly ImportLaunchContext launchContext;
++  private ImportTaskStage stage = ImportTaskStage.Source;
++  private ImportPreview? cachedPreview;
++  private ImportPreviewFingerprint? cachedFingerprint;
++  private IReadOnlyList<object>? cachedCandidates;
++  private bool requiresDiscardConfirmation;
++  private bool discardConfirmed;
++
++  public ImportWorkspaceViewModel(
++      ImportLaunchContext launchContext,
++      IImportTaskCoordinator coordinator,
++      IImportSourceFileService fileService,
++      ILogger<ImportWorkspaceViewModel>? logger = null)
++  {
++    this.launchContext = launchContext ?? throw new ArgumentNullException(nameof(launchContext));
++    this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
++    this.logger = logger ?? NullLogger<ImportWorkspaceViewModel>.Instance;
++
++    Source = new ImportSourceViewModel(fileService);
++    Destination = new ImportDestinationViewModel(launchContext);
++    Preview = new ImportPreviewViewModel();
++    Preview.Loaded += preview => cachedPreview = preview;
++    Resolution = new ImportResolutionViewModel(coordinator, Preview);
++    Confirmation = new ImportConfirmationViewModel();
++
++    Source.SetContinueHandler(() => HandleSourceContinueAsync(CancellationToken.None));
++    Confirmation.SetApplyHandler(() => ApplyAsync(CancellationToken.None));
++  }
++
++  public event EventHandler<ImportTaskCompletedEvent>? Completed;
++
++  public ImportTaskStage Stage
++  {
++    get => stage;
++    private set
++    {
++      if (stage == value)
++      {
++        return;
++      }
++
++      stage = value;
++      OnPropertyChanged();
++      OnPropertyChanged(nameof(CanGoBack));
++      OnPropertyChanged(nameof(CanCancel));
++    }
++  }
++
++  public ImportSourceViewModel Source { get; }
++
++  public ImportDestinationViewModel Destination { get; }
++
++  public ImportPreviewViewModel Preview { get; }
++
++  public ImportResolutionViewModel Resolution { get; }
++
++  public ImportConfirmationViewModel Confirmation { get; }
++
++  public bool RequiresDiscardConfirmation
++  {
++    get => requiresDiscardConfirmation && !discardConfirmed;
++    private set
++    {
++      if (requiresDiscardConfirmation == value)
++      {
++        return;
++      }
++
++      requiresDiscardConfirmation = value;
++      OnPropertyChanged();
++    }
++  }
++
++  public bool CanGoBack =>
++      stage is ImportTaskStage.Destination or ImportTaskStage.Preview or ImportTaskStage.Confirmation;
++
++  public bool CanCancel =>
++      stage is not ImportTaskStage.Finalizing and not ImportTaskStage.Complete;
++
++  public void OpenDestination()
++  {
++    if (stage != ImportTaskStage.Source)
++    {
++      return;
++    }
++
++    Destination.ApplySuggestionIfNeeded(Source.SelectedKind);
++    Stage = ImportTaskStage.Destination;
++  }
++
++  public void GoBack()
++  {
++    Stage = stage switch
++    {
++      ImportTaskStage.Confirmation => ImportTaskStage.Preview,
++      ImportTaskStage.Preview => ImportTaskStage.Destination,
++      ImportTaskStage.Destination => ImportTaskStage.Source,
++      _ => stage
++    };
++  }
++
++  public async Task ContinueFromDestinationAsync(CancellationToken cancellationToken = default)
++  {
++    if (stage != ImportTaskStage.Destination || !Destination.CanContinue)
++    {
++      return;
++    }
++
++    var fingerprint = BuildFingerprint();
++    if (cachedFingerprint is not null &&
++        cachedPreview is not null &&
++        fingerprint.Equals(cachedFingerprint))
++    {
++      Preview.Load(cachedPreview);
++      Resolution.SyncActiveRow();
++      InvalidateConfirmation();
++      Stage = ImportTaskStage.Preview;
++      return;
++    }
++
++    var loadResult = await coordinator.LoadSourceAsync(
++        new ImportSourceRequest(
++            Source.SelectedKind,
++            Source.InputText,
++            Source.SelectedDocumentName,
++            RequestMetadata: true),
++        cancellationToken);
++    Source.ApplyLoadResult(loadResult);
++
++    if (loadResult.Diagnostics.Any(diagnostic => diagnostic.IsBlocking))
++    {
++      return;
++    }
++
++    var preview = await coordinator.BuildPreviewAsync(
++        Destination.BuildTargetContext(),
++        loadResult.Candidates,
++        cancellationToken);
++
++    if (cachedPreview is not null && cachedCandidates is not null)
++    {
++      preview = await ImportPreviewResolutionRetention.MergeAsync(
++          preview,
++          cachedPreview,
++          cachedCandidates,
++          loadResult.Candidates,
++          coordinator,
++          cancellationToken);
++    }
++
++    cachedPreview = preview;
++    cachedFingerprint = fingerprint;
++    cachedCandidates = loadResult.Candidates;
++    Preview.Load(preview);
++    Resolution.SyncActiveRow();
++    InvalidateConfirmation();
++    Stage = ImportTaskStage.Preview;
++  }
++
++  public Task ContinueFromPreviewAsync(CancellationToken cancellationToken = default)
++  {
++    if (stage != ImportTaskStage.Preview || !Preview.CanContinue)
++    {
++      return Task.CompletedTask;
++    }
++
++    Confirmation.SetSummary(Preview.BuildConfirmationSummary());
++    Stage = ImportTaskStage.Confirmation;
++    return Task.CompletedTask;
++  }
++
++  public async Task ApplyAsync(CancellationToken cancellationToken = default)
++  {
++    if (stage != ImportTaskStage.Confirmation || Preview.Preview is null)
++    {
++      return;
++    }
++
++    Stage = ImportTaskStage.Finalizing;
++    Confirmation.IsFinalizing = true;
++    OnPropertyChanged(nameof(CanGoBack));
++    OnPropertyChanged(nameof(CanCancel));
++
++    try
++    {
++      var outcome = await coordinator.ApplyAsync(Preview.Preview, cancellationToken);
++      Stage = ImportTaskStage.Complete;
++      Completed?.Invoke(this, new ImportTaskCompletedEvent(outcome));
++    }
++    catch (Exception exception)
++    {
++      logger.LogError(
++          exception,
++          "Import apply failed for workspace task stage {Stage}.",
++          stage);
++      Confirmation.IsFinalizing = false;
++      Stage = ImportTaskStage.Preview;
++      OnPropertyChanged(nameof(CanGoBack));
++      OnPropertyChanged(nameof(CanCancel));
++      throw;
++    }
++  }
++
++  public bool TryDismiss()
++  {
++    if (cachedPreview is null)
++    {
++      return true;
++    }
++
++    if (discardConfirmed)
++    {
++      ClearSession();
++      discardConfirmed = false;
++      return true;
++    }
++
++    RequiresDiscardConfirmation = true;
++    return false;
++  }
++
++  public void ConfirmDiscard() => discardConfirmed = true;
++
++  private Task HandleSourceContinueAsync(CancellationToken cancellationToken)
++  {
++    OpenDestination();
++    return Task.CompletedTask;
++  }
++
++  private ImportPreviewFingerprint BuildFingerprint() =>
++      new(
++          Source.SelectedKind,
++          ImportPreviewRules.ComputeSourceDigest(
++              Source.SelectedKind,
++              Source.InputText,
++              Source.SelectedDocumentName),
++          Destination.BuildTargetContext());
++
++  private void InvalidateConfirmation() => Confirmation.ClearSummary();
++
++  private void ClearSession()
++  {
++    cachedPreview = null;
++    cachedFingerprint = null;
++    cachedCandidates = null;
++    RequiresDiscardConfirmation = false;
++    discardConfirmed = false;
++    Preview.Load(new ImportPreview(
++        Destination.BuildTargetContext(),
++        [],
++        Applied: false));
++    Resolution.SyncActiveRow();
++    InvalidateConfirmation();
++  }
++}
+diff --git a/src/Tww3Companion.Desktop/ViewModels/ViewModelCommand.cs b/src/Tww3Companion.Desktop/ViewModels/ViewModelCommand.cs
+new file mode 100644
+index 0000000..32def1c
+--- /dev/null
++++ b/src/Tww3Companion.Desktop/ViewModels/ViewModelCommand.cs
+@@ -0,0 +1,28 @@
++using System.Windows.Input;
++
++namespace Tww3Companion.Desktop.ViewModels;
++
++public sealed class ViewModelCommand : ICommand
++{
++  private readonly Action<object?> execute;
++  private readonly Func<object?, bool>? canExecute;
++
++  public ViewModelCommand(Action execute, Func<bool>? canExecute = null)
++      : this(_ => execute(), canExecute is null ? null : _ => canExecute())
++  {
++  }
++
++  public ViewModelCommand(Action<object?> execute, Func<object?, bool>? canExecute = null)
++  {
++    this.execute = execute ?? throw new ArgumentNullException(nameof(execute));
++    this.canExecute = canExecute;
++  }
++
++  public event EventHandler? CanExecuteChanged;
++
++  public bool CanExecute(object? parameter) => canExecute?.Invoke(parameter) ?? true;
++
++  public void Execute(object? parameter) => execute(parameter);
++
++  public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
++}
+diff --git a/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportPreviewViewModelTests.cs b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportPreviewViewModelTests.cs
+new file mode 100644
+index 0000000..c746cbc
+--- /dev/null
++++ b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportPreviewViewModelTests.cs
+@@ -0,0 +1,132 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.ViewModels;
++using Xunit;
++
++namespace Tww3Companion.Desktop.Tests.ViewModels;
++
++public sealed class ImportPreviewViewModelTests
++{
++  [Fact]
++  public void Default_filter_shows_all_rows()
++  {
++    var subject = CreateSubject(CreatePreview());
++
++    Assert.Equal(ImportPreviewFilter.All, subject.SelectedFilter);
++    Assert.Equal(6, subject.FilteredRows.Count);
++  }
++
++  [Fact]
++  public void Filters_use_operation_outcomes_not_string_comparisons()
++  {
++    var subject = CreateSubject(CreatePreview());
++
++    subject.SelectedFilter = ImportPreviewFilter.Additions;
++    Assert.Single(subject.FilteredRows);
++    Assert.Equal(ImportLibraryAction.Create, subject.FilteredRows[0].LibraryAction);
++
++    subject.SelectedFilter = ImportPreviewFilter.Enrichments;
++    Assert.Single(subject.FilteredRows);
++    Assert.Equal(ImportLibraryAction.Enrich, subject.FilteredRows[0].LibraryAction);
++
++    subject.SelectedFilter = ImportPreviewFilter.Existing;
++    Assert.Single(subject.FilteredRows);
++    Assert.Equal(ImportLibraryAction.Existing, subject.FilteredRows[0].LibraryAction);
++
++    subject.SelectedFilter = ImportPreviewFilter.SuggestedMatches;
++    Assert.Single(subject.FilteredRows);
++    Assert.Equal(ImportLibraryAction.SuggestedMatch, subject.FilteredRows[0].LibraryAction);
++
++    subject.SelectedFilter = ImportPreviewFilter.Conflicts;
++    Assert.Single(subject.FilteredRows);
++    Assert.Equal(ImportLibraryAction.Conflict, subject.FilteredRows[0].LibraryAction);
++
++    subject.SelectedFilter = ImportPreviewFilter.Warnings;
++    Assert.Single(subject.FilteredRows);
++    Assert.True(subject.FilteredRows[0].HasWarning);
++
++    subject.SelectedFilter = ImportPreviewFilter.Skipped;
++    Assert.Single(subject.FilteredRows);
++    Assert.True(subject.FilteredRows[0].IsSkipped);
++  }
++
++  [Fact]
++  public void Confirmation_summary_contains_exact_counts_and_warnings_remaining()
++  {
++    var subject = CreateSubject(CreatePreview());
++
++    var summary = subject.BuildConfirmationSummary();
++
++    Assert.Equal(1, summary.ModsCreated);
++    Assert.Equal(1, summary.ModsEnriched);
++    Assert.Equal(1, summary.ExistingModsUnchanged);
++    Assert.Equal(0, summary.CollectionsCreated);
++    Assert.Equal(0, summary.MembershipsAdded);
++    Assert.Equal(0, summary.ExistingMembershipsUnchanged);
++    Assert.Equal(1, summary.CandidatesSkipped);
++    Assert.Equal(1, summary.WarningsRemaining);
++  }
++
++  [Fact]
++  public void CanContinue_is_false_while_blocking_operations_remain()
++  {
++    var preview = CreatePreview() with
++    {
++      ValidationIssues =
++      [
++          new ImportValidationIssue(
++              "conflict-1",
++              "import.source.owner.conflict",
++              "The source identity is already owned by Mod owner-mod.")
++      ]
++    };
++
++    var subject = CreateSubject(preview);
++
++    Assert.False(subject.CanContinue);
++  }
++
++  private static ImportPreviewViewModel CreateSubject(ImportPreview preview)
++  {
++    var subject = new ImportPreviewViewModel();
++    subject.Load(preview);
++    return subject;
++  }
++
++  private static ImportPreview CreatePreview()
++  {
++    var target = ImportTargetContext.ForCurrentWorkspace(
++        "workspace-1",
++        @"C:\Data\workspace.tww3c",
++        ImportMembershipDestination.ForLibraryOnly());
++
++    return new ImportPreview(
++        target,
++        [
++            ImportCandidate.CreateWithDisplayName("create-1", "Create Mod"),
++            ImportCandidate.CreateWithDisplayName("enrich-1", "Enrich Mod"),
++            ImportCandidate.Linked("existing-1", "existing-mod"),
++            ImportCandidate.CreateWithDisplayName("suggested-1", "Suggested Mod") with { SuggestedModId = "mod-1" },
++            ImportCandidate.CreateWithDisplayName("conflict-1", "Conflict Mod"),
++            ImportCandidate.Skipped("skipped-1")
++        ],
++        Applied: false,
++        Operations:
++        [
++            new ImportPreviewOperation("create-1", ImportLibraryAction.Create, ImportMembershipAction.None, []),
++            new ImportPreviewOperation("enrich-1", ImportLibraryAction.Enrich, ImportMembershipAction.None, []),
++            new ImportPreviewOperation("existing-1", ImportLibraryAction.Existing, ImportMembershipAction.None, []),
++            new ImportPreviewOperation("suggested-1", ImportLibraryAction.SuggestedMatch, ImportMembershipAction.None, []),
++            new ImportPreviewOperation(
++                "conflict-1",
++                ImportLibraryAction.Conflict,
++                ImportMembershipAction.Blocked,
++                [new ImportValidationIssue("conflict-1", "import.scalar.conflict", "Display name differs.")]),
++            new ImportPreviewOperation("skipped-1", ImportLibraryAction.Skip, ImportMembershipAction.Skip, [])
++        ],
++        ValidationIssues:
++        [
++            new ImportValidationIssue("create-1", "import.preview.warning", "Non-blocking warning.")
++        ],
++        WarningCount: 1);
++  }
++}
+diff --git a/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportResolutionViewModelTests.cs b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportResolutionViewModelTests.cs
+new file mode 100644
+index 0000000..9db7534
+--- /dev/null
++++ b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportResolutionViewModelTests.cs
+@@ -0,0 +1,257 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++using Tww3Companion.Desktop.ViewModels;
++using Xunit;
++
++namespace Tww3Companion.Desktop.Tests.ViewModels;
++
++public sealed class ImportResolutionViewModelTests
++{
++  [Fact]
++  public async Task LinkAsync_replaces_preview_and_advances_to_next_blocking_row()
++  {
++    var coordinator = new RecordingCoordinator();
++    var preview = CreatePreviewWithBlockingRows();
++    var previewViewModel = new ImportPreviewViewModel();
++    previewViewModel.Load(preview);
++    var subject = new ImportResolutionViewModel(coordinator, previewViewModel);
++
++    await subject.LinkToModAsync("owner-mod", TestContext.Current.CancellationToken);
++
++    Assert.Same(coordinator.LastResolvedPreview, preview);
++    Assert.Equal("owner-mod", coordinator.LastResolvedCandidate!.LinkedModId);
++    Assert.Equal("unresolved-1", subject.ActiveCandidateId);
++    Assert.False(previewViewModel.CanContinue);
++  }
++
++  [Fact]
++  public async Task SkipAsync_clears_blocking_queue_and_allows_continue()
++  {
++    var coordinator = new RecordingCoordinator();
++    var previewViewModel = new ImportPreviewViewModel();
++    previewViewModel.Load(CreatePreviewWithBlockingRows());
++    var subject = new ImportResolutionViewModel(coordinator, previewViewModel);
++
++    await subject.SkipAsync(TestContext.Current.CancellationToken);
++    await subject.SkipAsync(TestContext.Current.CancellationToken);
++
++    Assert.Null(subject.ActiveCandidateId);
++    Assert.True(previewViewModel.CanContinue);
++  }
++
++  [Fact]
++  public void Source_owner_collision_exposes_only_owner_link_and_skip()
++  {
++    var previewViewModel = new ImportPreviewViewModel();
++    previewViewModel.Load(CreateSourceOwnerConflictPreview());
++    var subject = new ImportResolutionViewModel(new RecordingCoordinator(), previewViewModel);
++
++    Assert.Equal("owner-mod", subject.SourceOwnerModId);
++    Assert.True(subject.CanLinkToOwner);
++    Assert.True(subject.CanSkip);
++    Assert.False(subject.CanCreate);
++    Assert.False(subject.CanChooseScalarValue);
++  }
++
++  [Fact]
++  public async Task Scalar_conflict_requires_explicit_selected_value()
++  {
++    var coordinator = new RecordingCoordinator();
++    var previewViewModel = new ImportPreviewViewModel();
++    previewViewModel.Load(CreateScalarConflictPreview());
++    var subject = new ImportResolutionViewModel(coordinator, previewViewModel);
++
++    Assert.Equal(["Imported Name", "Existing Name"], subject.CompetingScalarValues);
++    Assert.False(subject.CanApplyResolution);
++
++    subject.SelectedScalarValue = "Imported Name";
++    Assert.True(subject.CanApplyResolution);
++
++    await subject.ApplyScalarSelectionAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal("Imported Name", coordinator.LastResolvedCandidate!.DisplayName);
++  }
++
++  private static ImportPreview CreateSourceOwnerConflictPreview()
++  {
++    var target = ImportTargetContext.ForCurrentWorkspace(
++        "workspace-1",
++        @"C:\Data\workspace.tww3c",
++        ImportMembershipDestination.ForLibraryOnly());
++
++    return new ImportPreview(
++        target,
++        [
++            ImportCandidate.Linked(
++                "conflict-1",
++                "different-mod",
++                ImportSourceReference.SteamWorkshop("123"))
++        ],
++        Applied: false,
++        Operations:
++        [
++            new ImportPreviewOperation(
++                "conflict-1",
++                ImportLibraryAction.Conflict,
++                ImportMembershipAction.Blocked,
++                [
++                    new ImportValidationIssue(
++                        "conflict-1",
++                        "import.source.owner.conflict",
++                        "The source identity is already owned by Mod owner-mod.")
++                ])
++        ],
++        ValidationIssues:
++        [
++            new ImportValidationIssue(
++                "conflict-1",
++                "import.source.owner.conflict",
++                "The source identity is already owned by Mod owner-mod.")
++        ]);
++  }
++
++  private static ImportPreview CreateScalarConflictPreview()
++  {
++    var target = ImportTargetContext.ForCurrentWorkspace(
++        "workspace-1",
++        @"C:\Data\workspace.tww3c",
++        ImportMembershipDestination.ForLibraryOnly());
++
++    return new ImportPreview(
++        target,
++        [ImportCandidate.CreateWithDisplayName("scalar-1", "Imported Name")],
++        Applied: false,
++        Operations:
++        [
++            new ImportPreviewOperation(
++                "scalar-1",
++                ImportLibraryAction.Conflict,
++                ImportMembershipAction.Blocked,
++                [
++                    new ImportValidationIssue(
++                        "scalar-1",
++                        "import.scalar.conflict",
++                        "Imported Name|Existing Name")
++                ])
++        ]);
++  }
++
++  private static ImportPreview CreatePreviewWithBlockingRows()
++  {
++    var target = ImportTargetContext.ForCurrentWorkspace(
++        "workspace-1",
++        @"C:\Data\workspace.tww3c",
++        ImportMembershipDestination.ForLibraryOnly());
++
++    return new ImportPreview(
++        target,
++        [
++            ImportCandidate.Unresolved(
++                "conflict-1",
++                ImportSourceReference.SteamWorkshop("123")),
++            ImportCandidate.Unresolved(
++                "unresolved-1",
++                ImportSourceReference.SteamWorkshop("456"))
++        ],
++        Applied: false,
++        Operations:
++        [
++            new ImportPreviewOperation(
++                "conflict-1",
++                ImportLibraryAction.Conflict,
++                ImportMembershipAction.Blocked,
++                [
++                    new ImportValidationIssue(
++                        "conflict-1",
++                        "import.source.owner.conflict",
++                        "The source identity is already owned by Mod owner-mod.")
++                ]),
++            new ImportPreviewOperation(
++                "unresolved-1",
++                ImportLibraryAction.Create,
++                ImportMembershipAction.None,
++                [])
++        ],
++        ValidationIssues:
++        [
++            new ImportValidationIssue(
++                "conflict-1",
++                "import.source.owner.conflict",
++                "The source identity is already owned by Mod owner-mod.")
++        ]);
++  }
++
++  private sealed class RecordingCoordinator : IImportTaskCoordinator
++  {
++    public ImportPreview? LastResolvedPreview { get; private set; }
++    public ImportCandidate? LastResolvedCandidate { get; private set; }
++    public ImportPreview ResolveResult { get; set; } = CreateResolvedPreview();
++
++    public Task<ImportSourceLoadResult> LoadSourceAsync(
++        ImportSourceRequest request,
++        CancellationToken cancellationToken = default) =>
++        throw new NotSupportedException();
++
++    public Task<ImportPreview> BuildPreviewAsync(
++        ImportTargetContext targetContext,
++        IReadOnlyList<object> candidates,
++        CancellationToken cancellationToken = default) =>
++        throw new NotSupportedException();
++
++    public Task<ImportPreview> ResolveAsync(
++        ImportPreview preview,
++        ImportCandidate resolvedCandidate,
++        CancellationToken cancellationToken = default)
++    {
++      LastResolvedPreview = preview;
++      LastResolvedCandidate = resolvedCandidate;
++      var updatedCandidates = preview.Candidates
++          .Select(candidate => candidate.CandidateId == resolvedCandidate.CandidateId
++              ? resolvedCandidate
++              : candidate)
++          .ToArray();
++      var updatedIssues = (preview.ValidationIssues ?? [])
++          .Where(issue => !string.Equals(issue.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
++          .ToArray();
++      var updatedOperations = (preview.Operations ?? [])
++          .Select(operation =>
++          {
++            if (!string.Equals(operation.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
++            {
++              return operation;
++            }
++
++            var candidate = updatedCandidates.First(entry =>
++                string.Equals(entry.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal));
++            return new ImportPreviewOperation(
++                operation.CandidateId,
++                ImportPreviewRules.InferLibraryAction(candidate),
++                ImportPreviewRules.InferMembershipAction(candidate, preview.TargetContext),
++                []);
++          })
++          .ToArray();
++
++      ResolveResult = preview with
++      {
++        Candidates = updatedCandidates,
++        ValidationIssues = updatedIssues,
++        Operations = updatedOperations
++      };
++      return Task.FromResult(ResolveResult);
++    }
++
++    public Task<ImportOutcome> ApplyAsync(
++        ImportPreview preview,
++        CancellationToken cancellationToken = default) =>
++        throw new NotSupportedException();
++
++    private static ImportPreview CreateResolvedPreview() =>
++        new(
++            ImportTargetContext.ForCurrentWorkspace(
++                "workspace-1",
++                @"C:\Data\workspace.tww3c",
++                ImportMembershipDestination.ForLibraryOnly()),
++            [],
++            Applied: false);
++  }
++}
+diff --git a/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
+new file mode 100644
+index 0000000..ddfeefe
+--- /dev/null
++++ b/tests/Tww3Companion.Desktop.Tests/ViewModels/ImportWorkspaceViewModelTests.cs
+@@ -0,0 +1,388 @@
++using Tww3Companion.Application.Importing;
++using Tww3Companion.Desktop.Services;
++using Tww3Companion.Desktop.ViewModels;
++using Xunit;
++
++namespace Tww3Companion.Desktop.Tests.ViewModels;
++
++public sealed class ImportWorkspaceViewModelTests
++{
++  [Fact]
++  public void SteamCollection_suggests_selected_collection_but_does_not_lock_it()
++  {
++    var subject = CreateSubject(new ImportLaunchContext(
++        IsNewWorkspace: false,
++        WorkspaceId: "workspace-1",
++        WorkspacePath: @"C:\Data\workspace.tww3c",
++        Collections: [new CollectionSummary("collection-1", "Current", 0)],
++        SelectedCollectionId: "collection-1"));
++
++    subject.Source.Select(ImportSourceKind.SteamCollection);
++    subject.OpenDestination();
++
++    Assert.Equal("collection-1", subject.Destination.SelectedCollectionId);
++    subject.Destination.SelectLibraryOnly();
++    Assert.IsType<ImportMembershipDestination.LibraryOnly>(
++        subject.Destination.BuildMembershipDestination());
++  }
++
++  [Fact]
++  public void Home_launch_context_does_not_offer_existing_collection_destination()
++  {
++    var subject = CreateSubject(new ImportLaunchContext(
++        IsNewWorkspace: true,
++        WorkspaceId: null,
++        WorkspacePath: null,
++        Collections: [],
++        SelectedCollectionId: null));
++
++    subject.Source.Select(ImportSourceKind.Markdown);
++    subject.OpenDestination();
++
++    Assert.False(subject.Destination.HasExistingCollectionOption);
++    Assert.True(subject.Destination.ShowsWorkspaceDetails);
++  }
++
++  [Fact]
++  public async Task ContinueFromDestination_reuses_preview_when_fingerprint_is_unchanged()
++  {
++    var coordinator = new RecordingImportTaskCoordinator();
++    var subject = CreateSubject(
++        CurrentWorkspaceLaunchContext(),
++        coordinator);
++
++    await PreparePreviewAsync(subject, coordinator);
++
++    coordinator.ResetCounters();
++    subject.GoBack();
++    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(0, coordinator.LoadSourceCallCount);
++    Assert.Equal(0, coordinator.BuildPreviewCallCount);
++    Assert.Equal(ImportTaskStage.Preview, subject.Stage);
++  }
++
++  [Fact]
++  public async Task Changed_source_rebuilds_preview_and_invalidates_confirmation()
++  {
++    var coordinator = new RecordingImportTaskCoordinator();
++    var subject = CreateSubject(
++        CurrentWorkspaceLaunchContext(),
++        coordinator);
++
++    await PreparePreviewAsync(subject, coordinator);
++    await subject.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
++    Assert.Equal(ImportTaskStage.Confirmation, subject.Stage);
++
++    subject.GoBack();
++    subject.GoBack();
++    subject.Source.InputText = "987654321";
++    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(2, coordinator.LoadSourceCallCount);
++    Assert.Equal(2, coordinator.BuildPreviewCallCount);
++    Assert.Equal(ImportTaskStage.Preview, subject.Stage);
++    Assert.Null(subject.Confirmation.Summary);
++  }
++
++  [Fact]
++  public async Task Changed_destination_retains_resolution_when_candidates_and_choices_unchanged()
++  {
++    var coordinator = new BlockingResolutionCoordinator();
++    var subject = CreateSubject(
++        CurrentWorkspaceLaunchContext(),
++        coordinator);
++
++    subject.Source.Select(ImportSourceKind.SteamItems);
++    subject.Source.InputText = "123456789";
++    subject.OpenDestination();
++    subject.Destination.SelectLibraryOnly();
++    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++
++    await subject.Resolution.LinkToModAsync("owner-mod", TestContext.Current.CancellationToken);
++
++    Assert.Null(subject.Resolution.ActiveCandidateId);
++    Assert.True(subject.Preview.CanContinue);
++
++    subject.GoBack();
++    subject.Destination.SelectExistingCollection("collection-1");
++    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(2, coordinator.BuildPreviewCallCount);
++    var row = Assert.Single(subject.Preview.Rows);
++    Assert.Equal("owner-mod", row.Candidate.LinkedModId);
++    Assert.True(subject.Preview.CanContinue);
++    Assert.Null(subject.Confirmation.Summary);
++  }
++
++  [Fact]
++  public async Task RequestDismiss_requires_confirmation_when_preview_exists()
++  {
++    var coordinator = new RecordingImportTaskCoordinator();
++    var subject = CreateSubject(
++        CurrentWorkspaceLaunchContext(),
++        coordinator);
++
++    await PreparePreviewAsync(subject, coordinator);
++
++    Assert.False(subject.TryDismiss());
++
++    Assert.True(subject.RequiresDiscardConfirmation);
++    subject.ConfirmDiscard();
++    Assert.True(subject.TryDismiss());
++  }
++
++  [Fact]
++  public async Task Apply_sets_finalizing_disables_navigation_and_raises_completion()
++  {
++    var coordinator = new RecordingImportTaskCoordinator();
++    ImportTaskCompletedEvent? completed = null;
++    var subject = CreateSubject(
++        CurrentWorkspaceLaunchContext(),
++        coordinator);
++    subject.Completed += (_, args) => completed = args;
++
++    await PreparePreviewAsync(subject, coordinator);
++    await subject.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
++
++    await subject.ApplyAsync(TestContext.Current.CancellationToken);
++
++    Assert.Equal(ImportTaskStage.Complete, subject.Stage);
++    Assert.False(subject.CanGoBack);
++    Assert.False(subject.CanCancel);
++    Assert.NotNull(completed);
++    Assert.True(completed!.Outcome.Applied);
++  }
++
++  [Fact]
++  public async Task Apply_failure_retains_preview_and_returns_to_preview_stage()
++  {
++    var coordinator = new RecordingImportTaskCoordinator
++    {
++      ApplyException = new InvalidOperationException("Persistence failed.")
++    };
++    var subject = CreateSubject(
++        CurrentWorkspaceLaunchContext(),
++        coordinator);
++
++    await PreparePreviewAsync(subject, coordinator);
++    await subject.ContinueFromPreviewAsync(TestContext.Current.CancellationToken);
++
++    await Assert.ThrowsAsync<InvalidOperationException>(() =>
++        subject.ApplyAsync(TestContext.Current.CancellationToken));
++
++    Assert.Equal(ImportTaskStage.Preview, subject.Stage);
++    Assert.NotNull(subject.Preview.Preview);
++    Assert.True(subject.CanGoBack);
++  }
++
++  private static ImportLaunchContext CurrentWorkspaceLaunchContext() =>
++      new(
++          IsNewWorkspace: false,
++          WorkspaceId: "workspace-1",
++          WorkspacePath: @"C:\Data\workspace.tww3c",
++          Collections: [new CollectionSummary("collection-1", "Current", 0)],
++          SelectedCollectionId: null);
++
++  private static async Task PreparePreviewAsync(
++      ImportWorkspaceViewModel subject,
++      RecordingImportTaskCoordinator coordinator)
++  {
++    subject.Source.Select(ImportSourceKind.SteamItems);
++    subject.Source.InputText = "123456789";
++    subject.OpenDestination();
++    subject.Destination.SelectLibraryOnly();
++    await subject.ContinueFromDestinationAsync(TestContext.Current.CancellationToken);
++    Assert.Equal(1, coordinator.BuildPreviewCallCount);
++  }
++
++  private static ImportWorkspaceViewModel CreateSubject(
++      ImportLaunchContext launchContext,
++      IImportTaskCoordinator? coordinator = null) =>
++      new(
++          launchContext,
++          coordinator ?? new RecordingImportTaskCoordinator(),
++          new FakeImportSourceFileService());
++
++  private sealed class FakeImportSourceFileService : IImportSourceFileService
++  {
++    public Task<ImportSourceDocument?> ChooseTextFileAsync(CancellationToken cancellationToken = default) =>
++        Task.FromResult<ImportSourceDocument?>(null);
++  }
++
++  internal sealed class RecordingImportTaskCoordinator : IImportTaskCoordinator
++  {
++    public int LoadSourceCallCount { get; private set; }
++    public int BuildPreviewCallCount { get; private set; }
++    public int ApplyCallCount { get; private set; }
++    public Exception? ApplyException { get; init; }
++    public ImportPreview LastBuiltPreview { get; private set; } = CreateDefaultPreview();
++
++    public void ResetCounters()
++    {
++      LoadSourceCallCount = 0;
++      BuildPreviewCallCount = 0;
++      ApplyCallCount = 0;
++    }
++
++    public Task<ImportSourceLoadResult> LoadSourceAsync(
++        ImportSourceRequest request,
++        CancellationToken cancellationToken = default)
++    {
++      LoadSourceCallCount++;
++      return Task.FromResult(new ImportSourceLoadResult(
++          [new SteamImportCandidate("123456789", "Example Mod")],
++          [],
++          ["123456789"]));
++    }
++
++    public Task<ImportPreview> BuildPreviewAsync(
++        ImportTargetContext targetContext,
++        IReadOnlyList<object> candidates,
++        CancellationToken cancellationToken = default)
++    {
++      BuildPreviewCallCount++;
++      LastBuiltPreview = CreateDefaultPreview(targetContext);
++      return Task.FromResult(LastBuiltPreview);
++    }
++
++    public Task<ImportPreview> ResolveAsync(
++        ImportPreview preview,
++        ImportCandidate resolvedCandidate,
++        CancellationToken cancellationToken = default) =>
++        Task.FromResult(preview);
++
++    public Task<ImportOutcome> ApplyAsync(
++        ImportPreview preview,
++        CancellationToken cancellationToken = default)
++    {
++      ApplyCallCount++;
++      if (ApplyException is not null)
++      {
++        return Task.FromException<ImportOutcome>(ApplyException);
++      }
++
++      return Task.FromResult(new ImportOutcome(preview.TargetContext, [], Applied: true));
++    }
++
++    private static ImportPreview CreateDefaultPreview(ImportTargetContext? targetContext = null) =>
++        new(
++            targetContext ?? ImportTargetContext.ForCurrentWorkspace(
++                "workspace-1",
++                @"C:\Data\workspace.tww3c",
++                ImportMembershipDestination.ForLibraryOnly()),
++            [ImportCandidate.CreateWithDisplayName("candidate-1", "Example Mod")],
++            Applied: false,
++            Operations:
++            [
++                new ImportPreviewOperation(
++                    "candidate-1",
++                    ImportLibraryAction.Create,
++                    ImportMembershipAction.None,
++                    [])
++            ]);
++  }
++
++  private sealed class BlockingResolutionCoordinator : IImportTaskCoordinator
++  {
++    public int LoadSourceCallCount { get; private set; }
++    public int BuildPreviewCallCount { get; private set; }
++
++    public Task<ImportSourceLoadResult> LoadSourceAsync(
++        ImportSourceRequest request,
++        CancellationToken cancellationToken = default)
++    {
++      LoadSourceCallCount++;
++      return Task.FromResult(new ImportSourceLoadResult(
++          [new SteamImportCandidate("123456789", "Example Mod")],
++          [],
++          ["123456789"]));
++    }
++
++    public Task<ImportPreview> BuildPreviewAsync(
++        ImportTargetContext targetContext,
++        IReadOnlyList<object> candidates,
++        CancellationToken cancellationToken = default)
++    {
++      BuildPreviewCallCount++;
++      return Task.FromResult(CreateBlockingPreview(targetContext));
++    }
++
++    public Task<ImportPreview> ResolveAsync(
++        ImportPreview preview,
++        ImportCandidate resolvedCandidate,
++        CancellationToken cancellationToken = default)
++    {
++      var updatedCandidates = preview.Candidates
++          .Select(candidate => candidate.CandidateId == resolvedCandidate.CandidateId
++              ? resolvedCandidate
++              : candidate)
++          .ToArray();
++      var updatedIssues = (preview.ValidationIssues ?? [])
++          .Where(issue => !string.Equals(issue.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
++          .ToArray();
++      var updatedOperations = (preview.Operations ?? [])
++          .Select(operation =>
++          {
++            if (!string.Equals(operation.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
++            {
++              return operation;
++            }
++
++            var candidate = updatedCandidates.First(entry =>
++                string.Equals(entry.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal));
++            return new ImportPreviewOperation(
++                operation.CandidateId,
++                ImportPreviewRules.InferLibraryAction(candidate),
++                ImportPreviewRules.InferMembershipAction(candidate, preview.TargetContext),
++                []);
++          })
++          .ToArray();
++
++      return Task.FromResult(preview with
++      {
++        Candidates = updatedCandidates,
++        ValidationIssues = updatedIssues,
++        Operations = updatedOperations
++      });
++    }
++
++    public Task<ImportOutcome> ApplyAsync(
++        ImportPreview preview,
++        CancellationToken cancellationToken = default) =>
++        Task.FromResult(new ImportOutcome(preview.TargetContext, [], Applied: true));
++
++    private static ImportPreview CreateBlockingPreview(ImportTargetContext targetContext)
++    {
++      const string candidateId = "steam:123456789:0";
++      return new ImportPreview(
++          targetContext,
++          [
++              ImportCandidate.Unresolved(
++                  candidateId,
++                  ImportSourceReference.SteamWorkshop("123456789"))
++          ],
++          Applied: false,
++          Operations:
++          [
++              new ImportPreviewOperation(
++                  candidateId,
++                  ImportLibraryAction.Conflict,
++                  ImportMembershipAction.Blocked,
++                  [
++                      new ImportValidationIssue(
++                          candidateId,
++                          "import.source.owner.conflict",
++                          "The source identity is already owned by Mod owner-mod.")
++                  ])
++          ],
++          ValidationIssues:
++          [
++              new ImportValidationIssue(
++                  candidateId,
++                  "import.source.owner.conflict",
++                  "The source identity is already owned by Mod owner-mod.")
++          ]);
++    }
++  }
++}

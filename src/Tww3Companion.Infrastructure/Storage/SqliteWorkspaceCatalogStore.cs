@@ -110,6 +110,35 @@ public sealed class SqliteWorkspaceCatalogStore :
     return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture) == 1L;
   }
 
+  public async Task<IReadOnlySet<string>> ReadCollectionMemberModIdsAsync(
+      ImportTargetContext.CurrentWorkspace targetContext,
+      string collectionId,
+      CancellationToken cancellationToken = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
+
+    await using var connection = await OpenValidatedConnectionAsync(
+        targetContext.WorkspacePath,
+        targetContext.WorkspaceId,
+        requireCollection: false,
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText = """
+        SELECT mod_id
+        FROM collection_memberships
+        WHERE collection_id = $collectionId;
+        """;
+    command.Parameters.AddWithValue("$collectionId", collectionId);
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    var memberModIds = new HashSet<string>(StringComparer.Ordinal);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      memberModIds.Add(reader.GetString(0));
+    }
+
+    return memberModIds;
+  }
+
   public async Task<ImportOutcome> CommitAtomicallyAsync(
       ImportPreview preview,
       bool confirm,
@@ -137,50 +166,34 @@ public sealed class SqliteWorkspaceCatalogStore :
       await using var connection = await OpenValidatedConnectionAsync(
           current.WorkspacePath,
           current.WorkspaceId,
-          requireCollection: true,
-          cancellationToken,
-          current.CollectionId);
+          requireCollection: false,
+          cancellationToken);
       await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-      var persistedCandidateCount = 0;
 
       try
       {
         await VerifyWorkspaceIdAsync(connection, transaction, current.WorkspaceId, CancellationToken.None);
-        await VerifyCollectionExistsAsync(connection, transaction, current.CollectionId, CancellationToken.None);
-
-        var nextPosition = await ReadNextMembershipPositionAsync(
+        var collectionId = await PrepareMembershipDestinationAsync(
             connection,
             transaction,
-            current.CollectionId,
+            current.MembershipDestination,
             CancellationToken.None);
 
-        foreach (var candidate in preview.Candidates.OfType<ImportCandidate>())
-        {
-          cancellationToken.ThrowIfCancellationRequested();
-          if (candidate.IsSkipped)
-          {
-            continue;
-          }
-
-          var modId = await ResolveOrCreateModAsync(
-              connection,
-              transaction,
-              candidate,
-              CancellationToken.None);
-          nextPosition = await EnsureMembershipAsync(
-              connection,
-              transaction,
-              current.CollectionId,
-              modId,
-              nextPosition,
-              CancellationToken.None);
-
-          persistedCandidateCount++;
-          afterCandidatePersisted?.Invoke(persistedCandidateCount);
-        }
+        await PersistCandidatesAsync(
+            connection,
+            transaction,
+            preview.Candidates.OfType<ImportCandidate>().ToArray(),
+            collectionId,
+            CancellationToken.None);
 
         await transaction.CommitAsync(CancellationToken.None);
-        return new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: true);
+
+        var membershipDestination = collectionId is not null
+            ? ImportMembershipDestination.ForExistingCollection(collectionId)
+            : current.MembershipDestination;
+
+        var appliedTarget = current with { MembershipDestination = membershipDestination };
+        return new ImportOutcome(appliedTarget, preview.Candidates, Applied: true);
       }
       catch
       {
@@ -204,6 +217,13 @@ public sealed class SqliteWorkspaceCatalogStore :
     }
 
     ValidatePreview(preview);
+
+    if (target.MembershipDestination is ImportMembershipDestination.ExistingCollection)
+    {
+      throw new ArgumentException(
+          "A new Workspace import cannot target an existing Collection.",
+          nameof(preview));
+    }
 
     var destination = target.DestinationPath;
     var temporaryPath =
@@ -229,7 +249,7 @@ public sealed class SqliteWorkspaceCatalogStore :
           target.DisplayName,
           uuidGenerator.NewUuid(),
           clock.UtcNow);
-      var collectionId = uuidGenerator.NewUuid();
+      string? collectionId;
 
       await using (var connection = await connectionFactory.OpenAsync(temporaryPath, cancellationToken))
       {
@@ -243,19 +263,17 @@ public sealed class SqliteWorkspaceCatalogStore :
               workspace,
               CancellationToken.None);
 
-          await InsertCollectionAsync(
+          collectionId = await PrepareMembershipDestinationAsync(
               connection,
               transaction,
-              collectionId,
-              target.CollectionDisplayName,
+              target.MembershipDestination,
               CancellationToken.None);
 
           await PersistCandidatesAsync(
               connection,
               transaction,
+              preview.Candidates.OfType<ImportCandidate>().ToArray(),
               collectionId,
-              preview.Candidates.OfType<ImportCandidate>(),
-              initialPosition: 0,
               CancellationToken.None);
 
           await WorkspaceSchemaInspector.ValidateAsync(
@@ -275,11 +293,15 @@ public sealed class SqliteWorkspaceCatalogStore :
 
       fileSystem.MoveWithoutOverwrite(temporaryPath, destination);
 
+      var membershipDestination = collectionId is not null
+          ? ImportMembershipDestination.ForExistingCollection(collectionId)
+          : ImportMembershipDestination.ForLibraryOnly();
+
       return new ImportOutcome(
           ImportTargetContext.ForCurrentWorkspace(
               workspace.Id.ToString(),
               destination,
-              collectionId),
+              membershipDestination),
           preview.Candidates,
           Applied: true);
     }
@@ -436,6 +458,51 @@ public sealed class SqliteWorkspaceCatalogStore :
           "The selected file is not the expected Workspace.",
           "Return to the Workspace and choose the import destination again.");
     }
+  }
+
+  private async Task<string?> PrepareMembershipDestinationAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      ImportMembershipDestination destination,
+      CancellationToken cancellationToken) =>
+      destination switch
+      {
+        ImportMembershipDestination.LibraryOnly => null,
+        ImportMembershipDestination.ExistingCollection existing =>
+            await VerifyAndReturnCollectionAsync(
+                connection,
+                transaction,
+                existing.CollectionId,
+                cancellationToken),
+        ImportMembershipDestination.NewCollection created =>
+            await InsertAndReturnCollectionAsync(
+                connection,
+                transaction,
+                uuidGenerator.NewUuid(),
+                created.DisplayName,
+                cancellationToken),
+        _ => throw new ArgumentException("Unsupported import membership destination.", nameof(destination))
+      };
+
+  private static async Task<string> VerifyAndReturnCollectionAsync(
+      SqliteConnection connection,
+      SqliteTransaction? transaction,
+      string collectionId,
+      CancellationToken cancellationToken)
+  {
+    await VerifyCollectionExistsAsync(connection, transaction, collectionId, cancellationToken);
+    return collectionId;
+  }
+
+  private static async Task<string> InsertAndReturnCollectionAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string collectionId,
+      string displayName,
+      CancellationToken cancellationToken)
+  {
+    await InsertCollectionAsync(connection, transaction, collectionId, displayName, cancellationToken);
+    return collectionId;
   }
 
   private static async Task VerifyCollectionExistsAsync(
@@ -704,16 +771,22 @@ public sealed class SqliteWorkspaceCatalogStore :
   private async Task PersistCandidatesAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
-      string collectionId,
-      IEnumerable<ImportCandidate> candidates,
-      int initialPosition,
+      IReadOnlyList<ImportCandidate> candidates,
+      string? collectionId,
       CancellationToken cancellationToken)
   {
-    var nextPosition = initialPosition;
+    var nextPosition = collectionId is null
+        ? 0
+        : await ReadNextMembershipPositionAsync(
+            connection,
+            transaction,
+            collectionId,
+            cancellationToken);
     var persistedCandidateCount = 0;
 
     foreach (var candidate in candidates)
     {
+      cancellationToken.ThrowIfCancellationRequested();
       if (candidate.IsSkipped)
       {
         continue;
@@ -724,13 +797,17 @@ public sealed class SqliteWorkspaceCatalogStore :
           transaction,
           candidate,
           cancellationToken);
-      nextPosition = await EnsureMembershipAsync(
-          connection,
-          transaction,
-          collectionId,
-          modId,
-          nextPosition,
-          cancellationToken);
+
+      if (collectionId is not null)
+      {
+        nextPosition = await EnsureMembershipAsync(
+            connection,
+            transaction,
+            collectionId,
+            modId,
+            nextPosition,
+            cancellationToken);
+      }
 
       persistedCandidateCount++;
       afterCandidatePersisted?.Invoke(persistedCandidateCount);

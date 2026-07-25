@@ -5,6 +5,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Tww3Companion.Desktop.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Tww3Companion.Application\Tww3Companion.Application.csproj" />
     <ProjectReference Include="..\Tww3Companion.Domain\Tww3Companion.Domain.csproj" />
     <ProjectReference Include="..\Tww3Companion.Infrastructure\Tww3Companion.Infrastructure.csproj" />

@@ -5,5 +5,11 @@
 
     <Application.Styles>
         <FluentTheme />
+        <Style Selector="TextBox:focus-visible">
+            <Setter Property="BorderThickness" Value="3" />
+        </Style>
+        <Style Selector="RadioButton:focus-visible">
+            <Setter Property="BorderThickness" Value="3" />
+        </Style>
     </Application.Styles>
 </Application>
