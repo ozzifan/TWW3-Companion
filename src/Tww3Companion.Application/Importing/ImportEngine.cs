@@ -284,7 +284,8 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
             return new ImportValidationIssue(
                 candidate.CandidateId,
                 "import.scalar.conflict",
-                "The imported display name differs from the existing Mod.");
+                "The imported display name differs from the existing Mod.",
+                [candidate.DisplayName!, existing.DisplayName!]);
           })
           .Where(issue => issue is not null)
           .Cast<ImportValidationIssue>()

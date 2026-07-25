@@ -72,6 +72,55 @@ public sealed class ImportResolutionViewModelTests
     Assert.Equal("Imported Name", coordinator.LastResolvedCandidate!.DisplayName);
   }
 
+  [Fact]
+  public async Task Scalar_conflict_from_real_engine_exposes_structured_competing_names()
+  {
+    var store = new EngineBackedWorkspaceImportStore
+    {
+      ExistingCandidates =
+      [
+        new ImportCandidate(
+            "catalog:mod-1",
+            ImportSourceReference.SteamWorkshop("123"),
+            "mod-1",
+            "User Name",
+            IsSkipped: false)
+      ]
+    };
+    var engine = new ImportEngine(store);
+    var preview = await engine.BuildPreviewAsync(
+        ImportTargetContext.ForCurrentWorkspace(
+            "workspace-1",
+            @"C:\Data\workspace.tww3c",
+            ImportMembershipDestination.ForLibraryOnly()),
+        [new SteamImportCandidate("123", "Imported Title")],
+        TestContext.Current.CancellationToken);
+
+    var issue = Assert.Single(
+        preview.ValidationIssues!,
+        candidateIssue => candidateIssue.Code == "import.scalar.conflict");
+    Assert.Equal(
+        "The imported display name differs from the existing Mod.",
+        issue.Message);
+    Assert.DoesNotContain('|', issue.Message);
+    Assert.Equal(["Imported Title", "User Name"], issue.CompetingValues);
+
+    var coordinator = new RecordingCoordinator();
+    var previewViewModel = new ImportPreviewViewModel();
+    previewViewModel.Load(preview);
+    var subject = new ImportResolutionViewModel(coordinator, previewViewModel);
+
+    Assert.Equal(["Imported Title", "User Name"], subject.CompetingScalarValues);
+    Assert.DoesNotContain(
+        subject.CompetingScalarValues,
+        value => value.Contains("differs from the existing Mod", StringComparison.Ordinal));
+
+    subject.SelectedScalarValue = "Imported Title";
+    await subject.ApplyScalarSelectionAsync(TestContext.Current.CancellationToken);
+
+    Assert.Equal("Imported Title", coordinator.LastResolvedCandidate!.DisplayName);
+  }
+
   private static ImportPreview CreateSourceOwnerConflictPreview()
   {
     var target = ImportTargetContext.ForCurrentWorkspace(
@@ -131,7 +180,8 @@ public sealed class ImportResolutionViewModelTests
                     new ImportValidationIssue(
                         "scalar-1",
                         "import.scalar.conflict",
-                        "Imported Name|Existing Name")
+                        "The imported display name differs from the existing Mod.",
+                        ["Imported Name", "Existing Name"])
                 ])
         ]);
   }
@@ -253,5 +303,51 @@ public sealed class ImportResolutionViewModelTests
                 ImportMembershipDestination.ForLibraryOnly()),
             [],
             Applied: false);
+  }
+
+  private sealed class EngineBackedWorkspaceImportStore : IWorkspaceImportStore
+  {
+    public IReadOnlyList<ImportCandidate> ExistingCandidates { get; init; } = [];
+
+    public Task<IReadOnlyList<ImportCandidate>> ReadCandidatesAsync(
+        ImportTargetContext targetContext,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(ExistingCandidates);
+
+    public Task<bool> ModExistsAsync(
+        ImportTargetContext.CurrentWorkspace targetContext,
+        string modId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(ExistingCandidates.Any(candidate =>
+            string.Equals(candidate.LinkedModId, modId, StringComparison.Ordinal)));
+
+    public Task<IReadOnlySet<string>> ReadCollectionMemberModIdsAsync(
+        ImportTargetContext.CurrentWorkspace targetContext,
+        string collectionId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlySet<string>>(new HashSet<string>(StringComparer.Ordinal));
+
+    public Task<ImportPreview> SavePreviewAsync(
+        ImportTargetContext targetContext,
+        IReadOnlyList<ImportCandidate> candidates,
+        IReadOnlyList<ImportResolution> resolutions,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ImportPreview(
+            targetContext,
+            candidates,
+            Applied: false,
+            Resolutions: resolutions,
+            ValidationIssues: []));
+
+    public Task<ImportOutcome> CommitNewWorkspaceAtomicallyAsync(
+        ImportPreview preview,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public Task<ImportOutcome> CommitAtomicallyAsync(
+        ImportPreview preview,
+        bool confirm,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
   }
 }

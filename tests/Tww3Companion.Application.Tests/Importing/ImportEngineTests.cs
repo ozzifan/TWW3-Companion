@@ -594,9 +594,13 @@ public sealed class ImportEngineTests
 
     var operation = Assert.Single(preview.Operations!);
     Assert.Equal(ImportLibraryAction.Conflict, operation.LibraryAction);
-    Assert.Contains(
+    var issue = Assert.Single(
         preview.ValidationIssues!,
-        issue => issue.Code == "import.scalar.conflict");
+        candidateIssue => candidateIssue.Code == "import.scalar.conflict");
+    Assert.Equal(
+        "The imported display name differs from the existing Mod.",
+        issue.Message);
+    Assert.Equal(["Imported Title", "User Name"], issue.CompetingValues);
   }
 
   [Fact]

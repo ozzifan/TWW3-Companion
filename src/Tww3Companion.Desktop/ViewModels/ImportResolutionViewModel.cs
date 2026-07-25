@@ -240,12 +240,6 @@ public sealed class ImportResolutionViewModel : ViewModelBase
   {
     var issue = issues.FirstOrDefault(candidateIssue =>
         string.Equals(candidateIssue.Code, "import.scalar.conflict", StringComparison.Ordinal));
-    if (issue is null || string.IsNullOrWhiteSpace(issue.Message))
-    {
-      return [];
-    }
-
-    return issue.Message
-        .Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    return issue?.CompetingValues is { Count: > 0 } values ? values : [];
   }
 }
