@@ -101,7 +101,7 @@ public sealed class ImportTaskCoordinator(
       CancellationToken cancellationToken)
   {
     var tokens = TokenizeInput(request.InputText);
-    if (tokens.Count != 1 || !IsNumericWorkshopId(tokens[0]))
+    if (tokens.Count != 1 || !SteamImportAdapter.TryGetCollectionId(tokens[0], out var collectionId))
     {
       return new ImportSourceLoadResult(
           [],
@@ -109,7 +109,6 @@ public sealed class ImportTaskCoordinator(
           []);
     }
 
-    var collectionId = tokens[0];
     if (!request.RequestMetadata)
     {
       return new ImportSourceLoadResult(
@@ -119,7 +118,7 @@ public sealed class ImportTaskCoordinator(
     }
 
     var result = await SteamCollectionImportAdapter.ParseAsync(
-        collectionId,
+        request.InputText,
         _metadataClient,
         cancellationToken);
 
@@ -139,7 +138,7 @@ public sealed class ImportTaskCoordinator(
 
     foreach (var token in tokens)
     {
-      if (TryGetWorkshopItemId(token, out var workshopItemId))
+      if (SteamImportAdapter.TryGetWorkshopItemId(token, out var workshopItemId))
       {
         disclosedWorkshopIds.Add(workshopItemId);
       }
@@ -177,43 +176,12 @@ public sealed class ImportTaskCoordinator(
       input.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
           .ToList();
 
-  private static bool IsNumericWorkshopId(string value) =>
-      value.Length > 0 && value.All(char.IsAsciiDigit);
-
-  private static bool TryGetWorkshopItemId(string sourceReference, out string workshopItemId)
-  {
-    if (sourceReference.All(char.IsAsciiDigit))
-    {
-      workshopItemId = sourceReference;
-      return true;
-    }
-
-    if (Uri.TryCreate(sourceReference, UriKind.Absolute, out var uri) &&
-        (uri.Host.Equals("steamcommunity.com", StringComparison.OrdinalIgnoreCase) ||
-         uri.Host.Equals("www.steamcommunity.com", StringComparison.OrdinalIgnoreCase)) &&
-        (uri.AbsolutePath.Equals("/sharedfiles/filedetails/", StringComparison.OrdinalIgnoreCase) ||
-         uri.AbsolutePath.Equals("/sharedfiles/filedetails", StringComparison.OrdinalIgnoreCase)))
-    {
-      var id = uri.Query.TrimStart('?').Split('&')
-          .Select(parameter => parameter.Split('=', 2))
-          .FirstOrDefault(parameter => parameter.Length == 2 && parameter[0].Equals("id", StringComparison.OrdinalIgnoreCase))?[1];
-      if (!string.IsNullOrWhiteSpace(id) && id.All(char.IsAsciiDigit))
-      {
-        workshopItemId = id;
-        return true;
-      }
-    }
-
-    workshopItemId = string.Empty;
-    return false;
-  }
-
   private static ImportTaskDiagnostic CreateCollectionValidationDiagnostic() =>
       new(
           "import.source.steam.collection.invalid",
-          "Steam collection input must contain exactly one numeric collection ID.",
+          "Steam collection input must contain exactly one numeric collection ID or supported URL.",
           IsBlocking: true,
-          SafeNextAction: "Enter one numeric collection ID and try again.");
+          SafeNextAction: "Enter one numeric collection ID or supported URL and try again.");
 
   private static ImportTaskDiagnostic CreateLookupDiagnostic() =>
       new(

@@ -115,6 +115,29 @@ public sealed class ImportTaskCoordinatorTests
   }
 
   [Fact]
+  public async Task LoadSourceAsync_accepts_steam_collection_url_without_calling_metadata()
+  {
+    var metadata = new RecordingSteamMetadataClient();
+    var coordinator = CreateCoordinator(metadata);
+    const string collectionUrl =
+        "https://steamcommunity.com/sharedfiles/filedetails/?id=123456789";
+    var request = new ImportSourceRequest(
+        ImportSourceKind.SteamCollection,
+        collectionUrl,
+        DocumentName: null,
+        RequestMetadata: false);
+
+    var result = await coordinator.LoadSourceAsync(
+        request,
+        TestContext.Current.CancellationToken);
+
+    Assert.Equal(["123456789"], result.DisclosedWorkshopIds);
+    Assert.Empty(metadata.RequestedCollectionIds);
+    var candidate = Assert.IsType<SteamImportCandidate>(Assert.Single(result.Candidates));
+    Assert.Equal("123456789", candidate.SourceReference);
+  }
+
+  [Fact]
   public async Task LoadSourceAsync_expands_steam_collection_when_metadata_is_requested()
   {
     var metadata = new RecordingSteamMetadataClient();
