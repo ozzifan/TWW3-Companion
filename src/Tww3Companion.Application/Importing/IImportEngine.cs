@@ -8,6 +8,11 @@ public interface IImportEngine
       IReadOnlyList<object> candidates,
       CancellationToken cancellationToken = default);
 
+  Task<ImportPreview> ResolveAsync(
+      ImportPreview preview,
+      ImportCandidate resolvedCandidate,
+      CancellationToken cancellationToken = default);
+
   Task<ImportOutcome> ApplyAsync(
       ImportPreview preview,
       bool confirm,

@@ -19,15 +19,39 @@ internal sealed class NewWorkspaceImportSession(
       throw new ArgumentException("A new Workspace import requires a destination path.", nameof(targetContext));
     }
 
-    if (string.IsNullOrWhiteSpace(targetContext.CollectionDisplayName))
+    switch (targetContext.MembershipDestination)
     {
-      throw new ArgumentException("A new Workspace import requires a Collection display name.", nameof(targetContext));
+      case ImportMembershipDestination.LibraryOnly:
+        break;
+
+      case ImportMembershipDestination.NewCollection { DisplayName: var displayName }
+          when !string.IsNullOrWhiteSpace(displayName):
+        break;
+
+      case ImportMembershipDestination.NewCollection:
+        throw new ArgumentException(
+            "A new Workspace import requires a Collection display name when targeting a new Collection.",
+            nameof(targetContext));
+
+      case ImportMembershipDestination.ExistingCollection:
+        throw new ArgumentException(
+            "A new Workspace import cannot target an existing Collection.",
+            nameof(targetContext));
+
+      default:
+        throw new ArgumentException("Unsupported membership destination.", nameof(targetContext));
     }
   }
 
   public async Task<ImportOutcome> ApplyAsync(bool confirm, CancellationToken cancellationToken = default)
   {
-    if (!confirm) return new ImportOutcome(preview.TargetContext, preview.Candidates, Applied: false);
+    if (!confirm)
+    {
+      return new ImportOutcome(
+          preview.TargetContext,
+          preview.Candidates.Cast<object>().ToArray(),
+          Applied: false);
+    }
 
     ValidateDestination(_targetContext);
     ImportPreviewValidation.Validate(preview);

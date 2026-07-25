@@ -9,30 +9,58 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
       IReadOnlyList<object> candidates,
       CancellationToken cancellationToken = default)
   {
-    if (targetContext is ImportTargetContext.NewWorkspace newWorkspace)
-    {
-      NewWorkspaceImportSession.ValidateDestination(newWorkspace);
-    }
-
     var importCandidates = NormalizeCandidates(candidates);
     var existingCandidates = targetContext is ImportTargetContext.NewWorkspace
         ? []
         : await _store.ReadCandidatesAsync(targetContext, cancellationToken);
-    var matchedCandidates = MatchExactSourceReferences(importCandidates, existingCandidates);
-    var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
-    var validationIssues = DetectSourceOwnerConflicts(suggestedCandidates, existingCandidates);
-    var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
-        candidate.CandidateId,
-        candidate.LinkedModId,
-        candidate.DisplayName,
-        CanSkip: string.IsNullOrWhiteSpace(candidate.LinkedModId))).ToArray();
 
-    var preview = await _store.SavePreviewAsync(
+    return await BuildNormalizedPreviewAsync(
         targetContext,
-        suggestedCandidates,
-        resolutions,
+        importCandidates,
+        existingCandidates,
         cancellationToken);
-    return preview with { Resolutions = resolutions, ValidationIssues = validationIssues };
+  }
+
+  public async Task<ImportPreview> ResolveAsync(
+      ImportPreview preview,
+      ImportCandidate resolvedCandidate,
+      CancellationToken cancellationToken = default)
+  {
+    ArgumentNullException.ThrowIfNull(preview);
+    ArgumentNullException.ThrowIfNull(resolvedCandidate);
+
+    var matchingIndices = preview.Candidates
+        .Select((candidate, index) => (candidate, index))
+        .Where(entry => string.Equals(entry.candidate.CandidateId, resolvedCandidate.CandidateId, StringComparison.Ordinal))
+        .Select(entry => entry.index)
+        .ToArray();
+
+    if (matchingIndices.Length == 0)
+    {
+      throw new ArgumentException(
+          $"The preview does not contain candidate '{resolvedCandidate.CandidateId}'.",
+          nameof(resolvedCandidate));
+    }
+
+    if (matchingIndices.Length > 1)
+    {
+      throw new ArgumentException(
+          $"The preview contains duplicate candidate '{resolvedCandidate.CandidateId}'.",
+          nameof(resolvedCandidate));
+    }
+
+    var updatedCandidates = preview.Candidates.ToArray();
+    updatedCandidates[matchingIndices[0]] = resolvedCandidate;
+
+    var existingCandidates = preview.TargetContext is ImportTargetContext.NewWorkspace
+        ? []
+        : await _store.ReadCandidatesAsync(preview.TargetContext, cancellationToken);
+
+    return await BuildNormalizedPreviewAsync(
+        preview.TargetContext,
+        updatedCandidates,
+        existingCandidates,
+        cancellationToken);
   }
 
   public Task<ImportOutcome> ApplyAsync(
@@ -51,6 +79,47 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
     }
 
     throw new ArgumentException("Unsupported import target context.", nameof(preview));
+  }
+
+  private async Task<ImportPreview> BuildNormalizedPreviewAsync(
+      ImportTargetContext targetContext,
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportCandidate> existingCandidates,
+      CancellationToken cancellationToken)
+  {
+    if (targetContext is ImportTargetContext.NewWorkspace newWorkspace)
+    {
+      NewWorkspaceImportSession.ValidateDestination(newWorkspace);
+    }
+    else if (targetContext is ImportTargetContext.CurrentWorkspace currentWorkspace)
+    {
+      CurrentWorkspaceImportSession.ValidateDestination(currentWorkspace);
+    }
+
+    var matchedCandidates = MatchExactSourceReferences(candidates, existingCandidates);
+    var suggestedCandidates = SuggestNameMatches(matchedCandidates, existingCandidates);
+    var validationIssues = DetectSourceOwnerConflicts(suggestedCandidates, existingCandidates);
+    var resolutions = suggestedCandidates.Select(candidate => new ImportResolution(
+        candidate.CandidateId,
+        candidate.LinkedModId,
+        candidate.DisplayName,
+        CanSkip: string.IsNullOrWhiteSpace(candidate.LinkedModId))).ToArray();
+    var operations = BuildOperations(suggestedCandidates, validationIssues, targetContext);
+    var warningCount = CountWarnings(suggestedCandidates, validationIssues);
+
+    var preview = await _store.SavePreviewAsync(
+        targetContext,
+        suggestedCandidates,
+        resolutions,
+        cancellationToken);
+
+    return preview with
+    {
+      Resolutions = resolutions,
+      ValidationIssues = validationIssues,
+      Operations = operations,
+      WarningCount = warningCount
+    };
   }
 
   private static IReadOnlyList<ImportCandidate> NormalizeCandidates(
@@ -167,6 +236,94 @@ public sealed class ImportEngine(IWorkspaceImportStore store) : IImportEngine
           .Where(issue => issue is not null)
           .Cast<ImportValidationIssue>()
           .ToArray();
+
+  private static IReadOnlyList<ImportPreviewOperation> BuildOperations(
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportValidationIssue> validationIssues,
+      ImportTargetContext targetContext) =>
+      candidates.Select(candidate =>
+      {
+        var candidateIssues = validationIssues
+            .Where(issue => string.Equals(issue.CandidateId, candidate.CandidateId, StringComparison.Ordinal))
+            .ToArray();
+
+        return new ImportPreviewOperation(
+            candidate.CandidateId,
+            DetermineLibraryAction(candidate, candidateIssues),
+            DetermineMembershipAction(candidate, candidateIssues, targetContext),
+            candidateIssues);
+      }).ToArray();
+
+  private static ImportLibraryAction DetermineLibraryAction(
+      ImportCandidate candidate,
+      IReadOnlyList<ImportValidationIssue> candidateIssues)
+  {
+    if (candidate.IsSkipped)
+    {
+      return ImportLibraryAction.Skip;
+    }
+
+    if (candidateIssues.Any(issue => issue.Code == "import.source.owner.conflict"))
+    {
+      return ImportLibraryAction.Conflict;
+    }
+
+    if (!string.IsNullOrWhiteSpace(candidate.LinkedModId))
+    {
+      return ImportLibraryAction.Existing;
+    }
+
+    if (!string.IsNullOrWhiteSpace(candidate.SuggestedModId))
+    {
+      return ImportLibraryAction.SuggestedMatch;
+    }
+
+    if (!string.IsNullOrWhiteSpace(candidate.DisplayName))
+    {
+      return ImportLibraryAction.Create;
+    }
+
+    return ImportLibraryAction.Create;
+  }
+
+  private static ImportMembershipAction DetermineMembershipAction(
+      ImportCandidate candidate,
+      IReadOnlyList<ImportValidationIssue> candidateIssues,
+      ImportTargetContext targetContext)
+  {
+    if (candidate.IsSkipped)
+    {
+      return ImportMembershipAction.Skip;
+    }
+
+    if (candidateIssues.Any(issue => issue.Code == "import.source.owner.conflict"))
+    {
+      return ImportMembershipAction.Blocked;
+    }
+
+    return targetContext switch
+    {
+      ImportTargetContext.NewWorkspace { MembershipDestination: ImportMembershipDestination.LibraryOnly } =>
+          ImportMembershipAction.None,
+      ImportTargetContext.CurrentWorkspace { MembershipDestination: ImportMembershipDestination.LibraryOnly } =>
+          ImportMembershipAction.None,
+      _ => ImportMembershipAction.Add
+    };
+  }
+
+  private static int CountWarnings(
+      IReadOnlyList<ImportCandidate> candidates,
+      IReadOnlyList<ImportValidationIssue> validationIssues)
+  {
+    var nonSkippedCandidateIds = candidates
+        .Where(candidate => !candidate.IsSkipped)
+        .Select(candidate => candidate.CandidateId)
+        .ToHashSet(StringComparer.Ordinal);
+
+    return validationIssues.Count(issue =>
+        nonSkippedCandidateIds.Contains(issue.CandidateId) &&
+        issue.Code.Contains("warning", StringComparison.OrdinalIgnoreCase));
+  }
 
   private static bool SourceReferencesMatch(
       ImportSourceReference? left,
