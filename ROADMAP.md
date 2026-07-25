@@ -52,9 +52,6 @@ Workspace foundation slice:
 - Home composition and startup wiring complete
 - Later v0.1 slices still add the accepted import, complete Home actions, domain tables, JSON backup/restore, and packaging workflows
 
-- Markdown importer
-- Workshop ID importer
-
 Completed v0.1 slices:
 
 - Workspace foundation
@@ -63,8 +60,14 @@ Completed v0.1 slices:
 - Shared import engine
 - Home and Workspace shell wiring to the shared engine
 - Local Workspace catalog persistence
+- Complete import workspace UI (Source → Destination → Preview/Resolve → Confirm/Apply)
 
-Success: a user can import a list into a Collection, persist its Workspace locally, and reload it reliably.
+Remaining v0.1 work (not yet assessed complete):
+
+- JSON backup/restore workflow
+- Packaging and release verification
+
+Success: a user can import a list into the Mod Library or a Collection, persist its Workspace locally, and reload it reliably. v0.1 itself remains in progress until backup/restore and packaging are assessed.
 
 ---
 

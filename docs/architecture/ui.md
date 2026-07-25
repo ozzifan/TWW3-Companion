@@ -53,19 +53,27 @@ Removing a Membership uses a compact confirmation that names its Collection-loca
 
 ## Import Workspace
 
-Import is a full-page task within the Workspace shell:
+Import is a full-page task reachable from Home (**Import into a new Workspace**) or the Workspace shell (**Import**). It uses four visible stages:
 
 ```text
-Choose source
-→ full preview table
-→ Needs Attention resolution queue
-→ final operation summary
-→ explicit Apply
-→ atomic import
-→ result announcement
+1. Source
+→ 2. Destination
+→ 3. Preview and resolve
+→ 4. Confirm and Apply
 ```
 
-The full RFC-0004 preview remains visible while blocking identity choices, missing display names, ambiguous categories, and conflicts are resolved. Apply remains unavailable until every blocking item is resolved and the domain plan validates. Confirmation shows exact operations and describes the import as additive, never replace or synchronise.
+Source and destination are independent. Supported sources are Markdown (paste or file), one Steam Collection, and multiple Steam items (paste or file). Steam metadata is disclosed before any network request and fetched only after the user continues from Source.
+
+The destination stage collects:
+
+- **New Workspace** — display name, destination `.tww3c` path, and `LibraryOnly` or `NewCollection` with a display name;
+- **Current Workspace** — `LibraryOnly`, an existing Collection, or `NewCollection`.
+
+Back is available before Apply. Changing source or destination invalidates confirmation and rebuilds the preview.
+
+Stage 3 keeps the full RFC-0004 preview visible alongside the Needs Attention resolution queue while blocking identity choices, missing display names, ambiguous categories, and conflicts are resolved. Apply remains unavailable until every blocking item is resolved and the domain plan validates. Warnings appear as a warnings-remaining count, not as accepted outcomes. Preview and resolution state are not persisted.
+
+Stage 4 shows exact operation counts, describes the import as additive (never replace or synchronise), and requires explicit Apply for one atomic commit. Failed Apply retains preview state; successful Apply reloads the library and returns to the Workspace shell with the appropriate Collection or Mod Library selected.
 
 ---
 

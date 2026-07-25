@@ -37,6 +37,10 @@ The first import milestone arrived in the 2026-07-23 import-core slice set: Mark
 
 Schema v2 introduced persisted Mod, Collection, and membership tables with a transactional v1 migration backed by a pre-migration backup. The first Collection import into an open Workspace now commits atomically through the production SQLite catalog store, and successful current-Workspace imports reload the library overlay so the shell reflects the persisted snapshot immediately.
 
+### Complete Import Workspace UI (2026-07-25)
+
+The first fully user-operable import milestone: a full-page Desktop task walks through Source, Destination, Preview/Resolve, and Confirm/Apply. Users choose import source and destination independently — Mod Library only, an existing Collection, or a new Collection — inspect the full RFC-0004 preview while resolving blocking items, and Apply atomically with no persistence before confirmation. Steam metadata is disclosed and requested only after explicit user action. The prior mandatory-Collection import target was superseded by explicit membership destinations.
+
 ## Looking Ahead
 
 Future history will be recorded here at major milestones: first import, first persisted collection, first public release. Contributors are welcome to add dated entries when those events occur.
