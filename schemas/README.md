@@ -1,7 +1,15 @@
 # Schemas
 
-Versioned JSON schemas for documented transfer formats will live here.
+Versioned JSON schemas for documented transfer formats live here.
 
-The lossless full-Workspace JSON schema is deferred to the v0.1 export/restore implementation slice defined by [RFC-0003](../RFC/RFC-0003.md). It will be committed before that format ships. Single-Collection snapshot schema and behaviour remain deferred.
+## Shipped formats
+
+| Schema | Format identifier | Scope |
+|--------|-------------------|-------|
+| [workspace-export-v1.schema.json](workspace-export-v1.schema.json) | `workspace-export-v1` | Complete lossless full-Workspace export for v0.1 backup and restore |
+
+`workspace-export-v1` is the shipped complete v0.1 Workspace format. It captures the Workspace identity, every Mod and Collection, Source References, and ordered Collection Memberships with stable UUIDs.
+
+Single-Collection snapshot schema and behaviour remain deferred.
 
 User Workspace data is **not** stored in this repository.

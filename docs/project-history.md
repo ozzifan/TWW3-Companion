@@ -41,6 +41,10 @@ Schema v2 introduced persisted Mod, Collection, and membership tables with a tra
 
 The first fully user-operable import milestone: a full-page Desktop task walks through Source, Destination, Preview/Resolve, and Confirm/Apply. Users choose import source and destination independently — Mod Library only, an existing Collection, or a new Collection — inspect the full RFC-0004 preview while resolving blocking items, and Apply atomically with no persistence before confirmation. Steam metadata is disclosed and requested only after explicit user action. The prior mandatory-Collection import target was superseded by explicit membership destinations.
 
+### Workspace JSON Backup and Restore (2026-07-27)
+
+The first data-portability milestone: full-Workspace export to versioned `workspace-export-v1` JSON with deterministic ordering and stable UUID preservation; restore as a new Workspace from Home; and replacement restore from an open Workspace with explicit confirmation, managed pre-restore SQLite backup, and combined five-total automatic-backup retention across migration and restore reasons. Single-Collection snapshot export remains deferred.
+
 ## Looking Ahead
 
 Future history will be recorded here at major milestones: first persisted collection, first public release. Contributors are welcome to add dated entries when those events occur.

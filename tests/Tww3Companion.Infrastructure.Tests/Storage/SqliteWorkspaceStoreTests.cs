@@ -155,6 +155,8 @@ internal sealed class MoveFailingFileSystem : Tww3Companion.Infrastructure.Setti
 {
   public Stream CreateWriteProbe(string directory) => throw new NotSupportedException();
   public void MoveWithoutOverwrite(string source, string destination) => throw new IOException("move failed");
+  public void ReplaceWithRecovery(string preparedPath, string destinationPath, string recoveryPath) =>
+      throw new NotSupportedException();
   public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token) => throw new NotSupportedException();
 }
 

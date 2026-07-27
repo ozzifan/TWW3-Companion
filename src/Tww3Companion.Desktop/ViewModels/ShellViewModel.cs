@@ -9,7 +9,7 @@ using Tww3Companion.Domain.Workspaces;
 
 namespace Tww3Companion.Desktop.ViewModels;
 
-public enum ShellScreen { Home, Workspace, Import, Compatibility }
+public enum ShellScreen { Home, Workspace, Import, Compatibility, WorkspaceTransfer }
 public enum ThemeChoice { System, Light, Dark, HighContrast }
 public enum CompatibilityAction { Exit, ContinueAnyway }
 public enum WorkspaceOperationState { Idle, Busy, Finalizing }
@@ -36,7 +36,9 @@ public sealed record WorkspaceShellState(
     string EmptyStateMessage,
     IReadOnlyList<string> WorkspaceDestinations,
     string OperationError,
-    bool HasOperationError);
+    bool HasOperationError,
+    string OperationStatusMessage,
+    bool HasOperationStatusMessage);
 
 public sealed class ShellViewModel : ViewModelBase
 {
@@ -63,6 +65,7 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly string defaultWorkspaceDirectory;
   private readonly string settingsDirectory;
   private readonly IWorkspaceDisposalCoordinator workspaceDisposalCoordinator;
+  private readonly IWorkspaceTransferCoordinator? workspaceTransferCoordinator;
   private readonly DelegateCommand createWorkspaceCommand;
   private readonly DelegateCommand openWorkspaceCommand;
   private readonly DelegateCommand removeRecentCommand;
@@ -71,10 +74,15 @@ public sealed class ShellViewModel : ViewModelBase
   private readonly DelegateCommand importIntoCurrentWorkspaceCommand;
   private readonly DelegateCommand cancelImportCommand;
   private readonly DelegateCommand confirmDiscardImportCommand;
+  private readonly DelegateCommand backupWorkspaceCommand;
+  private readonly DelegateCommand restoreFromHomeCommand;
+  private readonly DelegateCommand restoreOpenWorkspaceCommand;
   private ImportWorkspaceViewModel? importWorkspace;
+  private WorkspaceTransferViewModel? workspaceTransfer;
   private ShellScreen returnScreen = ShellScreen.Home;
   private string? currentWorkspaceId;
   private string? currentWorkspacePath;
+  private string? currentWorkspaceDisplayName;
   private string? currentCollectionId;
   private bool isDisposingWorkspace;
 
@@ -102,6 +110,7 @@ public sealed class ShellViewModel : ViewModelBase
     defaultWorkspaceDirectory = options.DefaultWorkspaceDirectory;
     settingsDirectory = options.SettingsDirectory;
     workspaceDisposalCoordinator = options.WorkspaceDisposalCoordinator;
+    workspaceTransferCoordinator = options.WorkspaceTransferCoordinator;
     ModLibrary = new ModLibraryViewModel(workspaceLibraryQuery);
     CollectionDetail = new CollectionDetailViewModel();
 
@@ -124,6 +133,15 @@ public sealed class ShellViewModel : ViewModelBase
     confirmDiscardImportCommand = new DelegateCommand(
         _ => ConfirmDiscardImport(),
         _ => importWorkspace?.RequiresDiscardConfirmation ?? false);
+    backupWorkspaceCommand = new DelegateCommand(
+        _ => _ = RunBackupWorkspaceAsync(),
+        _ => CanBackupWorkspace);
+    restoreFromHomeCommand = new DelegateCommand(
+        _ => EnterWorkspaceTransfer(WorkspaceRestoreDestination.NewWorkspace),
+        _ => !Home.IsBusy && workspaceTransferCoordinator is not null);
+    restoreOpenWorkspaceCommand = new DelegateCommand(
+        _ => EnterWorkspaceTransfer(WorkspaceRestoreDestination.ReplaceOpenWorkspace),
+        _ => CanBackupWorkspace && workspaceTransferCoordinator is not null);
 
     CreateWorkspaceCommand = createWorkspaceCommand;
     OpenWorkspaceCommand = openWorkspaceCommand;
@@ -133,6 +151,9 @@ public sealed class ShellViewModel : ViewModelBase
     ImportIntoCurrentWorkspaceCommand = importIntoCurrentWorkspaceCommand;
     CancelImportCommand = cancelImportCommand;
     ConfirmDiscardImportCommand = confirmDiscardImportCommand;
+    BackupWorkspaceCommand = backupWorkspaceCommand;
+    RestoreFromHomeCommand = restoreFromHomeCommand;
+    RestoreOpenWorkspaceCommand = restoreOpenWorkspaceCommand;
     OpenSettingsFolderCommand = new DelegateCommand(_ => OpenSettingsFolder());
     ReturnHomeCommand = new DelegateCommand(_ => ReturnHome());
     ContinueAnywayCommand = new DelegateCommand(_ => ContinueAnyway());
@@ -144,7 +165,8 @@ public sealed class ShellViewModel : ViewModelBase
       IWorkspaceDisposalCoordinator? workspaceDisposalCoordinator = null,
       IImportTaskCoordinator? importCoordinator = null,
       IImportSourceFileService? importFileService = null,
-      WorkspaceLibraryQuery? workspaceLibraryQuery = null) =>
+      WorkspaceLibraryQuery? workspaceLibraryQuery = null,
+      IWorkspaceTransferCoordinator? workspaceTransferCoordinator = null) =>
       new(new ShellViewModelOptions
       {
         SettingsStore = settingsStore ?? new InMemoryApplicationSettingsStore(DefaultSettings()),
@@ -157,7 +179,8 @@ public sealed class ShellViewModel : ViewModelBase
         WorkspaceDisposalCoordinator = workspaceDisposalCoordinator ?? new WorkspaceDisposalCoordinator(),
         ImportCoordinator = importCoordinator ?? new PassiveImportTaskCoordinator(),
         ImportFileService = importFileService ?? new PassiveImportSourceFileService(),
-        WorkspaceLibraryQuery = workspaceLibraryQuery
+        WorkspaceLibraryQuery = workspaceLibraryQuery,
+        WorkspaceTransferCoordinator = workspaceTransferCoordinator
       });
 
   public static ShellViewModel Create(
@@ -171,6 +194,7 @@ public sealed class ShellViewModel : ViewModelBase
       IWorkspaceDisposalCoordinator workspaceDisposalCoordinator,
       IImportTaskCoordinator importCoordinator,
       IImportSourceFileService importFileService,
+      IWorkspaceTransferCoordinator workspaceTransferCoordinator,
       WorkspaceLibraryQuery? workspaceLibraryQuery = null) =>
       new(new ShellViewModelOptions
       {
@@ -185,7 +209,8 @@ public sealed class ShellViewModel : ViewModelBase
         SettingsDirectory = settingsDirectory,
         WorkspaceDisposalCoordinator = workspaceDisposalCoordinator,
         ImportCoordinator = importCoordinator,
-        ImportFileService = importFileService
+        ImportFileService = importFileService,
+        WorkspaceTransferCoordinator = workspaceTransferCoordinator
       });
 
   public ShellScreen CurrentScreen => _currentScreen;
@@ -193,7 +218,13 @@ public sealed class ShellViewModel : ViewModelBase
   public bool IsWorkspaceVisible => _currentScreen == ShellScreen.Workspace;
   public bool IsImportVisible => _currentScreen == ShellScreen.Import;
   public bool IsCompatibilityVisible => _currentScreen == ShellScreen.Compatibility;
+  public bool IsWorkspaceTransferVisible => _currentScreen == ShellScreen.WorkspaceTransfer;
+  public bool CanBackupWorkspace =>
+      !string.IsNullOrWhiteSpace(currentWorkspacePath) &&
+      _currentScreen == ShellScreen.Workspace &&
+      (workspaceTransfer is null || !workspaceTransfer.IsBusy);
   public ImportWorkspaceViewModel? ImportWorkspace => importWorkspace;
+  public WorkspaceTransferViewModel? WorkspaceTransfer => workspaceTransfer;
   public IReadOnlyList<string> WorkspaceDestinations { get; } = DefaultWorkspaceDestinations;
   public IReadOnlyList<ThemeChoice> ThemeChoices { get; } = [ThemeChoice.System, ThemeChoice.Light, ThemeChoice.Dark];
   public IReadOnlyList<CompatibilityAction> CompatibilityActions { get; } = [CompatibilityAction.Exit, CompatibilityAction.ContinueAnyway];
@@ -218,6 +249,9 @@ public sealed class ShellViewModel : ViewModelBase
   public ICommand ImportIntoCurrentWorkspaceCommand { get; }
   public ICommand CancelImportCommand { get; }
   public ICommand ConfirmDiscardImportCommand { get; }
+  public ICommand BackupWorkspaceCommand { get; }
+  public ICommand RestoreFromHomeCommand { get; }
+  public ICommand RestoreOpenWorkspaceCommand { get; }
   public ICommand OpenSettingsFolderCommand { get; }
   public ICommand ReturnHomeCommand { get; }
   public ICommand ContinueAnywayCommand { get; }
@@ -443,18 +477,14 @@ public sealed class ShellViewModel : ViewModelBase
   public void SetCurrentWorkspaceImportTargetForTest(
       string workspaceId,
       string workspacePath,
-      string? collectionId = null)
-  {
-    currentWorkspaceId = workspaceId;
-    currentWorkspacePath = workspacePath;
-    currentCollectionId = collectionId;
-    importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
-  }
+      string? collectionId = null) =>
+      SetCurrentWorkspaceForTest(workspaceId, workspacePath, collectionId: collectionId);
 
   public void SetCurrentWorkspaceIdForTest(string workspaceId) =>
-      SetCurrentWorkspaceImportTargetForTest(
+      SetCurrentWorkspaceForTest(
           workspaceId,
           "C:\\Workspaces\\current.tww3c",
+          "Current Workspace",
           "collection-id-123");
 
   private async Task RunCreateWorkspaceAsync()
@@ -477,7 +507,7 @@ public sealed class ShellViewModel : ViewModelBase
       SetOperationState(WorkspaceOperationState.Finalizing);
       if (createWorkspace is not null)
       {
-        var path = Path.Combine(defaultWorkspaceDirectory, $"{SafeFileName(displayName)}.tww3c");
+        var path = Path.Combine(defaultWorkspaceDirectory, $"{WorkspaceFileName.Sanitize(displayName)}.tww3c");
         var result = await createWorkspace.ExecuteAsync(displayName, path, CancellationToken.None);
         if (result is OperationResult<Workspace>.Failure failure)
         {
@@ -494,6 +524,7 @@ public sealed class ShellViewModel : ViewModelBase
         {
           currentWorkspaceId = success.Value.Id.ToString();
           currentWorkspacePath = path;
+          currentWorkspaceDisplayName = success.Value.Name.ToString();
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
@@ -553,6 +584,7 @@ public sealed class ShellViewModel : ViewModelBase
         {
           currentWorkspaceId = success.Value.Id.ToString();
           currentWorkspacePath = path;
+          currentWorkspaceDisplayName = success.Value.Name.ToString();
           importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
           settings = await settingsStore.LoadAsync(CancellationToken.None);
           UpdateHome(Home.SettingsSaveError);
@@ -625,6 +657,7 @@ public sealed class ShellViewModel : ViewModelBase
       await workspaceDisposalCoordinator.DisposeWorkspaceScopeAsync(CancellationToken.None);
       currentWorkspaceId = null;
       currentWorkspacePath = null;
+      currentWorkspaceDisplayName = null;
       currentCollectionId = null;
       importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
       ClearWorkspaceLibrary();
@@ -694,12 +727,14 @@ public sealed class ShellViewModel : ViewModelBase
           state == WorkspaceOperationState.Finalizing ? FinalizingMessage : string.Empty,
           ["Home", "Mod Library", "Collections", "Import into new Workspace"]);
 
-  private static WorkspaceShellState CreateWorkspaceState(string operationError) =>
+  private static WorkspaceShellState CreateWorkspaceState(string operationError, string operationStatusMessage = "") =>
       new(
           EmptyWorkspaceMessage,
           DefaultWorkspaceDestinations,
           operationError,
-          !string.IsNullOrWhiteSpace(operationError));
+          !string.IsNullOrWhiteSpace(operationError),
+          operationStatusMessage,
+          !string.IsNullOrWhiteSpace(operationStatusMessage));
 
   private async Task LoadWorkspaceLibraryAsync(string path)
   {
@@ -731,13 +766,181 @@ public sealed class ShellViewModel : ViewModelBase
 
   private void UpdateWorkspaceError(string operationError)
   {
-    if (Workspace.OperationError == operationError)
+    if (Workspace.OperationError == operationError &&
+        string.IsNullOrWhiteSpace(Workspace.OperationStatusMessage))
     {
       return;
     }
 
     Workspace = CreateWorkspaceState(operationError);
     OnPropertyChanged(nameof(Workspace));
+  }
+
+  private void UpdateWorkspaceStatus(string operationStatusMessage, string operationError = "")
+  {
+    Workspace = CreateWorkspaceState(operationError, operationStatusMessage);
+    OnPropertyChanged(nameof(Workspace));
+    OnPropertyChanged(nameof(CanBackupWorkspace));
+    backupWorkspaceCommand.RaiseCanExecuteChanged();
+    restoreOpenWorkspaceCommand.RaiseCanExecuteChanged();
+  }
+
+  private void EnterWorkspaceTransfer(WorkspaceRestoreDestination destination)
+  {
+    if (workspaceTransferCoordinator is null)
+    {
+      return;
+    }
+
+    returnScreen = _currentScreen;
+    DetachWorkspaceTransfer();
+    workspaceTransfer = new WorkspaceTransferViewModel(
+        destination,
+        workspaceTransferCoordinator,
+        currentWorkspacePath,
+        currentWorkspaceDisplayName ?? (currentWorkspacePath is null
+            ? null
+            : Path.GetFileNameWithoutExtension(currentWorkspacePath)));
+    workspaceTransfer.Completed += OnWorkspaceTransferCompleted;
+    OnPropertyChanged(nameof(WorkspaceTransfer));
+    OnPropertyChanged(nameof(CanBackupWorkspace));
+    backupWorkspaceCommand.RaiseCanExecuteChanged();
+    restoreOpenWorkspaceCommand.RaiseCanExecuteChanged();
+    SetScreen(ShellScreen.WorkspaceTransfer);
+    workspaceTransfer.BeginInspect();
+  }
+
+  private void DetachWorkspaceTransfer()
+  {
+    if (workspaceTransfer is null)
+    {
+      return;
+    }
+
+    workspaceTransfer.Completed -= OnWorkspaceTransferCompleted;
+    workspaceTransfer = null;
+  }
+
+  private void LeaveWorkspaceTransfer()
+  {
+    DetachWorkspaceTransfer();
+    OnPropertyChanged(nameof(WorkspaceTransfer));
+    OnPropertyChanged(nameof(CanBackupWorkspace));
+    backupWorkspaceCommand.RaiseCanExecuteChanged();
+    restoreOpenWorkspaceCommand.RaiseCanExecuteChanged();
+  }
+
+  private async void OnWorkspaceTransferCompleted(object? sender, WorkspaceTransferCompletedEvent e)
+  {
+    if (!e.Applied)
+    {
+      LeaveWorkspaceTransfer();
+      SetScreen(returnScreen);
+      return;
+    }
+
+    try
+    {
+      var path = e.WorkspacePath;
+      if (string.IsNullOrWhiteSpace(path))
+      {
+        UpdateWorkspaceError("Restore completed without a Workspace path.");
+        LeaveWorkspaceTransfer();
+        SetScreen(returnScreen);
+        return;
+      }
+
+      if (e.Destination == WorkspaceRestoreDestination.NewWorkspace && openWorkspace is not null)
+      {
+        var openResult = await openWorkspace.ExecuteAsync(path, CancellationToken.None);
+        if (openResult is OperationResult<Workspace>.Failure failure)
+        {
+          UpdateWorkspaceError(failure.Error.Message);
+          LeaveWorkspaceTransfer();
+          SetScreen(returnScreen);
+          return;
+        }
+
+        if (openResult is OperationResult<Workspace>.Success success)
+        {
+          currentWorkspaceId = success.Value.Id.ToString();
+          currentWorkspacePath = path;
+          currentWorkspaceDisplayName = success.Value.Name.ToString();
+          settings = await settingsStore.LoadAsync(CancellationToken.None);
+          UpdateHome(Home.SettingsSaveError);
+          await LoadWorkspaceLibraryAsync(path);
+        }
+      }
+      else
+      {
+        currentWorkspaceId = e.WorkspaceId;
+        await LoadWorkspaceLibraryAsync(path);
+        settings = await settingsStore.LoadAsync(CancellationToken.None);
+        UpdateHome(Home.SettingsSaveError);
+      }
+
+      UpdateWorkspaceStatus(e.Message ?? "Workspace restore completed.");
+      LeaveWorkspaceTransfer();
+      SetScreen(ShellScreen.Workspace);
+    }
+    catch (Exception exception) when (exception is not OperationCanceledException)
+    {
+      UpdateWorkspaceError(exception.Message);
+      LeaveWorkspaceTransfer();
+      SetScreen(returnScreen);
+    }
+  }
+
+  private async Task RunBackupWorkspaceAsync()
+  {
+    if (!CanBackupWorkspace || workspaceTransferCoordinator is null || string.IsNullOrWhiteSpace(currentWorkspacePath))
+    {
+      return;
+    }
+
+    UpdateWorkspaceStatus("Backing up Workspace…");
+    try
+    {
+      var displayName = currentWorkspaceDisplayName
+          ?? Path.GetFileNameWithoutExtension(currentWorkspacePath);
+      var result = await workspaceTransferCoordinator.BackupAsync(
+          currentWorkspacePath,
+          displayName,
+          CancellationToken.None);
+      if (result is OperationResult<string>.Failure failure)
+      {
+        if (failure.Error.Code == "workspace.transfer.cancelled")
+        {
+          UpdateWorkspaceStatus(string.Empty);
+          return;
+        }
+
+        UpdateWorkspaceError(failure.Error.Message);
+        return;
+      }
+
+      UpdateWorkspaceStatus("Workspace backup completed.");
+    }
+    catch (Exception exception) when (exception is not OperationCanceledException)
+    {
+      UpdateWorkspaceError(exception.Message);
+    }
+  }
+
+  public void SetCurrentWorkspaceForTest(
+      string workspaceId,
+      string workspacePath,
+      string? displayName = null,
+      string? collectionId = null)
+  {
+    currentWorkspaceId = workspaceId;
+    currentWorkspacePath = workspacePath;
+    currentWorkspaceDisplayName = displayName ?? Path.GetFileNameWithoutExtension(workspacePath);
+    currentCollectionId = collectionId;
+    importIntoCurrentWorkspaceCommand.RaiseCanExecuteChanged();
+    backupWorkspaceCommand.RaiseCanExecuteChanged();
+    restoreOpenWorkspaceCommand.RaiseCanExecuteChanged();
+    OnPropertyChanged(nameof(CanBackupWorkspace));
   }
 
   private static IReadOnlyList<RecentWorkspaceItem> CreateRecentItems(ApplicationSettings settings) =>
@@ -760,13 +963,6 @@ public sealed class ShellViewModel : ViewModelBase
         ? Path.GetFileNameWithoutExtension(recent.Path)
         : "Missing Workspace";
   }
-  private static string SafeFileName(string displayName)
-  {
-    var invalid = Path.GetInvalidFileNameChars();
-    var safe = new string(displayName.Trim().Select(character =>
-        invalid.Contains(character) ? '-' : character).ToArray());
-    return string.IsNullOrWhiteSpace(safe) ? "Workspace" : safe;
-  }
 
   private static ThemeChoice ParseTheme(string value) =>
       Enum.TryParse<ThemeChoice>(value, ignoreCase: true, out var theme) && theme != ThemeChoice.HighContrast
@@ -779,6 +975,10 @@ public sealed class ShellViewModel : ViewModelBase
     openWorkspaceCommand.RaiseCanExecuteChanged();
     removeRecentCommand.RaiseCanExecuteChanged();
     retrySettingsSaveCommand.RaiseCanExecuteChanged();
+    backupWorkspaceCommand.RaiseCanExecuteChanged();
+    restoreFromHomeCommand.RaiseCanExecuteChanged();
+    restoreOpenWorkspaceCommand.RaiseCanExecuteChanged();
+    OnPropertyChanged(nameof(CanBackupWorkspace));
   }
 
   private void SetScreen(ShellScreen screen)
@@ -794,6 +994,10 @@ public sealed class ShellViewModel : ViewModelBase
     OnPropertyChanged(nameof(IsWorkspaceVisible));
     OnPropertyChanged(nameof(IsImportVisible));
     OnPropertyChanged(nameof(IsCompatibilityVisible));
+    OnPropertyChanged(nameof(IsWorkspaceTransferVisible));
+    OnPropertyChanged(nameof(CanBackupWorkspace));
+    backupWorkspaceCommand.RaiseCanExecuteChanged();
+    restoreOpenWorkspaceCommand.RaiseCanExecuteChanged();
   }
 
   private static ShellViewModelOptions CreateDefaultOptions() => new()
@@ -824,6 +1028,7 @@ public sealed class ShellViewModel : ViewModelBase
     public IImportTaskCoordinator ImportCoordinator { get; init; } = new PassiveImportTaskCoordinator();
     public IImportSourceFileService ImportFileService { get; init; } = new PassiveImportSourceFileService();
     public Func<ImportLaunchContext, ImportWorkspaceViewModel>? CreateImportWorkspace { get; init; }
+    public IWorkspaceTransferCoordinator? WorkspaceTransferCoordinator { get; init; }
   }
 
   private sealed class PassiveImportTaskCoordinator : IImportTaskCoordinator

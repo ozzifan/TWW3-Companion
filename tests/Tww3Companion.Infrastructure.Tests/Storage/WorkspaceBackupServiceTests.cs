@@ -26,7 +26,7 @@ public sealed class WorkspaceBackupServiceTests
   }
 
   [Fact]
-  public async Task Cleanup_KeepsFiveBackupsPerReasonAndNeverDeletesUnrelatedFiles()
+  public async Task Cleanup_KeepsFiveBackupsTotalAcrossReasonsAndNeverDeletesUnrelatedFiles()
   {
     using var directory = new TemporaryDirectory();
     var paths = ManagedPaths.ForRoot(ApplicationMode.Portable, directory.Path);
@@ -39,8 +39,7 @@ public sealed class WorkspaceBackupServiceTests
 
     await new WorkspaceBackupService(new(), paths, new FixedClock(DateTimeOffset.UtcNow)).CleanupAsync(SchemaVersionZeroFixture.WorkspaceId, TestContext.Current.CancellationToken);
 
-    Assert.Equal(5, Directory.GetFiles(folder, "*.pre-migration.tww3c").Length);
-    Assert.Equal(5, Directory.GetFiles(folder, "*.pre-restore.tww3c").Length);
+    Assert.Equal(5, Directory.GetFiles(folder, $"{SchemaVersionZeroFixture.WorkspaceId}.*.tww3c").Length);
     Assert.True(File.Exists(unrelated));
   }
 

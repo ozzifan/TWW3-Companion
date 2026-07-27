@@ -77,6 +77,8 @@ internal sealed class PreservationFailingFileSystem : IAtomicFileSystem
   public bool WriteCalled { get; private set; }
   public Stream CreateWriteProbe(string directory) => Stream.Null;
   public void MoveWithoutOverwrite(string source, string destination) => throw new IOException("seeded failure");
+  public void ReplaceWithRecovery(string preparedPath, string destinationPath, string recoveryPath) =>
+      throw new NotSupportedException();
   public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token)
   {
     WriteCalled = true;
