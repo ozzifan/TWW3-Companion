@@ -315,6 +315,7 @@ public sealed class SqliteWorkspaceTransferStoreTests
     var recoveryPath = Assert.Single(Directory.GetFiles(directory.Path, "*.replace.recovery"));
     Assert.True(File.Exists(recoveryPath));
     Assert.Contains(recoveryPath, failure.Error.SafeNextAction, StringComparison.Ordinal);
+    Assert.False(File.Exists(destinationPath));
   }
 
   private static WorkspaceTransferSnapshot ValidRestoreSnapshot() =>

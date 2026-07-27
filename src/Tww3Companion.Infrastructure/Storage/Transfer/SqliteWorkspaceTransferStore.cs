@@ -291,6 +291,7 @@ public sealed class SqliteWorkspaceTransferStore : IWorkspaceTransferStore
     var temporaryPath = $"{destinationPath}.{Guid.NewGuid():N}.restore.tmp";
     var recoveryPath = $"{destinationPath}.{Guid.NewGuid():N}.replace.recovery";
     string? managedBackupPath = null;
+    var replacementBlocked = false;
     try
     {
       cancellationToken.ThrowIfCancellationRequested();
@@ -321,6 +322,7 @@ public sealed class SqliteWorkspaceTransferStore : IWorkspaceTransferStore
       }
       catch (WorkspaceReplacementException exception)
       {
+        replacementBlocked = true;
         return ReplacementBlockedFailure(exception.RecoveryPath);
       }
       catch (IOException)
@@ -397,7 +399,10 @@ public sealed class SqliteWorkspaceTransferStore : IWorkspaceTransferStore
       {
       }
 
-      if (managedBackupPath is not null && !File.Exists(destinationPath) && File.Exists(managedBackupPath))
+      if (!replacementBlocked
+          && managedBackupPath is not null
+          && !File.Exists(destinationPath)
+          && File.Exists(managedBackupPath))
       {
         try
         {
