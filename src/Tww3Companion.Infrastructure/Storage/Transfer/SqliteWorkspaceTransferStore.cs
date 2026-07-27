@@ -397,17 +397,6 @@ public sealed class SqliteWorkspaceTransferStore : IWorkspaceTransferStore
       {
       }
 
-      try
-      {
-        deleteOwnedFile(recoveryPath);
-      }
-      catch (IOException)
-      {
-      }
-      catch (UnauthorizedAccessException)
-      {
-      }
-
       if (managedBackupPath is not null && !File.Exists(destinationPath) && File.Exists(managedBackupPath))
       {
         try

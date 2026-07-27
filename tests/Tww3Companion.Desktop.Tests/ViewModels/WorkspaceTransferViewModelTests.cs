@@ -120,6 +120,28 @@ public sealed class WorkspaceTransferViewModelTests
   }
 
   [Fact]
+  public async Task Restore_enters_finalizing_state_and_disables_cancel()
+  {
+    var coordinator = new ConfigurableTransferCoordinator
+    {
+      RestoreDelay = TimeSpan.FromMilliseconds(200)
+    };
+    var viewModel = new WorkspaceTransferViewModel(
+        WorkspaceRestoreDestination.NewWorkspace,
+        coordinator);
+    viewModel.SetInspectedForTest(SampleInspected());
+
+    viewModel.RestoreCommand.Execute(null);
+    await Task.Delay(20, TestContext.Current.CancellationToken);
+
+    Assert.True(viewModel.IsFinalizing);
+    Assert.False(viewModel.CanCancel);
+    Assert.Equal("Finalizing — please wait", viewModel.StatusMessage);
+
+    await WaitForIdle(viewModel);
+  }
+
+  [Fact]
   public void Busy_state_disables_restore_command()
   {
     var viewModel = new WorkspaceTransferViewModel(
@@ -180,6 +202,7 @@ public sealed class WorkspaceTransferViewModelTests
     public OperationError? RestoreFailure { get; init; }
     public bool RestoreSuccess { get; init; }
     public string? LastRestoreDestinationPath { get; set; }
+    public TimeSpan RestoreDelay { get; init; }
 
     public Task<OperationResult<string>> BackupAsync(
         string workspacePath,
@@ -204,19 +227,22 @@ public sealed class WorkspaceTransferViewModelTests
           new OperationResult<InspectedWorkspaceRestore>.Success(Inspected ?? SampleInspected()));
     }
 
-    public Task<OperationResult<Domain.Workspaces.Workspace>> RestoreNewAsync(
+    public async Task<OperationResult<Domain.Workspaces.Workspace>> RestoreNewAsync(
         InspectedWorkspaceRestore inspected,
         CancellationToken cancellationToken)
     {
+      if (RestoreDelay > TimeSpan.Zero)
+      {
+        await Task.Delay(RestoreDelay, cancellationToken);
+      }
+
       if (RestoreFailure is { } failure)
       {
-        return Task.FromResult<OperationResult<Domain.Workspaces.Workspace>>(
-            new OperationResult<Domain.Workspaces.Workspace>.Failure(failure));
+        return new OperationResult<Domain.Workspaces.Workspace>.Failure(failure);
       }
 
       LastRestoreDestinationPath ??= @"C:\Workspaces\restored.tww3c";
-      return Task.FromResult<OperationResult<Domain.Workspaces.Workspace>>(
-          new OperationResult<Domain.Workspaces.Workspace>.Success(CreateWorkspace()));
+      return new OperationResult<Domain.Workspaces.Workspace>.Success(CreateWorkspace());
     }
 
     public Task<OperationResult<Domain.Workspaces.Workspace>> ReplaceOpenAsync(

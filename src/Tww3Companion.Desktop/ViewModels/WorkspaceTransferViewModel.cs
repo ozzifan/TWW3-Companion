@@ -14,6 +14,8 @@ public sealed record WorkspaceTransferCompletedEvent(
 
 public sealed class WorkspaceTransferViewModel : ViewModelBase
 {
+  private const string FinalizingMessage = "Finalizing — please wait";
+
   private readonly IWorkspaceTransferCoordinator coordinator;
   private readonly WorkspaceRestoreDestination destination;
   private readonly string? openWorkspacePath;
@@ -220,7 +222,8 @@ public sealed class WorkspaceTransferViewModel : ViewModelBase
     }
 
     IsBusy = true;
-    StatusMessage = "Restoring Workspace…";
+    IsFinalizing = true;
+    StatusMessage = FinalizingMessage;
     try
     {
       OperationResult<Workspace> result = destination == WorkspaceRestoreDestination.NewWorkspace

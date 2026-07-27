@@ -293,6 +293,30 @@ public sealed class SqliteWorkspaceTransferStoreTests
     Assert.Contains(".replace.recovery", failure.Error.SafeNextAction);
   }
 
+  [Fact]
+  public async Task ReplaceAsync_WhenRecoveryRestoreFails_RetainsRecoveryFileOnDisk()
+  {
+    var token = TestContext.Current.CancellationToken;
+    using var directory = new TemporaryDirectory();
+    var sourcePath = Path.Combine(directory.Path, "source.tww3c");
+    var destinationPath = Path.Combine(directory.Path, "destination.tww3c");
+    await SchemaVersionTwoFixture.CreatePopulatedAsync(sourcePath);
+    File.Copy(sourcePath, destinationPath, overwrite: true);
+    var snapshot = Assert.IsType<OperationResult<WorkspaceTransferSnapshot>.Success>(
+        await new SqliteWorkspaceTransferStore().ReadSnapshotAsync(sourcePath, token)).Value;
+    var store = new SqliteWorkspaceTransferStore(
+        backupService: CreateBackupService(directory.Path),
+        fileSystem: new RecoveryRetainedFileSystem());
+
+    var failure = Assert.IsType<OperationResult<Workspace>.Failure>(
+        await store.ReplaceAsync(snapshot, destinationPath, token));
+
+    Assert.Equal("workspace.restore.replacement.blocked", failure.Error.Code);
+    var recoveryPath = Assert.Single(Directory.GetFiles(directory.Path, "*.replace.recovery"));
+    Assert.True(File.Exists(recoveryPath));
+    Assert.Contains(recoveryPath, failure.Error.SafeNextAction, StringComparison.Ordinal);
+  }
+
   private static WorkspaceTransferSnapshot ValidRestoreSnapshot() =>
       new(
           WorkspaceTransferValidation.SupportedFormat,
@@ -363,6 +387,23 @@ public sealed class SqliteWorkspaceTransferStoreTests
 
     public void ReplaceWithRecovery(string preparedPath, string destinationPath, string recoveryPath) =>
         throw new WorkspaceReplacementException(recoveryPath);
+
+    public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token) =>
+        throw new NotSupportedException();
+  }
+
+  private sealed class RecoveryRetainedFileSystem : IAtomicFileSystem
+  {
+    public Stream CreateWriteProbe(string directory) => Stream.Null;
+
+    public void MoveWithoutOverwrite(string source, string destination) =>
+        File.Move(source, destination, overwrite: false);
+
+    public void ReplaceWithRecovery(string preparedPath, string destinationPath, string recoveryPath)
+    {
+      File.Move(destinationPath, recoveryPath, overwrite: false);
+      throw new WorkspaceReplacementException(recoveryPath);
+    }
 
     public Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token) =>
         throw new NotSupportedException();
