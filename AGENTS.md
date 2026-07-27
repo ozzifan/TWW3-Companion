@@ -8,6 +8,20 @@ This document describes responsibilities rather than mandating particular produc
 
 ---
 
+## Hard rules for agents
+
+Everything below this section is governance — who is accountable for what. These
+two rules are the ones that constrain an agent about to do work:
+
+1. **Route every implementation task through the orchestrator.** Do not create,
+   delegate, or begin implementation work ad hoc outside the orchestrator flow,
+   so the approved role bindings and review gates stay rigid.
+2. **No feature implementation begins until that feature's architecture is
+   approved** — see [Architecture Before Implementation](#architecture-before-implementation)
+   for what counts as approval.
+
+---
+
 ## Product Owner
 
 **Accountable human** for project direction.
