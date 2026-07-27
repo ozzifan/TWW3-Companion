@@ -11,7 +11,7 @@ This document describes responsibilities rather than mandating particular produc
 ## Hard rules for agents
 
 Everything below this section is governance — who is accountable for what. These
-two rules are the ones that constrain an agent about to do work:
+three rules are the ones that constrain an agent about to do work:
 
 1. **Route every implementation task through the orchestrator.** Do not create,
    delegate, or begin implementation work ad hoc outside the orchestrator flow,
@@ -19,6 +19,14 @@ two rules are the ones that constrain an agent about to do work:
 2. **No feature implementation begins until that feature's architecture is
    approved** — see [Architecture Before Implementation](#architecture-before-implementation)
    for what counts as approval.
+3. **Match design to actual scale.** This project has one maintainer. There is no
+   team, no auditor, no compliance or regulatory requirement, and no on-call
+   rotation. It is open source and may gain real users, so product quality,
+   correctness, and accessibility still matter — but *process and governance
+   machinery* must not. Do not propose roles, policy layers, audit trails, or
+   configurability that a single maintainer will never exercise. State the
+   operating cost of anything you add; if it only pays off at team scale, say so
+   and offer the smaller alternative.
 
 ---
 
