@@ -232,6 +232,21 @@ public sealed class HomeCompositionTests
     public Task<string?> PromptForOpenPathAsync(CancellationToken cancellationToken) =>
         Task.FromResult<string?>(null);
 
+    public Task<string?> PromptForBackupPathAsync(string suggestedFileName, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
+
+    public Task<string?> PromptForRestoreJsonPathAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
+
+    public Task<string?> PromptForRestoredWorkspacePathAsync(string suggestedFileName, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
+
+    public Task<bool> ConfirmWorkspaceReplacementAsync(
+        string currentWorkspaceName,
+        Application.Workspaces.Transfer.WorkspaceRestoreSummary source,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(false);
+
     public void ReleaseCreatePrompt() => _createPromptRelease.TrySetResult();
   }
 
@@ -242,6 +257,21 @@ public sealed class HomeCompositionTests
 
     public Task<string?> PromptForOpenPathAsync(CancellationToken cancellationToken) =>
         Task.FromResult<string?>(null);
+
+    public Task<string?> PromptForBackupPathAsync(string suggestedFileName, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
+
+    public Task<string?> PromptForRestoreJsonPathAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
+
+    public Task<string?> PromptForRestoredWorkspacePathAsync(string suggestedFileName, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
+
+    public Task<bool> ConfirmWorkspaceReplacementAsync(
+        string currentWorkspaceName,
+        Application.Workspaces.Transfer.WorkspaceRestoreSummary source,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(false);
   }
 
   private sealed class FailingApplicationSettingsStore : IApplicationSettingsStore

@@ -20,6 +20,9 @@
         <Button Content="Import into new Workspace"
                 AutomationProperties.Name="Import into new Workspace"
                 Command="{Binding ImportIntoNewWorkspaceCommand}" />
+        <Button Content="Restore Workspace backup"
+                AutomationProperties.Name="Restore Workspace backup"
+                Command="{Binding RestoreFromHomeCommand}" />
       </StackPanel>
 
       <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">

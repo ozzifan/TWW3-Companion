@@ -26,21 +26,34 @@ Lossless Workspace JSON is handled by the separate backup/restore boundary, not 
 
 ---
 
-## Export Targets (Planned)
+## Export Targets
 
-| Target | Purpose |
-|--------|---------|
-| Lossless Workspace JSON | Backup, transfer, inspection, version migration |
-| Markdown summary | Human-readable share in forums or repos |
-| ID list | Interop with external load-order tools |
+| Target | Status | Purpose |
+|--------|--------|---------|
+| Lossless Workspace JSON (`workspace-export-v1`) | Shipped in v0.1 | Backup, transfer, inspection, version migration |
+| Markdown summary | Planned | Human-readable share in forums or repos |
+| ID list | Planned | Interop with external load-order tools |
 
-Lossless Workspace JSON restore is the inverse of full-Workspace export. It validates and replaces through RFC-0003's restore transaction; it is not a third v0.1 import adapter.
+### Lossless Workspace JSON (`workspace-export-v1`)
 
-Exports should be **lossless** for fields the companion owns (notes, tags, dependencies). Workshop-only metadata may be omitted if not stored locally.
+The shipped complete v0.1 Workspace format is identified as `workspace-export-v1`. Its JSON Schema lives at [schemas/workspace-export-v1.schema.json](../../schemas/workspace-export-v1.schema.json).
 
-The accepted lossless JSON format represents a complete Workspace and excludes rebuildable caches. Rules for exporting one Collection with its referenced shared knowledge remain deferred to the import/export RFC. A full-Workspace export must not be presented as a privacy-preserving way to share one Collection.
+Every export contains:
 
-Live SQLite Workspace files are not a supported cross-machine synchronisation format. JSON export and restore are the supported transfer path until a separate synchronisation design is accepted.
+- the format identifier;
+- the Workspace UUID and metadata (`displayName`, `createdUtc`, `modifiedUtc`);
+- every persisted Mod and stable UUID;
+- Source References (`sourceType`, `externalId`, `modId`);
+- every Collection and stable UUID;
+- every ordered Collection Membership with its preserved `position`.
+
+Exports exclude database schema details, local paths, application settings, managed-backup history, and rebuildable caches. Single-Collection snapshot export remains deferred.
+
+Serialization is deterministic: Mods order by ID, Source References by source type then external ID, Collections by ID, and Memberships by Collection ID then position then Mod ID. Repeated exports of unchanged authoritative data produce byte-stable UTF-8 JSON (two-space indentation, trailing newline, no BOM).
+
+Restore validates the complete export before any destination mutation. It preserves every UUID and Membership position; it never merges or regenerates identities. Restore as a new Workspace creates a `.tww3c` file at a user-chosen path that must not already exist. Replacement restore targets the open Workspace path, requires explicit confirmation, creates a managed `pre-restore` SQLite backup, and retains the five newest managed automatic backups total per Workspace UUID across `pre-migration` and `pre-restore` reasons.
+
+User-selected JSON exports are never subject to automatic cleanup.
 
 ---
 

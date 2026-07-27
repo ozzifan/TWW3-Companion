@@ -95,6 +95,29 @@ public sealed class MainWindowLayoutTests
   }
 
   [Fact]
+  public void MainWindowHostsWorkspaceTransferView()
+  {
+    var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "MainWindow.axaml"));
+
+    Assert.Contains("WorkspaceTransferView", text);
+    Assert.Contains("IsWorkspaceTransferVisible", text);
+    Assert.Contains("Backup Workspace", text);
+    Assert.Contains("Restore Workspace", text);
+    Assert.Contains("Workspace data", text);
+    Assert.Contains("BackupWorkspaceCommand", text);
+    Assert.Contains("RestoreOpenWorkspaceCommand", text);
+  }
+
+  [Fact]
+  public void HomeViewExposesRestoreWorkspaceBackupAction()
+  {
+    var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "HomeView.axaml"));
+
+    Assert.Contains("Restore Workspace backup", text);
+    Assert.Contains("RestoreFromHomeCommand", text);
+  }
+
+  [Fact]
   public void MainWindowHostsImportWorkspaceView()
   {
     var text = File.ReadAllText(Path.Combine(DesktopDirectory, "Views", "MainWindow.axaml"));

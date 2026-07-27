@@ -20,6 +20,10 @@
       <views:ImportWorkspaceView DataContext="{Binding ImportWorkspace}" />
     </Grid>
 
+    <Grid IsVisible="{Binding IsWorkspaceTransferVisible}">
+      <views:WorkspaceTransferView DataContext="{Binding WorkspaceTransfer}" />
+    </Grid>
+
     <Grid Name="WorkspaceShell" IsVisible="{Binding IsWorkspaceVisible}" AutomationProperties.Name="Workspace shell">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="208" />
@@ -36,6 +40,15 @@
                     Content="Import into current Workspace"
                     AutomationProperties.Name="Import into current Workspace"
                     Command="{Binding ImportIntoCurrentWorkspaceCommand}" />
+            <TextBlock Margin="8,8,0,0" FontWeight="SemiBold" Text="Workspace data" />
+            <Button HorizontalContentAlignment="Left"
+                    Content="Backup Workspace"
+                    AutomationProperties.Name="Backup Workspace"
+                    Command="{Binding BackupWorkspaceCommand}" />
+            <Button HorizontalContentAlignment="Left"
+                    Content="Restore Workspace"
+                    AutomationProperties.Name="Restore Workspace"
+                    Command="{Binding RestoreOpenWorkspaceCommand}" />
             <TextBlock Margin="8,8,0,0" FontWeight="SemiBold" Text="Collections" />
             <ItemsControl ItemsSource="{Binding CollectionDetail.Collections}">
               <ItemsControl.ItemTemplate>
@@ -50,6 +63,11 @@
                     IsVisible="{Binding Workspace.HasOperationError}"
                     AutomationProperties.Name="Workspace operation error">
               <TextBlock TextWrapping="Wrap" Text="{Binding Workspace.OperationError}" />
+            </Border>
+            <Border Padding="8" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                    IsVisible="{Binding Workspace.HasOperationStatusMessage}"
+                    AutomationProperties.Name="Workspace operation status">
+              <TextBlock TextWrapping="Wrap" Text="{Binding Workspace.OperationStatusMessage}" />
             </Border>
           </StackPanel>
         </ScrollViewer>

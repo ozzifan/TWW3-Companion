@@ -17,6 +17,8 @@ using Tww3Companion.Infrastructure.Startup;
 using Tww3Companion.Infrastructure.Storage;
 using Tww3Companion.Infrastructure.Storage.Backups;
 using Tww3Companion.Infrastructure.Storage.Migrations;
+using Tww3Companion.Infrastructure.Storage.Transfer;
+using Tww3Companion.Application.Workspaces.Transfer;
 
 namespace Tww3Companion.Desktop.Composition;
 
@@ -161,6 +163,19 @@ public sealed class ApplicationComposition
     var importCoordinator = new ImportTaskCoordinator(
         importEngine,
         steamMetadataClient);
+    var transferStore = new SqliteWorkspaceTransferStore(
+        connectionFactory,
+        backupService: backupService);
+    var exportWorkspace = new ExportWorkspace(transferStore);
+    var inspectWorkspaceRestore = new InspectWorkspaceRestore(transferStore);
+    var restoreWorkspace = new RestoreWorkspace(transferStore);
+    var workspaceTransferCoordinator = new WorkspaceTransferCoordinator(
+        exportWorkspace,
+        inspectWorkspaceRestore,
+        restoreWorkspace,
+        workspaceDialogService,
+        clock,
+        paths.WorkspacesDirectory);
     var shell = ShellViewModel.Create(
         settings,
         settingsStore,
@@ -172,6 +187,7 @@ public sealed class ApplicationComposition
         workspaceDisposalCoordinator,
         importCoordinator,
         importFileService,
+        workspaceTransferCoordinator,
         workspaceLibraryQuery: workspaceLibraryQuery);
     if (options.WorkAreaWidth is { } width && options.WorkAreaHeight is { } height)
     {

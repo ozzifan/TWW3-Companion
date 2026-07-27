@@ -69,11 +69,12 @@ public sealed partial class WorkspaceBackupService
     var attributable = Directory.EnumerateFiles(directory)
         .Select(path => (Path: path, Match: ManagedBackupName().Match(Path.GetFileName(path))))
         .Where(item => IsManagedBackupName(item.Match, workspaceUuid))
-        .GroupBy(item => item.Match.Groups[3].Value, StringComparer.Ordinal);
-    foreach (var path in attributable.SelectMany(group => group
+        .ToList();
+    foreach (var path in attributable
                  .OrderBy(item => item.Match.Groups[2].Value, StringComparer.Ordinal)
-                 .Take(Math.Max(0, group.Count() - 5)))
-             .Select(item => item.Path))
+                 .ThenBy(item => item.Path, StringComparer.Ordinal)
+                 .Take(Math.Max(0, attributable.Count - 5))
+                 .Select(item => item.Path))
     {
       token.ThrowIfCancellationRequested();
       File.Delete(path);

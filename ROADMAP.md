@@ -61,13 +61,13 @@ Completed v0.1 slices:
 - Home and Workspace shell wiring to the shared engine
 - Local Workspace catalog persistence
 - Complete import workspace UI (Source → Destination → Preview/Resolve → Confirm/Apply)
+- JSON backup/restore workflow (`workspace-export-v1`)
 
 Remaining v0.1 work (not yet assessed complete):
 
-- JSON backup/restore workflow
 - Packaging and release verification
 
-Success: a user can import a list into the Mod Library or a Collection, persist its Workspace locally, and reload it reliably. v0.1 itself remains in progress until backup/restore and packaging are assessed.
+Success: a user can import a list into the Mod Library or a Collection, persist its Workspace locally, back up and restore through lossless JSON, and reload it reliably. v0.1 itself remains in progress until packaging is assessed.
 
 ---
 

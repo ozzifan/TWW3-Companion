@@ -1,6 +1,7 @@
 using Tww3Companion.Application.Common;
 using Tww3Companion.Application.Importing;
 using Tww3Companion.Application.Workspaces;
+using Tww3Companion.Application.Workspaces.Transfer;
 using Tww3Companion.Desktop.Services;
 using Tww3Companion.Desktop.ViewModels;
 using Xunit;
@@ -9,6 +10,52 @@ namespace Tww3Companion.Desktop.Tests.ViewModels;
 
 public sealed class ShellViewModelTests
 {
+  [Fact]
+  public void RestoreFromHome_is_available_without_open_workspace()
+  {
+    var shell = ShellViewModel.CreateForTest(workspaceTransferCoordinator: new PassiveTransferCoordinator());
+
+    Assert.True(shell.RestoreFromHomeCommand.CanExecute(null));
+    Assert.False(shell.BackupWorkspaceCommand.CanExecute(null));
+  }
+
+  [Fact]
+  public void Backup_is_available_only_for_open_workspace()
+  {
+    var shell = ShellViewModel.CreateForTest(workspaceTransferCoordinator: new PassiveTransferCoordinator());
+    shell.OpenWorkspace();
+    shell.SetCurrentWorkspaceForTest("workspace-1", @"C:\Data\workspace.tww3c", "Workspace");
+
+    Assert.True(shell.BackupWorkspaceCommand.CanExecute(null));
+    Assert.True(shell.RestoreOpenWorkspaceCommand.CanExecute(null));
+  }
+
+  [Fact]
+  public void RestoreFromHome_opens_transfer_screen()
+  {
+    var shell = ShellViewModel.CreateForTest(workspaceTransferCoordinator: new PassiveTransferCoordinator());
+
+    shell.RestoreFromHomeCommand.Execute(null);
+
+    Assert.True(shell.IsWorkspaceTransferVisible);
+    Assert.NotNull(shell.WorkspaceTransfer);
+    Assert.True(shell.WorkspaceTransfer!.IsNewWorkspaceRestore);
+  }
+
+  [Fact]
+  public async Task Backup_cancellation_clears_status_without_error()
+  {
+    var shell = ShellViewModel.CreateForTest(workspaceTransferCoordinator: new PassiveTransferCoordinator());
+    shell.OpenWorkspace();
+    shell.SetCurrentWorkspaceForTest("workspace-1", @"C:\Data\workspace.tww3c", "Workspace");
+
+    shell.BackupWorkspaceCommand.Execute(null);
+    await Task.Delay(50, TestContext.Current.CancellationToken);
+
+    Assert.False(shell.Workspace.HasOperationError);
+    Assert.Equal(string.Empty, shell.Workspace.OperationStatusMessage);
+  }
+
   [Fact]
   public void Home_exposes_import_into_new_workspace()
   {
@@ -338,5 +385,40 @@ public sealed class ShellViewModelTests
           [],
           []));
     }
+  }
+
+  private sealed class PassiveTransferCoordinator : IWorkspaceTransferCoordinator
+  {
+    public string? LastRestoreDestinationPath => null;
+
+    public Task<OperationResult<string>> BackupAsync(
+        string workspacePath,
+        string workspaceDisplayName,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<OperationResult<string>>(
+            new OperationResult<string>.Failure(new OperationError(
+                "workspace.transfer.cancelled",
+                "cancelled",
+                false,
+                "retry")));
+
+    public Task<OperationResult<InspectedWorkspaceRestore>> InspectRestoreAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<OperationResult<InspectedWorkspaceRestore>>(
+            new OperationResult<InspectedWorkspaceRestore>.Failure(new OperationError(
+                "workspace.transfer.cancelled",
+                "cancelled",
+                false,
+                "retry")));
+
+    public Task<OperationResult<Domain.Workspaces.Workspace>> RestoreNewAsync(
+        InspectedWorkspaceRestore inspected,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task<OperationResult<Domain.Workspaces.Workspace>> ReplaceOpenAsync(
+        InspectedWorkspaceRestore inspected,
+        string workspacePath,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
   }
 }

@@ -4,5 +4,6 @@ public interface IAtomicFileSystem
 {
   Task WriteAllTextAtomicallyAsync(string path, string content, CancellationToken token);
   void MoveWithoutOverwrite(string source, string destination);
+  void ReplaceWithRecovery(string preparedPath, string destinationPath, string recoveryPath);
   Stream CreateWriteProbe(string directory);
 }

@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tww3-companion.dev/schemas/workspace-export-v1.schema.json",
+  "title": "TWW3 Companion Workspace Export v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "workspace",
+    "mods",
+    "sourceReferences",
+    "collections",
+    "memberships"
+  ],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "workspace-export-v1"
+    },
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
+    "mods": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/mod"
+      }
+    },
+    "sourceReferences": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sourceReference"
+      }
+    },
+    "collections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/collection"
+      }
+    },
+    "memberships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/membership"
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "createdUtc",
+        "modifiedUtc"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "displayName": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "createdUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modifiedUtc": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "mod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "displayName": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "sourceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceType",
+        "externalId",
+        "modId"
+      ],
+      "properties": {
+        "sourceType": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "externalId": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "modId": {
+          "$ref": "#/$defs/uuid"
+        }
+      }
+    },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "displayName": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "membership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collectionId",
+        "modId",
+        "position"
+      ],
+      "properties": {
+        "collectionId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "modId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -19,6 +19,28 @@ internal sealed class AtomicFileSystem : IAtomicFileSystem
   public void MoveWithoutOverwrite(string source, string destination) =>
       File.Move(source, destination, overwrite: false);
 
+  public void ReplaceWithRecovery(string preparedPath, string destinationPath, string recoveryPath)
+  {
+    File.Move(destinationPath, recoveryPath, overwrite: false);
+    try
+    {
+      File.Move(preparedPath, destinationPath, overwrite: false);
+    }
+    catch
+    {
+      try
+      {
+        File.Move(recoveryPath, destinationPath, overwrite: false);
+      }
+      catch
+      {
+        throw new WorkspaceReplacementException(recoveryPath);
+      }
+
+      throw;
+    }
+  }
+
   public Stream CreateWriteProbe(string directory) => new FileStream(
       Path.Combine(directory, $".write-probe-{Guid.NewGuid():N}"),
       FileMode.CreateNew,

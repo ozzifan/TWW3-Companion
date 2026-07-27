@@ -1,0 +1,73 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Tww3Companion.Desktop.ViewModels"
+             x:Class="Tww3Companion.Desktop.Views.WorkspaceTransferView"
+             x:DataType="vm:WorkspaceTransferViewModel"
+             AutomationProperties.Name="Workspace transfer">
+  <Grid Margin="24" RowDefinitions="Auto,*,Auto">
+    <StackPanel Grid.Row="0" Spacing="8" Margin="0,0,0,16">
+      <TextBlock FontSize="28" FontWeight="SemiBold" Text="Restore Workspace backup" />
+      <TextBlock TextWrapping="Wrap"
+                 Text="{Binding DestinationActionDescription}" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="1">
+      <StackPanel Spacing="16">
+        <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+          <StackPanel Spacing="12">
+            <TextBlock FontWeight="SemiBold" Text="Backup summary" />
+            <TextBlock Text="Choose a Workspace JSON backup to inspect it."
+                       IsVisible="{Binding !HasSummary}" />
+            <StackPanel Spacing="6" IsVisible="{Binding HasSummary}">
+              <TextBlock Text="{Binding WorkspaceDisplayName}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding Format}" />
+              <TextBlock>
+                <Run Text="{Binding ModCount}" />
+                <Run Text=" Mods" />
+              </TextBlock>
+              <TextBlock>
+                <Run Text="{Binding CollectionCount}" />
+                <Run Text=" Collections" />
+              </TextBlock>
+              <TextBlock>
+                <Run Text="{Binding MembershipCount}" />
+                <Run Text=" Memberships" />
+              </TextBlock>
+              <TextBlock TextWrapping="Wrap"
+                         Text="{Binding DestinationActionDescription}" />
+            </StackPanel>
+            <Button Content="Choose backup file"
+                    HorizontalAlignment="Left"
+                    AutomationProperties.Name="Choose Workspace backup file"
+                    Command="{Binding SelectExportCommand}" />
+          </StackPanel>
+        </Border>
+
+        <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                IsVisible="{Binding HasError}"
+                AutomationProperties.Name="Workspace transfer error">
+          <TextBlock TextWrapping="Wrap" Text="{Binding ErrorMessage}" />
+        </Border>
+
+        <TextBlock AutomationProperties.LiveSetting="Polite"
+                   Text="{Binding StatusMessage}" />
+        <ProgressBar IsIndeterminate="True"
+                     IsVisible="{Binding IsBusy}"
+                     AutomationProperties.Name="Workspace transfer progress" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+      <Button Content="Back"
+              AutomationProperties.Name="Workspace transfer Back"
+              Command="{Binding BackCommand}" />
+      <Button Content="Cancel"
+              AutomationProperties.Name="Workspace transfer Cancel"
+              Command="{Binding CancelCommand}"
+              IsVisible="{Binding CanCancel}" />
+      <Button Content="Restore"
+              AutomationProperties.Name="Workspace transfer Restore"
+              Command="{Binding RestoreCommand}" />
+    </StackPanel>
+  </Grid>
+</UserControl>
